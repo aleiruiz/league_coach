@@ -297,6 +297,9 @@ pub async fn run(
         None => prompt.to_string(),
     };
     let prompt = prompt.as_str();
+    // The live patch goes in the system prompt of every conversation (chat,
+    // build, review), so the model never has to guess it.
+    let system = prompts::coach(lang, live_patch(app).await.as_ref());
 
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
@@ -304,7 +307,7 @@ pub async fn run(
             // One file per language: a chat and a build running at once
             // never read each other's prompt.
             let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
-            std::fs::write(&prompt_file, prompts::coach(lang)).map_err(|e| e.to_string())?;
+            std::fs::write(&prompt_file, &system).map_err(|e| e.to_string())?;
             (
                 claude_code::args(&prompt_file, session_id),
                 prompt.to_string(),
@@ -312,7 +315,7 @@ pub async fn run(
         }
         ProviderKind::Codex => (
             codex::args(session_id),
-            codex::stdin_prompt(prompt, session_id.is_none()),
+            codex::stdin_prompt(prompt, session_id.is_none().then_some(system.as_str())),
         ),
     };
     let parse: fn(&str) -> Vec<process::Parsed> = match kind {
@@ -326,6 +329,19 @@ pub async fn run(
         cancel,
     };
     process::stream(&bin, &args, opts, parse, send).await
+}
+
+/// Current patch, only if Data Dragon was already loaded this run (the main
+/// views load it at start). Never downloads: offline that would add seconds
+/// to every message, and the setup screen's connection test must not wait
+/// on it. `None`: the prompt asks the model to say which patch it means.
+async fn live_patch(app: &AppHandle) -> Option<prompts::LivePatch> {
+    let cache = app.state::<crate::ddragon::Cache>();
+    let data = crate::ddragon::loaded(&cache).await?;
+    Some(prompts::LivePatch {
+        patch: data.patch.clone(),
+        version: data.version.clone(),
+    })
 }
 
 /// Junta el texto de una respuesta a partir de sus eventos (misma lógica que la UI).
