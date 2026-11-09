@@ -1383,6 +1383,10 @@ a.inline-link {
 .answer-text.clamped {
   max-height: 9.5em;
   overflow: hidden;
+}
+
+/* El degradado solo cuando hay más texto debajo. */
+.answer-text.faded {
   -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
   mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }

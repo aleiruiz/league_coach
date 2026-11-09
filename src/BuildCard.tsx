@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
 import { SHARD_ROWS } from "./game";
@@ -260,6 +260,8 @@ function BuildCard({
   const [answerOpen, setAnswerOpen] = useState(false);
   const [answerLong, setAnswerLong] = useState(false);
   const answerRef = useRef<HTMLDivElement>(null);
+  // Una build nueva empieza recortada otra vez.
+  useEffect(() => setAnswerOpen(false), [card]);
   // «Ver más» solo si la respuesta no cabe en el alto recortado.
   useLayoutEffect(() => {
     const el = answerRef.current;
@@ -338,7 +340,7 @@ function BuildCard({
         <section className="panel answer-panel" aria-label="Respuesta a tus notas">
           <h4 className="panel-title">Tu pregunta</h4>
           <blockquote className="answer-q">{notes}</blockquote>
-          <div ref={answerRef} className={answerOpen ? "answer-text" : "answer-text clamped"}>
+          <div ref={answerRef} className={answerOpen ? "answer-text" : answerLong ? "answer-text clamped faded" : "answer-text clamped"}>
             <SafeMarkdown>{card.answer}</SafeMarkdown>
           </div>
           {(answerLong || answerOpen) && (
