@@ -879,7 +879,18 @@ pub async fn sync_matches(
     lock: State<'_, Lock>,
     on_event: Channel<ChatEvent>,
 ) -> Result<SyncResult, SyncError> {
-    let _guard = lock.0.lock().await;
+    // A check already running (or a review saving) wins; this one is skipped
+    // instead of queueing behind it.
+    let Ok(_guard) = lock.0.try_lock() else {
+        return Err(SyncError {
+            kind: "transient",
+            message: tr(
+                "Already checking for games.",
+                "Ya se están buscando partidas.",
+            )
+            .into(),
+        });
+    };
     let status = |t: String| {
         let _ = on_event.send(ChatEvent::Status { text: t });
     };
@@ -1001,7 +1012,6 @@ pub async fn review_matches(
     request_id: String,
     on_event: Channel<ChatEvent>,
 ) -> Result<SavedReport, String> {
-    let _guard = lock.0.lock().await;
     let profile = riot::load_profile(&app);
     if !profile.is_complete() {
         return Err(tr(
@@ -1011,8 +1021,16 @@ pub async fn review_matches(
         .into());
     }
     let store_id = profile.store_id();
-    let mut store = load_store(&app, &store_id);
-    let games: Vec<GameStats> = store.games.iter().take(REVIEW_GAMES).cloned().collect();
+    // The lock is held only to read and to save, not across the model call
+    // (minutes): a background sync can run meanwhile.
+    let games: Vec<GameStats> = {
+        let _guard = lock.0.lock().await;
+        load_store(&app, &store_id)
+            .games
+            .into_iter()
+            .take(REVIEW_GAMES)
+            .collect()
+    };
     if games.len() < MIN_GAMES {
         return Err(format!(
             "{} {MIN_GAMES}.",
@@ -1081,6 +1099,9 @@ pub async fn review_matches(
         averages: averages(&games),
         report,
     };
+    let _guard = lock.0.lock().await;
+    // Re-read: a sync may have added games while the model was answering.
+    let mut store = load_store(&app, &store_id);
     store.reports.insert(0, saved.clone());
     store.reports.truncate(20);
     save_store(&app, &store_id, &store)?;

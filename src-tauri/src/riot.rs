@@ -279,7 +279,8 @@ impl Client {
                 401 | 403 => return Err(RiotError::KeyRejected),
                 400 => return Err(RiotError::BadRequest),
                 404 => return Err(RiotError::NotFound),
-                429 if attempt <= 2 => {
+                // One wait at most: a call never stalls more than MAX_RETRY_WAIT.
+                429 if attempt == 1 => {
                     let wait = resp
                         .headers()
                         .get("retry-after")
