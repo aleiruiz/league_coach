@@ -186,9 +186,10 @@ export function SummonerSearch({
           e.preventDefault();
           setOpen(false);
           // Use Riot's own spelling when the preview found it.
-          if (found && found.region === region) onSubmit(`${found.game_name}#${found.tag_line}`, region);
-          else onSubmit(riotId, region);
-          if (region && riotIdProblem(riotId) === null) update(remember(past, riotId.trim(), region));
+          const id = found && found.region === region ? `${found.game_name}#${found.tag_line}` : riotId.trim();
+          onSubmit(id, region);
+          // Remember the same spelling that was submitted (Riot's, when known).
+          if (region && riotIdProblem(id) === null) update(remember(past, id, region));
         }}
       >
         <select
