@@ -599,23 +599,6 @@ fn row_in<'a>(tree: &'a RuneTree, name: &str) -> Option<(usize, &'a ddragon::Run
     })
 }
 
-/// Ítem ofensivo del tipo de daño contrario al del campeón (p. ej. un ítem de
-/// solo daño físico en un mago). Los mixtos y los defensivos no se juzgan.
-fn off_type(c: &Champion, i: &ddragon::Item) -> Option<&'static str> {
-    let has = |t: &str| i.tags.iter().any(|x| x == t);
-    let physical = has("Damage") || has("CriticalStrike");
-    // Solo campeones claramente de un tipo: los valores de Riot son gruesos y
-    // hay builds alternativas (Kog'Maw AP, Varus…).
-    let (a, m) = (c.attack as i8, c.magic as i8);
-    if m - a >= 5 && physical && !has("SpellDamage") {
-        Some("es de daño físico")
-    } else if a - m >= 5 && has("SpellDamage") && !physical {
-        Some("es de poder de habilidad")
-    } else {
-        None
-    }
-}
-
 /// Campos que la tarjeta necesita y llegaron vacíos (JSON cortado, o el
 /// modelo se quedó a medias). Disparan la ronda de corrección.
 /// Cada uno va como (instrucción para el modelo, nombre para el jugador).
@@ -692,7 +675,6 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         Core,
         Boots,
     }
-    let me = data.champion(&draft.champion);
     let mut item = |name: &str, slot: Slot| {
         let found = data.item_by_name(name);
         let mut valid = found.is_some();
@@ -726,17 +708,6 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
                 warnings.push(format!(
                     "\"{}\" es el inicial de soporte y tu rol es {}",
                     i.name, draft.role
-                ));
-            }
-            Some(i) if slot == Slot::Core && me.and_then(|c| off_type(c, i)).is_some() => {
-                valid = false;
-                let c = me.unwrap();
-                warnings.push(format!(
-                    "\"{}\" {} y {} hace {}",
-                    i.name,
-                    off_type(c, i).unwrap(),
-                    c.name,
-                    damage(c)
                 ));
             }
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
@@ -1271,22 +1242,6 @@ mod tests {
 
         d.champion = "Cassiopeia".into();
         assert!(!missing(&empty, &d).iter().any(|w| w.0.contains("boots")));
-    }
-
-    #[test]
-    fn offensive_items_match_the_damage_type() {
-        let data = fixtures::data();
-        let mut ahri = draft();
-        ahri.champion = "Ahri".into();
-        let (c, w) = validate(&parse_card(GOOD).unwrap(), &data, &ahri);
-        assert!(!c.core_items[0].valid);
-        assert!(
-            w[0].contains("es de daño físico y Ahri hace daño mágico"),
-            "{w:?}"
-        );
-        // Jax (7/7) es mixto: no se juzga.
-        let (c, _) = validate(&parse_card(GOOD).unwrap(), &data, &draft());
-        assert!(c.core_items[0].valid);
     }
 
     #[test]
