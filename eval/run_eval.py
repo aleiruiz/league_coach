@@ -69,14 +69,18 @@ MIN_POR_CATEGORIA = 4
 # ---------------------------------------------------------------- utilidades
 
 
-def load_coach_prompt(path: Path) -> str:
-    """Extrae la constante COACH de prompts.rs, aplicando las continuaciones `\\` de Rust."""
+def load_coach_prompt(path: Path, lang: str = "en") -> str:
+    """Extracts COACH from prompts.rs (Rust `\\` continuations applied) plus the answer-language
+    line that `prompts::coach(lang)` appends since #8."""
     src = path.read_text(encoding="utf-8")
-    m = re.search(r'pub const COACH: &str = "(.*?)";', src, re.S)
+    m = re.search(r'(?:pub )?const COACH: &str = "(.*?)";', src, re.S)
     if not m:
-        sys.exit(f"No encontré `pub const COACH` en {path}")
+        sys.exit(f"`const COACH` not found in {path}")
     body = re.sub(r"\\\n\s*", "", m.group(1))
-    return body.replace('\\"', '"').replace("\\n", "\n")
+    body = body.replace('\\"', '"').replace("\\n", "\n")
+    if "pub fn coach(lang" in src:
+        body += "\n- " + draft_prompt.ANSWER_INSTRUCTION[lang]
+    return body
 
 
 def sh(cmd: list[str]) -> str:
@@ -517,6 +521,8 @@ def main() -> None:
     ap.add_argument("--image", action="append", default=[], metavar="ID=RUTA", help="imagen para un caso de pantallazo")
     ap.add_argument("--patch", help="parche que se le dice al juez (por defecto el de Data Dragon si se usa)")
     ap.add_argument("--ddragon", help="carpeta con los JSON de Data Dragon de un idioma; su nombre es la versión")
+    ap.add_argument("--lang", default="en", choices=["en", "es"],
+                    help="app language (Settings): answer-language line of the coach and draft prompts; es needs es_MX Data Dragon")
     ap.add_argument("--locale", default=draft_prompt.LOCALE, help="idioma de Data Dragon para --fetch-ddragon (en_US; es_MX para probar español)")
     ap.add_argument("--fetch-ddragon", action="store_true", help="descargar el último Data Dragon a eval/ddragon/")
     ap.add_argument("--workers", type=int, default=3)
@@ -544,7 +550,7 @@ def main() -> None:
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
-    coach_text = load_coach_prompt(Path(args.prompt_rs))
+    coach_text = load_coach_prompt(Path(args.prompt_rs), args.lang)
     coach_file = out_dir / "coach-prompt.md"
     coach_file.write_text(coach_text, encoding="utf-8")
 
@@ -553,7 +559,7 @@ def main() -> None:
     if args.fetch_ddragon:
         folder = draft_prompt.fetch(ROOT / "eval" / "ddragon", locale=args.locale)
     if folder:
-        data = draft_prompt.GameData(folder)
+        data = draft_prompt.GameData(folder, args.lang)
         print(f"Data Dragon {data.version} (parche {data.patch})", file=sys.stderr)
     if "draft" in variants and not data:
         sys.exit("La variante draft necesita Data Dragon: usa --fetch-ddragon o --ddragon <carpeta>.")
@@ -585,16 +591,16 @@ def main() -> None:
         # hay nombres fuera del parche o en el hueco equivocado, o faltan campos.
         reason = None
         if out["ok"] and card is None:
-            reason = "Tu respuesta no se pudo leer como JSON."
+            reason = "Your answer couldn't be read as JSON."
         elif card is not None:
             bad = draft_prompt.invalid_names(card, data, c["draft"])
             if bad:
-                reason = (f"Hay problemas con el parche {data.patch}: {'; '.join(bad)}. "
-                          "Corrígelos usando solo las listas válidas.")
+                reason = (f"There are problems with patch {data.patch}: {'; '.join(bad)}. "
+                          "Fix them using only the valid lists.")
         if reason:
             fix = run_claude(
-                f"{prompt}\n\nTU RESPUESTA ANTERIOR:\n{out['text']}\n\n{reason} "
-                "Sin volver a buscar, responde de nuevo SOLO con el objeto JSON completo, con la misma forma.",
+                f"{prompt}\n\nYOUR PREVIOUS ANSWER:\n{out['text']}\n\n{reason} "
+                "Without searching again, reply again with ONLY the complete JSON object, in the same shape.",
                 model=args.model, image=image, **cfg[v],
             )
             fixed = draft_prompt.parse_card(fix["text"]) if fix["ok"] else None
@@ -605,7 +611,7 @@ def main() -> None:
         out["analysis"] = analysis
         if card is None:
             return {**out, "ok": False, "error": out.get("error") or "JSON ilegible", "invalid": []}
-        return {**out, "raw": out["text"], "text": draft_prompt.render_card(card), "invalid": draft_prompt.invalid_names(card, data, c["draft"])}
+        return {**out, "raw": out["text"], "text": draft_prompt.render_card(card, data.lang), "invalid": draft_prompt.invalid_names(card, data, c["draft"])}
 
     runnable, skipped = [], []
     for c in cases:

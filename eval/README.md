@@ -18,8 +18,7 @@ player asks. The cases, the rubric and the judge expect English; the
   score each pair in both orders.
 - `draft_prompt.py`: Python replica of `recommend_build` (`src-tauri/src/recommend.rs`):
   `analysis_prompt`, `card_prompt`, validation and missing fields. When the Rust
-  prompt changes, update it. Its prompt text is still the Spanish one from #7 and has
-  to be ported when the app moves to English.
+  prompt changes, update it. It follows #8 (English prompts plus an answer-language line).
 - `baselines/`: reference reports saved by hand (the older ones are in Spanish). Full
   runs go to `eval/results/` (ignored by git).
 
@@ -49,6 +48,9 @@ Useful options:
 - `--judge-repeats 2`: 4 judgments per pair instead of 2; less noise, twice the cost.
 - `--patch 26.22`: tells the judge the patch. With `--fetch-ddragon` it comes from Data Dragon.
 - `--locale es_MX`: Data Dragon language for `--fetch-ddragon` (default `en_US`).
+- `--lang es`: simulates the app's language setting in Spanish (answer-language line in the
+  coach and draft prompts). Use it with es_MX Data Dragon and the `lang-01-spanish-requested`
+  case; the other cases expect English.
 
 The report goes to `eval/results/<date>/report.md`. Each case is saved to
 `results.jsonl` as soon as it finishes, along with `meta.json` (commit, prompt hash,
