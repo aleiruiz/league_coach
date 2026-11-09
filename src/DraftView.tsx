@@ -12,6 +12,16 @@ import type { ProvidersState } from "./App";
 /** Build recibida, con el modelo y el draft que la generaron. */
 type Result = Recommendation & { kind: ProviderKind; draft: Draft };
 
+/** Motivo del fallo de la tarjeta, en palabras del jugador. */
+function cardFailure(e: string): string {
+  if (e.startsWith("El modelo tardó")) return "El modelo tardó demasiado en armar la tarjeta.";
+  if (/^(JSON inválido|La respuesta no contiene)/.test(e)) {
+    return "No pude convertir la respuesta del modelo en una tarjeta.";
+  }
+  // Límite de uso, sesión caducada, CLI que falla…: el motivo real importa.
+  return `No pude armar la tarjeta: ${humanizeError(e)}`;
+}
+
 function Portrait({ champ, label, onClick, onClear, star, me }: {
   champ: Champion | undefined;
   label: string;
@@ -312,9 +322,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
           <h4 className="panel-title">Análisis del modelo</h4>
           <div className="card-warnings">
             <p className="error small">
-              {rec.card_error.includes("tardó")
-                ? "El modelo tardó demasiado en armar la tarjeta."
-                : "No pude convertir la respuesta del modelo en una tarjeta."}{" "}
+              {cardFailure(rec.card_error)}{" "}
               Aquí tienes su análisis mientras tanto.
             </p>
             {!stale && !busy && (
