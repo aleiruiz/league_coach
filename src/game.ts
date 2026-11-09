@@ -117,6 +117,8 @@ export type Recommendation = {
   notes: string | null;
   /** Análisis en texto libre del que sale la tarjeta. */
   analysis: string;
+  /** La tarjeta no se pudo armar; queda el análisis solo. */
+  card_error: string | null;
   session_id: string | null;
   patch: string;
   version: string;

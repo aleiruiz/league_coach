@@ -307,7 +307,16 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
           Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.
         </p>
       )}
-      {rec && (
+      {rec?.card_error && (
+        <section className={stale ? "panel analysis-only stale" : "panel analysis-only"}>
+          <p className="error small">
+            No pude armar la tarjeta ({rec.card_error}). Este es el análisis del modelo; puedes pedir otra build.
+          </p>
+          <p className="muted small">Texto del modelo sin verificar: las cifras que mencione no están comprobadas.</p>
+          <SafeMarkdown>{rec.analysis}</SafeMarkdown>
+        </section>
+      )}
+      {rec && !rec.card_error && (
         <div className={stale ? "stale" : undefined}>
           <BuildCard
             trees={data?.rune_trees ?? []}

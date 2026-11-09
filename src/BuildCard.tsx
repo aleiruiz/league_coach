@@ -448,6 +448,9 @@ function BuildCard({
       {analysis && (
         <details className="analysis">
           <summary>Ver el análisis completo del modelo</summary>
+          <p className="muted small">
+            Texto del modelo sin verificar. Las cifras comprobadas contra su búsqueda están en «Estadísticas citadas».
+          </p>
           <div className="analysis-text">
             <SafeMarkdown>{analysis}</SafeMarkdown>
           </div>
