@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { applyEvent, humanizeError } from "./providers";
+import { missingText, setLangForTests } from "./i18n";
 
 describe("applyEvent", () => {
   it("acumula deltas y separa bloques con break", () => {
@@ -28,16 +29,38 @@ describe("applyEvent", () => {
 });
 
 describe("humanizeError", () => {
-  it("traduce límites de uso y sesión caducada", () => {
+  afterEach(() => setLangForTests("en"));
+
+  it("explains usage limits and expired sessions, in English by default", () => {
+    expect(humanizeError("Usage limit reached")).toMatch(/usage limit/);
+    expect(humanizeError("401 Unauthorized")).toMatch(/Sign in again/);
+  });
+
+  it("answers in Spanish when the user picked it", () => {
+    setLangForTests("es");
     expect(humanizeError("Usage limit reached")).toMatch(/límite de uso/);
-    expect(humanizeError("401 Unauthorized")).toMatch(/iniciar sesión/);
+    expect(humanizeError("401 Unauthorized")).toMatch(/Detalle: 401/);
   });
 
-  it("pide actualizar el CLI si no reconoce un flag", () => {
-    expect(humanizeError("Error: Unknown feature flag: browser_use")).toMatch(/Actualízala/);
+  it("asks to update the CLI if it doesn't know a flag", () => {
+    expect(humanizeError("Error: Unknown feature flag: browser_use")).toMatch(/Update it/);
   });
 
-  it("deja tal cual los mensajes propios", () => {
+  it("leaves the app's own messages as they are, in either language", () => {
+    expect(humanizeError("Request stopped.")).toBe("Request stopped.");
     expect(humanizeError("Consulta detenida.")).toBe("Consulta detenida.");
+  });
+});
+
+describe("missingText", () => {
+  afterEach(() => setLangForTests("en"));
+
+  it("joins the missing parts in the app language", () => {
+    expect(missingText(["the summary"])).toBe("the summary is missing");
+    expect(missingText(["the summary", "the boots"])).toBe("the summary and the boots are missing");
+    setLangForTests("es");
+    expect(missingText(["el resumen"])).toBe("falta el resumen");
+    expect(missingText(["las botas"])).toBe("faltan las botas");
+    expect(missingText(["el resumen", "las botas"])).toBe("faltan el resumen y las botas");
   });
 });

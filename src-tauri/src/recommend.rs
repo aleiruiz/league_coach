@@ -10,6 +10,7 @@ use tauri::{AppHandle, State};
 use tokio::sync::oneshot;
 
 use crate::ddragon::{self, Champion, GameData, RuneTree};
+use crate::i18n::{Lang, tr};
 use crate::providers::{self, ChatEvent, Collected, ProviderKind, Running};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -357,19 +358,19 @@ pub struct Recommendation {
 
 // ---------- prompt ----------
 
-/// Estimación gruesa del tipo de daño a partir de las valoraciones de Riot.
-/// MISMOS umbrales que `damageType` en src/draft.ts: si cambias uno, cambia el otro.
+/// Rough damage type from Riot's ratings.
+/// SAME thresholds as `damageType` in src/draft.ts: change both together.
 fn damage(c: &Champion) -> &'static str {
     match (c.attack, c.magic) {
-        (a, m) if m >= a + 3 => "daño mágico (AP)",
-        (a, m) if a >= m + 3 => "daño físico (AD)",
-        _ => "daño mixto",
+        (a, m) if m >= a + 3 => "magic damage (AP)",
+        (a, m) if a >= m + 3 => "physical damage (AD)",
+        _ => "mixed damage",
     }
 }
 
 fn describe(c: &Champion) -> String {
     let tank = if c.defense >= 7 || c.tags.iter().any(|t| t == "Tank") {
-        ", resistente"
+        ", durable"
     } else {
         ""
     };
@@ -384,42 +385,46 @@ pub fn team_profile(enemies: &[&Champion]) -> String {
         .filter(|c| c.defense >= 7 || c.tags.iter().any(|t| t == "Tank"))
         .count();
     format!(
-        "{} rivales: {ap} con daño mágico, {ad} con daño físico, {} mixtos, {tanks} resistentes.",
+        "{} enemies: {ap} magic damage, {ad} physical damage, {} mixed, {tanks} durable.",
         enemies.len(),
         enemies.len() - ap - ad
     )
 }
 
 const SCHEMA: &str = r#"{
-  "answer": "respuesta a las NOTAS DEL JUGADOR en 3-6 viñetas cortas en markdown (\"- ...\"), o \"\" si no hay notas",
-  "summary": "UNA frase: la idea de la build para ESTA partida",
-  "starting_items": ["ítem inicial", "..."],
-  "core_items": ["ítem 1", "ítem 2", "ítem 3"],
-  "boots": "botas",
-  "situational": [{"item": "ítem", "when": "cuándo y contra quién comprarlo"}],
+  "answer": "answer to the PLAYER NOTES as 3-6 short markdown bullets (\"- ...\"), or \"\" if there are no notes",
+  "summary": "ONE sentence: the idea of the build for THIS game",
+  "starting_items": ["starting item", "..."],
+  "core_items": ["item 1", "item 2", "item 3"],
+  "boots": "boots",
+  "situational": [{"item": "item", "when": "when and against whom to buy it"}],
   "runes": {
-    "primary_tree": "rama principal", "keystone": "piedra angular",
-    "primary": ["runa", "runa", "runa"],
-    "secondary_tree": "rama secundaria", "secondary": ["runa", "runa"],
-    "shards": ["fragmento ofensivo", "fragmento flexible", "fragmento defensivo"]
+    "primary_tree": "primary tree", "keystone": "keystone",
+    "primary": ["rune", "rune", "rune"],
+    "secondary_tree": "secondary tree", "secondary": ["rune", "rune"],
+    "shards": ["offense shard", "flex shard", "defense shard"]
   },
-  "summoner_spells": ["Destello", "..."],
-  "skill_order": {"max": ["Q", "E", "W"], "first_levels": "p. ej. Q-E-W"},
+  "summoner_spells": ["spell", "spell"],
+  "skill_order": {"max": ["Q", "E", "W"], "first_levels": "e.g. Q-E-W"},
   "game_plan": {"early": "...", "mid": "...", "late": "..."},
-  "matchup_tips": ["consejo concreto contra el rival de línea", "..."],
-  "threats": [{"champion": "rival", "why": "por qué es peligroso y cómo jugarlo"}],
-  "caveat": "una sola línea de duda si la hay, o null",
-  "stats": [{"site": "u.gg", "url": "URL exacta de la página que leíste", "patch": "parche que muestra la página",
-             "about": "qué mide: p. ej. Jax top, o Jax vs Darius", "win_rate": 51.2, "pick_rate": 6.3,
-             "ban_rate": 4.1, "games": 12345, "tier": "A", "rank": "Esmeralda+"}]
+  "matchup_tips": ["concrete tip against the lane opponent", "..."],
+  "threats": [{"champion": "enemy", "why": "why they are dangerous and how to play it"}],
+  "caveat": "a single line of doubt if there is one, or null",
+  "stats": [{"site": "u.gg", "url": "exact URL of the page you read", "patch": "patch the page shows",
+             "about": "what it measures: e.g. Jax top, or Jax vs Darius", "win_rate": 51.2, "pick_rate": 6.3,
+             "ban_rate": 4.1, "games": 12345, "tier": "A", "rank": "Emerald+"}]
 }"#;
 
-/// Paso 1: el análisis, igual que una pregunta al coach (texto libre y
-/// búsqueda web), sin listas de ítems ni esquema que lo distraigan.
+/// Step 1: the analysis, just like a question to the coach (free text and
+/// web search), with no item lists or schema to distract it.
 pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
     let get = |id: &str| {
-        data.champion(id)
-            .ok_or_else(|| format!("Campeón desconocido: {id}"))
+        data.champion(id).ok_or_else(|| {
+            data.lang.pick(
+                format!("Unknown champion: {id}"),
+                format!("Campeón desconocido: {id}"),
+            )
+        })
     };
     let me = get(&draft.champion)?;
     let allies: Vec<&Champion> = draft
@@ -437,65 +442,68 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
     let mut p = String::new();
     let _ = writeln!(
         p,
-        "PARCHE ACTUAL: {} (versión de Data Dragon {}). Todo lo que recomiendes debe ser válido en este parche. Algunas webs muestran el parche con la versión del cliente ({}): es el mismo parche, no lo descartes.\n",
+        "CURRENT PATCH: {} (Data Dragon version {}). Everything you recommend must be valid on this patch. Some sites show the patch as the client version ({}): it is the same patch, don't discard it.\n",
         data.patch,
         data.version,
         data.version.rsplitn(2, '.').last().unwrap_or(&data.version)
     );
-    let _ = writeln!(p, "TU CAMPEÓN: {} — rol {}", describe(me), draft.role);
+    let _ = writeln!(p, "YOUR CHAMPION: {} — role {}", describe(me), draft.role);
     if let Some(l) = lane {
-        let _ = writeln!(p, "RIVAL DE LÍNEA: {}", describe(l));
+        let _ = writeln!(p, "LANE OPPONENT: {}", describe(l));
     }
-    let _ = writeln!(p, "\nALIADOS (tu equipo, NO son rivales):");
+    let _ = writeln!(p, "\nALLIES (your team, NOT enemies):");
     for a in &allies {
         let _ = writeln!(p, "- {}", describe(a));
     }
     if allies.is_empty() {
-        let _ = writeln!(p, "- (sin definir)");
+        let _ = writeln!(p, "- (not set)");
     }
-    let _ = writeln!(p, "\nRIVALES (equipo enemigo):");
+    let _ = writeln!(p, "\nENEMIES (enemy team):");
     for e in &enemies {
         let _ = writeln!(p, "- {}", describe(e));
     }
     if enemies.is_empty() {
-        let _ = writeln!(p, "- (sin definir)");
+        let _ = writeln!(p, "- (not set)");
     } else {
-        let _ = writeln!(p, "Perfil rival: {}", team_profile(&enemies));
+        let _ = writeln!(p, "Enemy profile: {}", team_profile(&enemies));
     }
     if let Some(n) = draft.notes.as_deref().filter(|n| !n.trim().is_empty()) {
-        let _ = writeln!(p, "\nNOTAS DEL JUGADOR: {}", n.trim());
+        let _ = writeln!(p, "\nPLAYER NOTES: {}", n.trim());
     }
 
     let _ = writeln!(
         p,
-        "\nINSTRUCCIONES:\n\
-- PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la tarjeta, donde se comprueban contra tu búsqueda.\n\
-- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat. Si pregunta qué comprar con cierto oro, di la compra exacta que alcanza con ese oro (un componente vale).\n\
-- Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos genéricos. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
-- No afirmes nada de lo que no estés seguro: mejor menos ítems situacionales y bien elegidos.\n\
-- Usa los nombres en español del cliente (es_MX). Sé directo; nada de tablas largas.",
+        "\nINSTRUCTIONS:\n\
+- FIRST, if you have web search, look up the {me} {role} build for patch {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) and, if there is a lane opponent, the matchup. Use only patch {patch} data; discard older patches, and don't write figures (win rate, pick rate, games): figures go separately, on the card, where they are checked against your search.\n\
+- If there are PLAYER NOTES, the first and main thing is to answer in depth what they ask or what changes because of that situation (minute, gold, score…), as a coach would in chat. If they ask what to buy with some amount of gold, name the exact purchase that gold affords (a component is fine).\n\
+- Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items, 3 core items in order, boots and skill order. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
+- Don't state anything you aren't sure of: fewer, well-chosen situational items are better.\n\
+- Use the in-game names of the {locale} client. Be direct; no long tables.\n\
+- {answer_lang}",
         me = me.name,
         role = draft.role,
-        patch = data.patch
+        patch = data.patch,
+        locale = data.lang.locale(),
+        answer_lang = data.lang.answer_instruction(),
     );
     Ok(p)
 }
 
-/// Paso 2: pasar el análisis (de la misma sesión, o pegado si no hay sesión)
-/// a la tarjeta, con los nombres exactos del parche.
+/// Step 2: turn the analysis (from the same session, or pasted if there is no
+/// session) into the card, with the patch's exact names.
 pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     let mut p = String::new();
     match analysis {
         Some(a) => {
-            let _ = writeln!(p, "ANÁLISIS:\n{a}\n\nPasa este análisis a una tarjeta.");
+            let _ = writeln!(p, "ANALYSIS:\n{a}\n\nTurn this analysis into a card.");
         }
         None => {
-            let _ = writeln!(p, "Pasa TU análisis anterior a una tarjeta.");
+            let _ = writeln!(p, "Turn YOUR previous analysis into a card.");
         }
     }
     let _ = writeln!(
         p,
-        "No vuelvas a buscar ni cambies las decisiones del análisis: solo escríbelas con los nombres exactos de estas listas. Si un nombre no aparece, usa el equivalente de la lista que más se parezca."
+        "Don't search again or change the analysis' decisions: just write them with the exact names from these lists. If a name isn't listed, use the closest equivalent from the list."
     );
     let names = |f: &dyn Fn(&ddragon::Item) -> bool| {
         data.items
@@ -505,14 +513,14 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    // Los componentes no se listan: nunca son la recomendación.
+    // Components aren't listed: they are never the recommendation.
     let _ = writeln!(
         p,
-        "\nÍTEMS DEL PARCHE {} (no uses componentes):\n\
-- INICIALES (solo para starting_items): {}\n\
-- INICIAL DE SOPORTE (obligatorio en starting_items si juegas de soporte, y solo entonces): {}\n\
-- BOTAS (solo para boots): {}\n\
-- COMPLETOS (para core_items y situational): {}",
+        "\nPATCH {} ITEMS (don't use components):\n\
+- STARTERS (only for starting_items): {}\n\
+- SUPPORT STARTER (required in starting_items if you play support, and only then): {}\n\
+- BOOTS (only for boots): {}\n\
+- COMPLETED (for core_items and situational): {}",
         data.patch,
         names(&|i| i.starter && !i.support),
         names(&|i| i.support),
@@ -521,7 +529,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     );
     let _ = writeln!(
         p,
-        "\nHECHIZOS DE INVOCADOR: {}",
+        "\nSUMMONER SPELLS: {}",
         data.spells
             .iter()
             .map(|s| s.name.as_str())
@@ -530,7 +538,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     );
     let _ = writeln!(
         p,
-        "\nRUNAS VÁLIDAS (rama: piedras angulares | fila 1 | fila 2 | fila 3). La piedra angular sale de la primera fila de la rama principal; las 3 runas principales, una por cada fila de esa rama; las 2 secundarias, de filas distintas de otra rama:"
+        "\nVALID RUNES (tree: keystones | row 1 | row 2 | row 3). The keystone comes from the first row of the primary tree; the 3 primary runes, one from each row of that tree; the 2 secondary runes, from different rows of another tree:"
     );
     for t in &data.rune_trees {
         let rows: Vec<String> = t
@@ -545,22 +553,24 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
             .collect();
         let _ = writeln!(p, "- {}: {}", t.name, rows.join(" | "));
     }
-    let _ = writeln!(p, "\nFRAGMENTOS (uno por fila, en orden):");
-    for (i, row) in ddragon::SHARDS.iter().enumerate() {
-        let names: Vec<&str> = row.iter().map(|(n, _)| *n).collect();
-        let _ = writeln!(p, "- Fila {}: {}", i + 1, names.join(", "));
+    let _ = writeln!(p, "\nSHARDS (one per row, in order):");
+    for (i, row) in data.shards.iter().enumerate() {
+        let names: Vec<&str> = row.iter().map(|s| s.name.as_str()).collect();
+        let _ = writeln!(p, "- Row {}: {}", i + 1, names.join(", "));
     }
     let _ = writeln!(
         p,
-        "\nREGLAS:\n\
-- \"answer\" es la respuesta a las notas del jugador (\"\" si no hay notas): 3-6 viñetas cortas con lo que tiene que hacer, sin repetir runas ni la build (ya van en la tarjeta); \"summary\", UNA frase. Ningún campo lleva dudas ni correcciones (\"no, mejor…\", \"ver abajo\"): la duda, si la hay, va solo en \"caveat\".\n\
-- En \"stats\" pon SOLO cifras que salieron en los resultados de tu búsqueda web en esta conversación (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche que indique; null en lo que no diga. Si no buscaste, \"stats\": []. Nunca cifras de memoria: se descartan las que no correspondan a un resultado de búsqueda.\n\
-- Responde SOLO con un bloque ```json con esta forma:\n{SCHEMA}"
+        "\nRULES:\n\
+- \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
+- In \"stats\" put ONLY figures that came up in your web search results in this conversation (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
+- Write the text fields in the answer language: {answer_lang}\n\
+- Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
+        answer_lang = data.lang.answer_instruction(),
     );
     p
 }
 
-// ---------- parseo y validación ----------
+// ---------- parsing and validation ----------
 
 /// Saca el objeto JSON aunque venga envuelto en ```json o con texto alrededor.
 pub fn extract_json(text: &str) -> Option<&str> {
@@ -580,8 +590,15 @@ pub fn extract_json(text: &str) -> Option<&str> {
 }
 
 pub fn parse_card(text: &str) -> Result<RawCard, String> {
-    let json = extract_json(text).ok_or("La respuesta no contiene un objeto JSON.")?;
-    serde_json::from_str(json).map_err(|e| format!("JSON inválido: {e}"))
+    let json = extract_json(text).ok_or_else(|| {
+        tr(
+            "The answer has no JSON object.",
+            "La respuesta no contiene un objeto JSON.",
+        )
+        .to_string()
+    })?;
+    serde_json::from_str(json)
+        .map_err(|e| tr(format!("Invalid JSON: {e}"), format!("JSON inválido: {e}")))
 }
 
 fn is_boots(i: &ddragon::Item) -> bool {
@@ -599,74 +616,96 @@ fn row_in<'a>(tree: &'a RuneTree, name: &str) -> Option<(usize, &'a ddragon::Run
     })
 }
 
-/// Campos que la tarjeta necesita y llegaron vacíos (JSON cortado, o el
-/// modelo se quedó a medias). Disparan la ronda de corrección.
-/// Cada uno va como (instrucción para el modelo, nombre para el jugador).
-pub fn missing(raw: &RawCard, draft: &Draft) -> Vec<(String, &'static str)> {
+/// Fields the card needs that came back empty (cut-off JSON, or the model
+/// stopped halfway). They trigger the correction round.
+/// Each one is (fix for the model, in English; label for the player, in `lang`).
+pub fn missing(raw: &RawCard, draft: &Draft, lang: Lang) -> Vec<(String, &'static str)> {
     let mut out = Vec::new();
-    let mut need = |empty: bool, fix: &str, label: &'static str| {
+    let mut need = |empty: bool, fix: &str, en: &'static str, es: &'static str| {
         if empty {
-            out.push((format!("Falta {fix}"), label));
+            out.push((format!("Missing {fix}"), lang.pick(en, es)));
         }
     };
     let blank = |t: &str| t.trim().is_empty();
     let has_notes = draft.notes.as_deref().is_some_and(|n| !blank(n));
     need(
         has_notes && blank(&raw.answer),
-        "\"answer\": responde a las notas del jugador",
+        "\"answer\": answer the player's notes",
+        "the answer to your question",
         "la respuesta a tu pregunta",
     );
-    need(blank(&raw.summary), "\"summary\"", "el resumen");
+    need(
+        blank(&raw.summary),
+        "\"summary\"",
+        "the summary",
+        "el resumen",
+    );
     need(
         raw.starting_items.is_empty(),
         "\"starting_items\"",
+        "the starting items",
         "los ítems iniciales",
     );
     need(
         raw.core_items.len() < 3,
-        "\"core_items\": van 3 ítems completos",
+        "\"core_items\": 3 completed items",
+        "the 3 core items",
         "los 3 ítems principales",
     );
-    // Cassiopeia no puede comprar botas.
+    // Cassiopeia can't buy boots.
     need(
         blank(&raw.boots) && draft.champion != "Cassiopeia",
         "\"boots\"",
+        "the boots",
         "las botas",
     );
     let r = &raw.runes;
     need(
         blank(&r.primary_tree) || blank(&r.keystone) || r.primary.is_empty(),
-        "la rama principal de runas con su piedra angular y 3 runas",
+        "the primary rune tree with its keystone and 3 runes",
+        "the primary rune tree",
         "la rama principal de runas",
     );
     need(
         blank(&r.secondary_tree) || r.secondary.is_empty(),
-        "la rama secundaria con 2 runas",
+        "the secondary tree with 2 runes",
+        "the secondary rune tree",
         "la rama secundaria de runas",
     );
-    need(r.shards.is_empty(), "los 3 fragmentos", "los fragmentos");
+    need(
+        r.shards.is_empty(),
+        "the 3 shards",
+        "the shards",
+        "los fragmentos",
+    );
     need(
         raw.summoner_spells.len() != 2,
-        "\"summoner_spells\": van 2 hechizos",
+        "\"summoner_spells\": 2 spells",
+        "the summoner spells",
         "los hechizos de invocador",
     );
     need(
         raw.skill_order.max.is_empty(),
         "\"skill_order.max\"",
+        "the skill order",
         "el orden de habilidades",
     );
     let p = &raw.game_plan;
     need(
         blank(&p.early) || blank(&p.mid) || blank(&p.late),
-        "\"game_plan\" (early, mid y late)",
+        "\"game_plan\" (early, mid and late)",
+        "the game plan",
         "el plan de partida",
     );
     out
 }
 
-pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<String>) {
+/// Checks every name against the patch. Warnings are in `lang`: English for
+/// the model's correction round, the app language for the player.
+pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
     let patch = &data.patch;
+    let say = |en: String, es: String| lang.pick(en, es);
 
     // ítems: existen y, para core/situacionales/botas, son del tipo correcto
     #[derive(Clone, Copy, PartialEq)]
@@ -679,40 +718,56 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         let found = data.item_by_name(name);
         let mut valid = found.is_some();
         match found {
-            None if !name.trim().is_empty() => {
-                warnings.push(format!("Ítem \"{name}\" no existe en el parche {patch}"))
-            }
+            None if !name.trim().is_empty() => warnings.push(say(
+                format!("Item \"{name}\" doesn't exist on patch {patch}"),
+                format!("Ítem \"{name}\" no existe en el parche {patch}"),
+            )),
             Some(i) if slot == Slot::Core && (!i.completed || is_boots(i)) => {
                 valid = false;
-                warnings.push(format!(
-                    "\"{}\" no es un ítem completo; usa uno de la lista de COMPLETOS",
-                    i.name
+                warnings.push(say(
+                    format!(
+                        "\"{}\" isn't a completed item; use one from the COMPLETED list",
+                        i.name
+                    ),
+                    format!("\"{}\" no es un ítem completo", i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && !i.starter && !i.completed => {
                 valid = false;
-                warnings.push(format!(
-                    "\"{}\" es un componente, no un ítem inicial; usa uno de la lista de INICIALES",
-                    i.name
+                warnings.push(say(
+                    format!("\"{}\" is a component, not a starting item; use one from the STARTERS list", i.name),
+                    format!("\"{}\" es un componente, no un ítem inicial", i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && i.completed => {
                 valid = false;
-                warnings.push(format!(
-                    "\"{}\" no es un ítem inicial; usa uno de la lista de INICIALES",
-                    i.name
+                warnings.push(say(
+                    format!(
+                        "\"{}\" isn't a starting item; use one from the STARTERS list",
+                        i.name
+                    ),
+                    format!("\"{}\" no es un ítem inicial", i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && i.support && draft.role != "support" => {
                 valid = false;
-                warnings.push(format!(
-                    "\"{}\" es el inicial de soporte y tu rol es {}",
-                    i.name, draft.role
+                warnings.push(say(
+                    format!(
+                        "\"{}\" is the support starter and your role is {}",
+                        i.name, draft.role
+                    ),
+                    format!(
+                        "\"{}\" es el inicial de soporte y tu rol es {}",
+                        i.name, draft.role
+                    ),
                 ));
             }
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
                 valid = false;
-                warnings.push(format!("\"{}\" no son botas", i.name));
+                warnings.push(say(
+                    format!("\"{}\" aren't boots", i.name),
+                    format!("\"{}\" no son botas", i.name),
+                ));
             }
             _ => {}
         }
@@ -750,9 +805,15 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
             .filter(|i| i.support)
             .map(|i| i.name.as_str())
             .collect();
-        warnings.push(format!(
-            "Como soporte, los iniciales deben incluir {}",
-            atlas.join(" o ")
+        warnings.push(say(
+            format!(
+                "As support, the starting items must include {}",
+                atlas.join(" or ")
+            ),
+            format!(
+                "Como soporte, los iniciales deben incluir {}",
+                atlas.join(" o ")
+            ),
         ));
     }
 
@@ -762,7 +823,10 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
     let secondary_tree = data.tree_by_name(&r.secondary_tree);
     let tree_ref = |name: &str, t: Option<&RuneTree>, warnings: &mut Vec<String>| {
         if t.is_none() && !name.trim().is_empty() {
-            warnings.push(format!("Rama de runas \"{name}\" no existe"));
+            warnings.push(say(
+                format!("Rune tree \"{name}\" doesn't exist"),
+                format!("Rama de runas \"{name}\" no existe"),
+            ));
         }
         Ref {
             name: t.map_or(name.to_string(), |t| t.name.clone()),
@@ -777,35 +841,53 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         .is_some_and(|(a, b)| a.id == b.id)
     {
         secondary_tree_ref.valid = false;
-        warnings.push("La rama secundaria no puede ser la misma que la principal".into());
+        warnings.push(
+            lang.pick(
+                "The secondary tree can't be the same as the primary",
+                "La rama secundaria no puede ser la misma que la principal",
+            )
+            .into(),
+        );
     }
 
     // `rows`: filas permitidas; `used`: filas ya ocupadas (no se repiten).
     let mut rune = |name: &str,
                     tree: Option<&RuneTree>,
                     rows: std::ops::RangeInclusive<usize>,
-                    what: &str,
+                    what: (&str, &str),
                     used: &mut Vec<usize>| {
         let global = data.rune_by_name(name);
         let in_tree = tree.and_then(|t| row_in(t, name));
         let mut valid = global.is_some();
         if global.is_none() {
             if !name.trim().is_empty() {
-                warnings.push(format!("Runa \"{name}\" no existe en el parche {patch}"));
+                warnings.push(say(
+                    format!("Rune \"{name}\" doesn't exist on patch {patch}"),
+                    format!("Runa \"{name}\" no existe en el parche {patch}"),
+                ));
             }
         } else if let Some(t) = tree {
             match in_tree {
                 None => {
                     valid = false;
-                    warnings.push(format!("\"{name}\" no es de la rama {}", t.name));
+                    warnings.push(lang.pick(
+                        format!("\"{name}\" isn't from the {} tree", t.name),
+                        format!("\"{name}\" no es de la rama {}", t.name),
+                    ));
                 }
                 Some((row, _)) if !rows.contains(&row) => {
                     valid = false;
-                    warnings.push(format!("\"{name}\" no puede ir como {what}"));
+                    warnings.push(lang.pick(
+                        format!("\"{name}\" can't go as {}", what.0),
+                        format!("\"{name}\" no puede ir como {}", what.1),
+                    ));
                 }
                 Some((row, _)) if used.contains(&row) => {
                     valid = false;
-                    warnings.push(format!("\"{name}\" repite fila de {}", t.name));
+                    warnings.push(lang.pick(
+                        format!("\"{name}\" repeats a row of {}", t.name),
+                        format!("\"{name}\" repite fila de {}", t.name),
+                    ));
                 }
                 Some((row, _)) => used.push(row),
             }
@@ -822,30 +904,49 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         &r.keystone,
         primary_tree,
         0..=0,
-        "piedra angular",
+        ("keystone", "piedra angular"),
         &mut used,
     );
     let primary: Vec<Ref> = r
         .primary
         .iter()
-        .map(|n| rune(n, primary_tree, 1..=3, "runa principal", &mut used))
+        .map(|n| {
+            rune(
+                n,
+                primary_tree,
+                1..=3,
+                ("primary rune", "runa principal"),
+                &mut used,
+            )
+        })
         .collect();
     let mut used = Vec::new();
     let secondary: Vec<Ref> = r
         .secondary
         .iter()
-        .map(|n| rune(n, secondary_tree, 1..=3, "runa secundaria", &mut used))
+        .map(|n| {
+            rune(
+                n,
+                secondary_tree,
+                1..=3,
+                ("secondary rune", "runa secundaria"),
+                &mut used,
+            )
+        })
         .collect();
     if !r.primary.is_empty() && primary.len() != 3 {
-        warnings.push(format!(
-            "Faltan runas principales: van 3 (llegaron {})",
-            primary.len()
+        warnings.push(say(
+            format!("Missing primary runes: 3 needed ({} given)", primary.len()),
+            format!(
+                "Faltan runas principales: van 3 (llegaron {})",
+                primary.len()
+            ),
         ));
     }
     if !r.secondary.is_empty() && secondary.len() != 2 {
-        warnings.push(format!(
-            "Van 2 runas secundarias (llegaron {})",
-            secondary.len()
+        warnings.push(say(
+            format!("2 secondary runes needed ({} given)", secondary.len()),
+            format!("Van 2 runas secundarias (llegaron {})", secondary.len()),
         ));
     }
     let shards: Vec<Ref> = r
@@ -853,24 +954,34 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         .iter()
         .enumerate()
         .map(|(i, name)| {
+            // Accepts the name in either language and shows it in the app's.
+            let n = ddragon::normalize(name);
             let found = ddragon::SHARDS.get(i).and_then(|row| {
                 row.iter()
-                    .find(|(n, _)| ddragon::normalize(n) == ddragon::normalize(name))
+                    .find(|(en, es, ..)| ddragon::normalize(en) == n || ddragon::normalize(es) == n)
             });
             if found.is_none() && !name.trim().is_empty() {
-                warnings.push(format!("Fragmento \"{name}\" no va en la fila {}", i + 1));
+                warnings.push(say(
+                    format!("Shard \"{name}\" doesn't go in row {}", i + 1),
+                    format!("Fragmento \"{name}\" no va en la fila {}", i + 1),
+                ));
             }
             Ref {
-                name: found.map_or(name.to_string(), |(n, _)| n.to_string()),
-                image: found.map(|(_, f)| ddragon::shard_icon(f)),
+                name: found.map_or(name.to_string(), |(en, es, ..)| {
+                    data.lang.pick(*en, *es).into()
+                }),
+                image: found.map(|(.., f)| ddragon::shard_icon(f)),
                 valid: found.is_some(),
             }
         })
         .collect();
     if !shards.is_empty() && shards.len() != 3 {
-        warnings.push(format!(
-            "Van 3 fragmentos de estadística (llegaron {})",
-            shards.len()
+        warnings.push(say(
+            format!("3 stat shards needed ({} given)", shards.len()),
+            format!(
+                "Van 3 fragmentos de estadística (llegaron {})",
+                shards.len()
+            ),
         ));
     }
     let runes = Runes {
@@ -888,7 +999,10 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         .map(|name| {
             let found = data.spell_by_name(name);
             if found.is_none() && !name.trim().is_empty() {
-                warnings.push(format!("Hechizo \"{name}\" no existe en la Grieta"));
+                warnings.push(say(
+                    format!("Spell \"{name}\" doesn't exist on Summoner's Rift"),
+                    format!("Hechizo \"{name}\" no existe en la Grieta"),
+                ));
             }
             Ref {
                 name: found.map_or(name.to_string(), |s| s.name.clone()),
@@ -968,7 +1082,11 @@ pub async fn recommend_build(
     let status = |t: &str| {
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
     };
-    status("1/2 · Analizando el draft (busca en la web, puede tardar)…");
+    let lang = data.lang;
+    status(lang.pick(
+        "1/2 · Analyzing the draft (searches the web, may take a while)…",
+        "1/2 · Analizando el draft (busca en la web, puede tardar)…",
+    ));
 
     // Paso 1: análisis libre con búsqueda, como en el chat del coach.
     let rx = running.register(&request_id);
@@ -988,7 +1106,7 @@ pub async fn recommend_build(
     let analysis_text = analysis.text.trim().to_string();
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
-    status("2/2 · Armando la tarjeta…");
+    status(lang.pick("2/2 · Building the card…", "2/2 · Armando la tarjeta…"));
     let card_req = match &analysis.session_id {
         Some(_) => card_prompt(&data, None),
         None => card_prompt(&data, Some(&analysis_text)),
@@ -1008,7 +1126,7 @@ pub async fn recommend_build(
     // Si la tarjeta falla pero el análisis existe, se devuelve el análisis en
     // vez de perder minutos de trabajo; solo un «Detener» corta del todo.
     let fallback = |e: String, session_id: Option<String>, seen: &[String], retried: bool| {
-        if e.starts_with("Consulta detenida") || analysis_text.is_empty() {
+        if providers::is_stopped(&e) || analysis_text.is_empty() {
             return Err(e);
         }
         let mut rec = assemble(&RawCard::default(), &data, &draft, seen, kind, retried);
@@ -1035,26 +1153,31 @@ pub async fn recommend_build(
     let first_card = parse_card(&first.text);
     let retry_reason = match &first_card {
         Ok(raw) => {
-            let (_, mut warnings) = validate(raw, &data, &draft);
-            warnings.extend(missing(raw, &draft).into_iter().map(|(fix, _)| fix));
+            // The correction round talks to the model: always in English.
+            let (_, mut warnings) = validate(raw, &data, &draft, Lang::En);
+            warnings.extend(
+                missing(raw, &draft, Lang::En)
+                    .into_iter()
+                    .map(|(fix, _)| fix),
+            );
             (!warnings.is_empty()).then(|| {
                 format!(
-                    "Hay problemas con el parche {}: {}. Corrígelos usando solo las listas válidas.",
+                    "There are problems with patch {}: {}. Fix them using only the valid lists.",
                     data.patch,
                     warnings.join("; ")
                 )
             })
         }
-        Err(e) => Some(format!("Tu respuesta no se pudo leer ({e}).")),
+        Err(e) => Some(format!("Your answer couldn't be read ({e}).")),
     };
 
     let mut retried = false;
     let raw = match (retry_reason, session_id.clone()) {
         (Some(reason), Some(sid)) => {
-            status("2/2 · Corrigiendo la tarjeta…");
+            status(lang.pick("2/2 · Fixing the card…", "2/2 · Corrigiendo la tarjeta…"));
             retried = true;
             let fix_prompt = format!(
-                "{reason} Sin volver a buscar, responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
+                "{reason} Without searching again, reply again with ONLY the complete JSON object, in the same shape."
             );
             let second = ask(
                 &app,
@@ -1069,11 +1192,7 @@ pub async fn recommend_build(
             running.finish(&request_id);
             // Si el usuario detuvo la corrección, se respeta en vez de mostrar
             // la primera tarjeta como si nada.
-            if let Some(e) = second
-                .as_ref()
-                .err()
-                .filter(|e| e.starts_with("Consulta detenida"))
-            {
+            if let Some(e) = second.as_ref().err().filter(|e| providers::is_stopped(e)) {
                 return Err(e.clone());
             }
             let fixed = second.and_then(|c| {
@@ -1115,8 +1234,8 @@ fn assemble(
     kind: ProviderKind,
     retried: bool,
 ) -> Recommendation {
-    let (mut card, warnings) = validate(raw, data, draft);
-    let incomplete = missing(raw, draft)
+    let (mut card, warnings) = validate(raw, data, draft, data.lang);
+    let incomplete = missing(raw, draft, data.lang)
         .into_iter()
         .map(|(_, label)| label.to_string())
         .collect();
@@ -1161,13 +1280,14 @@ mod tests {
     fn prompt_separates_allies_and_enemies_and_names_patch() {
         let data = fixtures::data();
         let p = analysis_prompt(&draft(), &data).unwrap();
-        assert!(p.contains("PARCHE ACTUAL: 25.22"));
-        let allies = p.find("ALIADOS").unwrap();
-        let enemies = p.find("RIVALES (equipo enemigo)").unwrap();
+        assert!(p.contains("CURRENT PATCH: 25.22"));
+        let allies = p.find("ALLIES").unwrap();
+        let enemies = p.find("ENEMIES (enemy team)").unwrap();
         let soraka = p.find("- Soraka").unwrap();
         let ahri = p.find("- Ahri").unwrap();
         assert!(allies < ahri && ahri < enemies && enemies < soraka);
-        assert!(p.contains("RIVAL DE LÍNEA: Darius"));
+        assert!(p.contains("LANE OPPONENT: Darius"));
+        assert!(p.contains(Lang::Es.answer_instruction()));
         assert!(p.contains("voy 0/2"));
         // El análisis no lleva listas ni esquema: eso va en el paso 2.
         assert!(!p.contains("Fuerza de Trinidad"));
@@ -1193,27 +1313,28 @@ mod tests {
             .collect();
         assert_eq!(
             team_profile(&e),
-            "3 rivales: 2 con daño mágico, 1 con daño físico, 0 mixtos, 1 resistentes."
+            "3 enemies: 2 magic damage, 1 physical damage, 0 mixed, 1 durable."
         );
     }
 
     #[test]
     fn prompt_groups_items_and_asks_to_search_first() {
         let a = analysis_prompt(&draft(), &fixtures::data()).unwrap();
-        assert!(a.contains("busca la build de Jax top en el parche 25.22"));
+        assert!(a.contains("look up the Jax top build for patch 25.22"));
         let p = card_prompt(&fixtures::data(), None);
-        assert!(p.contains("- INICIALES (solo para starting_items): Escudo de Doran"));
+        assert!(p.contains("- STARTERS (only for starting_items): Escudo de Doran"));
         assert!(p.contains(
-            "obligatorio en starting_items si juegas de soporte, y solo entonces): Mapamundi\n"
+            "required in starting_items if you play support, and only then): Mapamundi\n"
         ));
-        assert!(p.contains("- BOTAS (solo para boots): Botas de Mercurio\n"));
+        assert!(p.contains("- BOOTS (only for boots): Botas de Mercurio\n"));
         // Los componentes no se ofrecen.
         assert!(!p.contains("Llamado del Verdugo"));
-        assert!(p.contains("Pasa TU análisis anterior"));
+        assert!(p.contains("Turn YOUR previous analysis"));
+        assert!(p.contains("- Row 1: Fuerza adaptable, Velocidad de ataque"));
         assert!(p.contains("\"answer\""));
         // Sin sesión que retomar, el análisis va pegado en el pedido.
         let pasted = card_prompt(&fixtures::data(), Some("Conquistador y Trinidad"));
-        assert!(pasted.starts_with("ANÁLISIS:\nConquistador y Trinidad"));
+        assert!(pasted.starts_with("ANALYSIS:\nConquistador y Trinidad"));
     }
 
     #[test]
@@ -1225,7 +1346,7 @@ mod tests {
     #[test]
     fn empty_required_fields_are_reported() {
         let raw = parse_card(GOOD).unwrap();
-        let m = missing(&raw, &draft());
+        let m = missing(&raw, &draft(), Lang::Es);
         // Las notas piden respuesta y GOOD trae un solo ítem principal.
         assert_eq!(m.len(), 2, "{m:?}");
         assert!(m[0].0.contains("answer"));
@@ -1235,13 +1356,18 @@ mod tests {
         let mut d = draft();
         d.notes = None;
         let empty = parse_card(r#"{"summary":"x","runes":null}"#).unwrap();
-        let m = missing(&empty, &d);
-        assert!(m.iter().any(|w| w.0.contains("rama principal")), "{m:?}");
+        let m = missing(&empty, &d, Lang::Es);
+        assert!(m.iter().any(|w| w.0.contains("primary rune tree")), "{m:?}");
+        assert!(m.iter().any(|w| w.1 == "la rama principal de runas"));
         assert!(m.iter().any(|w| w.0.contains("summoner_spells")));
         assert!(!m.iter().any(|w| w.0.contains("answer")));
 
         d.champion = "Cassiopeia".into();
-        assert!(!missing(&empty, &d).iter().any(|w| w.0.contains("boots")));
+        assert!(
+            !missing(&empty, &d, Lang::Es)
+                .iter()
+                .any(|w| w.0.contains("boots"))
+        );
     }
 
     #[test]
@@ -1255,16 +1381,32 @@ mod tests {
             &card(r#"["Escudo de Doran","Poción de Vida"]"#),
             &data,
             &support,
+            Lang::Es,
         );
         assert!(w.iter().any(|w| w.contains("Mapamundi")), "{w:?}");
-        let (_, w) = validate(&card(r#"["Mapamundi","Poción de Vida"]"#), &data, &support);
+        let (_, w) = validate(
+            &card(r#"["Mapamundi","Poción de Vida"]"#),
+            &data,
+            &support,
+            Lang::Es,
+        );
         assert!(w.is_empty(), "{w:?}");
 
-        let (c, w) = validate(&card(r#"["Mapamundi"]"#), &data, &draft());
+        let (c, w) = validate(&card(r#"["Mapamundi"]"#), &data, &draft(), Lang::Es);
         assert!(!c.starting_items[0].valid, "{w:?}");
-        let (c, _) = validate(&card(r#"["Fuerza de Trinidad"]"#), &data, &draft());
+        let (c, _) = validate(
+            &card(r#"["Fuerza de Trinidad"]"#),
+            &data,
+            &draft(),
+            Lang::Es,
+        );
         assert!(!c.starting_items[0].valid);
-        let (c, w) = validate(&card(r#"["Llamado del Verdugo"]"#), &data, &draft());
+        let (c, w) = validate(
+            &card(r#"["Llamado del Verdugo"]"#),
+            &data,
+            &draft(),
+            Lang::Es,
+        );
         assert!(!c.starting_items[0].valid);
         assert!(w[0].contains("componente"), "{w:?}");
     }
@@ -1291,7 +1433,12 @@ mod tests {
         "caveat":""}"#;
 
     fn check(json: &str) -> (Card, Vec<String>) {
-        validate(&parse_card(json).unwrap(), &fixtures::data(), &draft())
+        validate(
+            &parse_card(json).unwrap(),
+            &fixtures::data(),
+            &draft(),
+            Lang::Es,
+        )
     }
 
     #[test]
@@ -1453,7 +1600,7 @@ mod tests {
     #[test]
     fn missing_fields_default_instead_of_failing() {
         let raw = parse_card(r#"{"summary":"solo esto"}"#).unwrap();
-        let (card, warnings) = validate(&raw, &fixtures::data(), &draft());
+        let (card, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
         assert_eq!(card.summary, "solo esto");
         assert!(card.core_items.is_empty());
         assert!(warnings.is_empty());

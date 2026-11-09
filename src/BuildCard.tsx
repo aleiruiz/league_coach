@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
-import { SHARD_ROWS } from "./game";
+import type { Card, Champion, Ref, Role, RuneTree, Shard, Stat } from "./game";
+import { currentLang, missingText, t } from "./i18n";
 import { RoleIcon } from "./icons";
 import SafeMarkdown from "./SafeMarkdown";
 import { Key, skillPath, SPECIAL_R } from "./skills";
@@ -14,7 +14,7 @@ const norm = (s: string) =>
 
 function Icon({ r, size = 44, caption = true }: { r: Ref; size?: number; caption?: boolean }) {
   return (
-    <figure className={r.valid ? "icon" : "icon invalid"} title={r.valid ? r.name : `${r.name} (no válido en este parche)`}>
+    <figure className={r.valid ? "icon" : "icon invalid"} title={r.valid ? r.name : t(`${r.name} (not valid on this patch)`, `${r.name} (no válido en este parche)`)}>
       {r.image ? (
         <img src={r.image} alt="" width={size} height={size} />
       ) : (
@@ -36,7 +36,7 @@ function Section({ title, children, className }: { title: string; children: Reac
   );
 }
 
-/* ---------- estadísticas citadas ---------- */
+/* ---------- quoted stats ---------- */
 
 const pct = (v: number | null) => (v === null ? null : `${v.toFixed(1)}%`);
 
@@ -56,15 +56,19 @@ function StatRow({ s }: { s: Stat }) {
           {s.win_rate !== null && <span className={wrClass(s.win_rate)}>{pct(s.win_rate)} WR</span>}
           {s.pick_rate !== null && <span className="num">{pct(s.pick_rate)} pick</span>}
           {s.ban_rate !== null && <span className="num">{pct(s.ban_rate)} ban</span>}
-          {s.games !== null && <span className="num muted">{s.games.toLocaleString("es")} partidas</span>}
+          {s.games !== null && (
+            <span className="num muted">
+              {s.games.toLocaleString(currentLang())} {t("games", "partidas")}
+            </span>
+          )}
         </div>
         <div className="stat-src">
           {s.about && <span>{s.about}</span>}
           {s.rank && <span className="muted"> · {s.rank}</span>}
           <span className={s.current_patch ? "muted" : "warn"}>
             {" "}
-            · parche {s.patch || "?"}
-            {!s.current_patch && " (no es el actual)"}
+            · {t("patch", "parche")} {s.patch || "?"}
+            {!s.current_patch && t(" (not the current one)", " (no es el actual)")}
           </span>
         </div>
       </div>
@@ -83,7 +87,7 @@ function StatRow({ s }: { s: Stat }) {
   );
 }
 
-/** Enlaces directos a la página del campeón en sitios de stats (para comprobar a mano). */
+/** Direct links to the champion page on stats sites (to check by hand). */
 export function statLinks(c: Champion) {
   const slug = (c.id === "MonkeyKing" ? "wukong" : c.id).toLowerCase();
   return [
@@ -92,7 +96,7 @@ export function statLinks(c: Champion) {
   ];
 }
 
-/* ---------- runas ---------- */
+/* ---------- runes ---------- */
 
 function RuneRows({ tree, rows, picked }: { tree: RuneTree; rows: number[]; picked: Ref[] }) {
   const chosen = new Set(picked.filter((r) => r.valid).map((r) => norm(r.name)));
@@ -102,7 +106,7 @@ function RuneRows({ tree, rows, picked }: { tree: RuneTree; rows: number[]; pick
         <div key={row} className={row === 0 ? "rune-row keystones" : "rune-row"}>
           {tree.slots[row]?.map((r) => {
             const on = chosen.has(norm(r.name));
-            return <img key={r.id} src={r.icon} alt={on ? r.name : ""} title={on ? r.name : `${r.name} (no elegida)`} className={on ? "rune on" : "rune"} />;
+            return <img key={r.id} src={r.icon} alt={on ? r.name : ""} title={on ? r.name : t(`${r.name} (not picked)`, `${r.name} (no elegida)`)} className={on ? "rune on" : "rune"} />;
           })}
         </div>
       ))}
@@ -110,13 +114,13 @@ function RuneRows({ tree, rows, picked }: { tree: RuneTree; rows: number[]; pick
   );
 }
 
-function RunePage({ card, trees }: { card: Card; trees: RuneTree[] }) {
+function RunePage({ card, trees, shardRows }: { card: Card; trees: RuneTree[]; shardRows: Shard[][] }) {
   const r = card.runes;
-  const find = (ref: Ref) => (ref.valid ? trees.find((t) => norm(t.name) === norm(ref.name)) : undefined);
+  const find = (ref: Ref) => (ref.valid ? trees.find((x) => norm(x.name) === norm(ref.name)) : undefined);
   const primary = find(r.primary_tree);
   const secondary = find(r.secondary_tree);
   const picked = [r.keystone, ...r.primary, ...r.secondary];
-  // Si no se reconoce alguna rama, se muestra la lista simple (con lo inválido en rojo).
+  // If a tree isn't recognized, show the plain list (invalid ones in red).
   if (!primary || !secondary) {
     return (
       <div className="icon-row compact">
@@ -144,12 +148,12 @@ function RunePage({ card, trees }: { card: Card; trees: RuneTree[] }) {
         </div>
         <RuneRows tree={secondary} rows={[1, 2, 3]} picked={r.secondary} />
         {r.shards.length > 0 && (
-          <div className="shards" aria-label="Fragmentos">
-            {SHARD_ROWS.map((row, i) => (
+          <div className="shards" aria-label={t("Shards", "Fragmentos")}>
+            {shardRows.map((row, i) => (
               <div key={i} className="shard-row">
-                {row.map(([name, short], j) => (
-                  <span key={j} className={shards[i] === norm(name) ? "shard on" : "shard"} title={name}>
-                    {short}
+                {row.map((s, j) => (
+                  <span key={j} className={shards[i] === norm(s.name) ? "shard on" : "shard"} title={s.name}>
+                    {s.short}
                   </span>
                 ))}
               </div>
@@ -163,19 +167,23 @@ function RunePage({ card, trees }: { card: Card; trees: RuneTree[] }) {
           .map((x) => x.name)
           .join(" · ")}
       </p>
-      {invalid.length > 0 && <p className="error small">No encajan en esta página: {invalid.map((x) => x.name).join(", ")}</p>}
+      {invalid.length > 0 && (
+        <p className="error small">
+          {t("Don't fit this page:", "No encajan en esta página:")} {invalid.map((x) => x.name).join(", ")}
+        </p>
+      )}
     </div>
   );
 }
 
-/* ---------- habilidades ---------- */
+/* ---------- skills ---------- */
 
 function SkillGrid({ max, first }: { max: string[]; first: string }) {
   const path = skillPath(max, first);
   if (!path) return null;
   const keys: Key[] = ["Q", "W", "E", "R"];
   return (
-    <div className="skill-grid" role="table" aria-label="Orden de habilidades por nivel">
+    <div className="skill-grid" role="table" aria-label={t("Skill order by level", "Orden de habilidades por nivel")}>
       {keys.map((k) => (
         <div key={k} className="skill-line" role="row">
           <span className="skill-key" role="rowheader">
@@ -192,11 +200,11 @@ function SkillGrid({ max, first }: { max: string[]; first: string }) {
   );
 }
 
-/* ---------- tarjeta ---------- */
+/* ---------- card ---------- */
 
 export function BuildCardSkeleton() {
   return (
-    <article className="build-card skeleton" aria-busy="true" aria-label="Preparando la build">
+    <article className="build-card skeleton" aria-busy="true" aria-label={t("Preparing the build", "Preparando la build")}>
       <div className="sk-line wide" />
       <div className="sk-row">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -225,22 +233,12 @@ type Props = {
   retried: boolean;
   onRetry?: () => void;
   trees: RuneTree[];
+  shards: Shard[][];
   champion?: Champion;
   lane?: Champion;
   role: Role;
   roleLabel: string;
 };
-
-/** «a, b y c» */
-function listaHumana(xs: string[]): string {
-  return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
-}
-
-/** «falta el resumen», «faltan las botas», «faltan el resumen y las botas». */
-function faltan(xs: string[]): string {
-  const plural = xs.length > 1 || /^(los|las) /.test(xs[0] ?? "");
-  return `${plural ? "faltan" : "falta"} ${listaHumana(xs)}`;
-}
 
 function BuildCard({
   card,
@@ -252,6 +250,7 @@ function BuildCard({
   retried,
   onRetry,
   trees,
+  shards,
   champion,
   lane,
   role,
@@ -260,17 +259,17 @@ function BuildCard({
   const [answerOpen, setAnswerOpen] = useState(false);
   const [answerLong, setAnswerLong] = useState(false);
   const answerRef = useRef<HTMLDivElement>(null);
-  // Una build nueva empieza recortada otra vez.
+  // A new build starts clamped again.
   useEffect(() => setAnswerOpen(false), [card]);
-  // «Ver más» solo si la respuesta no cabe en el alto recortado.
+  // "Show more" only if the answer doesn't fit in the clamped height.
   useLayoutEffect(() => {
     const el = answerRef.current;
     if (el && !answerOpen) setAnswerLong(el.scrollHeight > el.clientHeight + 2);
   }, [card.answer, answerOpen]);
-  // Sin cifras, el panel va al final: no empuja la build fuera de la vista.
+  // Without figures, the panel goes last: it doesn't push the build out of view.
   const statsPanel = (
   <section className="panel stats-panel">
-    <h4 className="panel-title">Estadísticas citadas</h4>
+    <h4 className="panel-title">{t("Quoted stats", "Estadísticas citadas")}</h4>
     {card.stats.length > 0 ? (
       <ul className="stats">
         {card.stats.map((s, i) => (
@@ -280,21 +279,33 @@ function BuildCard({
     ) : (
       <p className="small">
         {card.stats_verifiable
-          ? "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build."
-          : "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran."}
+          ? t(
+              "No quoted figures: the model brought no stats-site data that can be checked for this build.",
+              "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build.",
+            )
+          : t(
+              "No quoted figures: this model doesn't expose its search sources, so I can't check where its numbers come from. With Claude they are shown.",
+              "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran.",
+            )}
       </p>
     )}
     <p className="small muted">
       {card.stats.length > 0 &&
-        "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. "}
+        t(
+          "The page did come up in the model's search, but the number is reported by the model: open it to confirm. ",
+          "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. ",
+        )}
       {card.stats_verifiable &&
         card.stats_dropped > 0 &&
-        `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}
-      League Coach no calcula win rates.
+        t(
+          `I dropped ${card.stats_dropped} figure${card.stats_dropped > 1 ? "s" : ""} that ${card.stats_dropped > 1 ? "weren't" : "wasn't"} in those results. `,
+          `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `,
+        )}
+      {t("League Coach doesn't calculate win rates.", "League Coach no calcula win rates.")}
       {champion && (
         <>
           {" "}
-          Ver por tu cuenta:{" "}
+          {t("Check it yourself:", "Ver por tu cuenta:")}{" "}
           {statLinks(champion).map((l, i) => (
             <span key={l.site}>
               {i > 0 && " · "}
@@ -321,7 +332,7 @@ function BuildCard({
         {champion && <img className="card-champ" src={champion.image} alt="" />}
         <div className="card-title">
           <h3>
-            {champion?.name ?? "Tu build"}
+            {champion?.name ?? t("Your build", "Tu build")}
             <span className="role-pill">
               <RoleIcon role={role} size={14} /> {roleLabel}
             </span>
@@ -333,19 +344,21 @@ function BuildCard({
           </h3>
           <p className="summary">{card.summary}</p>
         </div>
-        <span className="badge patch">Parche {patch}</span>
+        <span className="badge patch">
+          {t("Patch", "Parche")} {patch}
+        </span>
       </header>
 
       {notes && card.answer && (
-        <section className="panel answer-panel" aria-label="Respuesta a tus notas">
-          <h4 className="panel-title">Tu pregunta</h4>
+        <section className="panel answer-panel" aria-label={t("Answer to your notes", "Respuesta a tus notas")}>
+          <h4 className="panel-title">{t("Your question", "Tu pregunta")}</h4>
           <blockquote className="answer-q">{notes}</blockquote>
           <div ref={answerRef} className={answerOpen ? "answer-text" : answerLong ? "answer-text clamped faded" : "answer-text clamped"}>
             <SafeMarkdown>{card.answer}</SafeMarkdown>
           </div>
           {(answerLong || answerOpen) && (
             <button className="link-button" onClick={() => setAnswerOpen((o) => !o)}>
-              {answerOpen ? "Ver menos" : "Ver más"}
+              {answerOpen ? t("Show less", "Ver menos") : t("Show more", "Ver más")}
             </button>
           )}
         </section>
@@ -355,21 +368,21 @@ function BuildCard({
 
 
       <div className="card-grid">
-        <Section title="Runas" className="runes-panel">
-          <RunePage card={card} trees={trees} />
+        <Section title={t("Runes", "Runas")} className="runes-panel">
+          <RunePage card={card} trees={trees} shardRows={shards} />
         </Section>
 
         <div className="card-col">
-          <Section title="Hechizos">
+          <Section title={t("Spells", "Hechizos")}>
             <div className="icon-row compact">
               {card.summoner_spells.map((r, i) => (
                 <Icon key={i} r={r} size={36} />
               ))}
-              {card.summoner_spells.length === 0 && <span className="muted small">Sin datos</span>}
+              {card.summoner_spells.length === 0 && <span className="muted small">{t("No data", "Sin datos")}</span>}
             </div>
           </Section>
           {card.starting_items.length > 0 && (
-            <Section title="Inicio">
+            <Section title={t("Start", "Inicio")}>
               <div className="icon-row compact">
                 {card.starting_items.map((r, i) => (
                   <Icon key={i} r={r} size={36} />
@@ -377,7 +390,7 @@ function BuildCard({
               </div>
             </Section>
           )}
-          <Section title="Build principal">
+          <Section title={t("Core build", "Build principal")}>
             <div className="item-path">
               {card.core_items.map((r, i) => (
                 <div key={i} className="step">
@@ -397,7 +410,7 @@ function BuildCard({
       </div>
 
       {card.skill_order.max.length > 0 && (
-        <Section title="Habilidades">
+        <Section title={t("Skills", "Habilidades")}>
           <p className="skills">
             {card.skill_order.max.map((k, i) => (
               <span key={i}>
@@ -405,10 +418,15 @@ function BuildCard({
                 <span className="key">{k}</span>
               </span>
             ))}
-            <span className="muted small"> prioridad de maximización</span>
+            <span className="muted small"> {t("max priority", "prioridad de maximización")}</span>
           </p>
           {champion && SPECIAL_R.has(champion.id) ? (
-            <p className="small muted">{champion.name} no sigue el orden estándar de la R, así que no dibujo la tabla por niveles.</p>
+            <p className="small muted">
+              {t(
+                `${champion.name} doesn't follow the standard R order, so I don't draw the per-level table.`,
+                `${champion.name} no sigue el orden estándar de la R, así que no dibujo la tabla por niveles.`,
+              )}
+            </p>
           ) : (
             <SkillGrid max={card.skill_order.max} first={card.skill_order.first_levels} />
           )}
@@ -416,7 +434,7 @@ function BuildCard({
       )}
 
       {card.situational.length > 0 && (
-        <Section title="Situacionales">
+        <Section title={t("Situational", "Situacionales")}>
           <ul className="situational">
             {card.situational.map((s, i) => (
               <li key={i}>
@@ -431,7 +449,7 @@ function BuildCard({
         </Section>
       )}
 
-      <Section title="Plan de partida" className="plan">
+      <Section title={t("Game plan", "Plan de partida")} className="plan">
         <dl>
           <dt>Early</dt>
           <dd>{card.game_plan.early}</dd>
@@ -445,21 +463,21 @@ function BuildCard({
       {(card.threats.length > 0 || card.matchup_tips.length > 0) && (
         <div className="two-col">
           {card.threats.length > 0 && (
-            <Section title="Amenazas">
+            <Section title={t("Threats", "Amenazas")}>
               <ul>
-                {card.threats.map((t, i) => (
+                {card.threats.map((x, i) => (
                   <li key={i}>
-                    <strong>{t.champion}:</strong> {t.why}
+                    <strong>{x.champion}:</strong> {x.why}
                   </li>
                 ))}
               </ul>
             </Section>
           )}
           {card.matchup_tips.length > 0 && (
-            <Section title="Claves del matchup">
+            <Section title={t("Matchup tips", "Claves del matchup")}>
               <ul>
-                {card.matchup_tips.map((t, i) => (
-                  <li key={i}>{t}</li>
+                {card.matchup_tips.map((x, i) => (
+                  <li key={i}>{x}</li>
                 ))}
               </ul>
             </Section>
@@ -467,13 +485,20 @@ function BuildCard({
         </div>
       )}
 
-      {card.caveat && <p className="muted small">Nota: {card.caveat}</p>}
+      {card.caveat && (
+        <p className="muted small">
+          {t("Note:", "Nota:")} {card.caveat}
+        </p>
+      )}
       {card.stats.length === 0 && statsPanel}
       {analysis && (
         <details className="analysis">
-          <summary>Ver el análisis completo del modelo</summary>
+          <summary>{t("See the model's full analysis", "Ver el análisis completo del modelo")}</summary>
           <p className="muted small">
-            Texto del modelo sin verificar. Las cifras comprobadas contra su búsqueda están en «Estadísticas citadas».
+            {t(
+              "Unverified model text. Figures checked against its search are under “Quoted stats”.",
+              "Texto del modelo sin verificar. Las cifras comprobadas contra su búsqueda están en «Estadísticas citadas».",
+            )}
           </p>
           <div className="analysis-text">
             <SafeMarkdown>{analysis}</SafeMarkdown>
@@ -483,13 +508,27 @@ function BuildCard({
       {(warnings.length > 0 || incomplete.length > 0) && (
         <div className="card-warnings">
           <p className="error small">
-            {retried ? "Le pedí al modelo que lo corrigiera y no lo logró del todo. " : ""}
-            {warnings.length > 0 && <>Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}. </>}
-            {incomplete.length > 0 && <>La tarjeta quedó incompleta: {faltan(incomplete)}.</>}
+            {retried
+              ? t(
+                  "I asked the model to fix it and it didn't fully manage. ",
+                  "Le pedí al modelo que lo corrigiera y no lo logró del todo. ",
+                )
+              : ""}
+            {warnings.length > 0 && (
+              <>
+                {t("What's marked in red isn't valid on this patch:", "Lo marcado en rojo no es válido en este parche:")}{" "}
+                {warnings.join(". ")}.{" "}
+              </>
+            )}
+            {incomplete.length > 0 && (
+              <>
+                {t("The card is incomplete:", "La tarjeta quedó incompleta:")} {missingText(incomplete)}.
+              </>
+            )}
           </p>
           {onRetry && (
             <button className="secondary" onClick={onRetry}>
-              Pedir otra build
+              {t("Ask for another build", "Pedir otra build")}
             </button>
           )}
         </div>

@@ -48,9 +48,15 @@ pub fn open_with(bin: &Path, args: &[&str]) -> std::io::Result<()> {
         }
         Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!(
-                "No encontré una terminal. Ejecuta manualmente: {}",
-                shell_line(&bin, args)
+            crate::i18n::tr(
+                format!(
+                    "Couldn't find a terminal. Run it yourself: {}",
+                    shell_line(&bin, args)
+                ),
+                format!(
+                    "No encontré una terminal. Ejecuta manualmente: {}",
+                    shell_line(&bin, args)
+                ),
             ),
         ))
     }

@@ -3,18 +3,27 @@ import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
+import { t } from "./i18n";
 
 type Msg = { role: "user" | "assistant"; text: string; error?: string };
 
-type Props = { providers: ProvidersState; onGoToModels: () => void };
+type Props = { providers: ProvidersState; onBusy: (busy: boolean) => void; onGoToModels: () => void };
 
-const EXAMPLES = [
-  "Juego Jax top contra Darius, ¿qué build y runas?",
-  "Voy 0/3 con Ahri y su Zed está muy adelantado, ¿qué compro?",
-  "¿Cómo juego el early de Lee Sin contra un Kha'Zix?",
-];
+const examples = () =>
+  t(
+    [
+      "I'm playing Jax top against Darius, what build and runes?",
+      "I'm 0/3 on Ahri and their Zed is way ahead, what do I buy?",
+      "How do I play Lee Sin's early game against a Kha'Zix?",
+    ],
+    [
+      "Juego Jax top contra Darius, ¿qué build y runas?",
+      "Voy 0/3 con Ahri y su Zed está muy adelantado, ¿qué compro?",
+      "¿Cómo juego el early de Lee Sin contra un Kha'Zix?",
+    ],
+  );
 
-/** Los links del modelo se abren en el navegador del sistema, nunca dentro de la app. */
+/** The model's links open in the system browser, never inside the app. */
 const markdownComponents = {
   a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
     <a
@@ -31,7 +40,7 @@ const markdownComponents = {
 
 const safeUrl = (url: string) => (url.startsWith("https://") ? url : "");
 
-function Chat({ providers, onGoToModels }: Props) {
+function Chat({ providers, onBusy, onGoToModels }: Props) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -40,11 +49,12 @@ function Chat({ providers, onGoToModels }: Props) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
+  useEffect(() => onBusy(busy), [busy, onBusy]);
   const bottom = useRef<HTMLDivElement>(null);
 
-  // Si el modelo elegido deja de estar disponible, pasa al primero que sí lo esté.
+  // If the chosen model stops being available, switch to the first one that is.
   useEffect(() => {
-    // La conversación del modelo anterior no sirve en otro: se empieza una nueva.
+    // The previous model's conversation is no use in another: start a new one.
     if (!ready.some((p) => p.kind === kind)) {
       setKind(ready[0]?.kind ?? null);
       setSessionId(null);
@@ -62,7 +72,12 @@ function Chat({ providers, onGoToModels }: Props) {
   }
 
   function changeKind(next: ProviderKind) {
-    if (messages.length && !window.confirm("Cambiar de modelo empieza una conversación nueva. ¿Continuar?")) {
+    if (messages.length && !window.confirm(
+          t(
+            "Switching models starts a new conversation. Continue?",
+            "Cambiar de modelo empieza una conversación nueva. ¿Continuar?",
+          ),
+        )) {
       return;
     }
     setKind(next);
@@ -78,7 +93,7 @@ function Chat({ providers, onGoToModels }: Props) {
     if (!prompt || !kind || busy) return;
     setInput("");
     setBusy(true);
-    setStatus("Pensando…");
+    setStatus(t("Thinking…", "Pensando…"));
     setMessages((ms) => [...ms, { role: "user", text: prompt }, { role: "assistant", text: "" }]);
     const id = crypto.randomUUID();
     requestId.current = id;
@@ -90,7 +105,13 @@ function Chat({ providers, onGoToModels }: Props) {
         else if (ev.type === "done") {
           setStatus(null);
           updateLast((m) =>
-            m.text.trim() || m.error ? m : { ...m, error: "El modelo no devolvió respuesta. Prueba la conexión en Modelos." },
+            m.text.trim() || m.error ? m : {
+                  ...m,
+                  error: t(
+                    "The model returned no answer. Test the connection in Models.",
+                    "El modelo no devolvió respuesta. Prueba la conexión en Modelos.",
+                  ),
+                },
           );
         } else {
           if (ev.type === "delta" || ev.type === "message") setStatus(null);
@@ -114,7 +135,7 @@ function Chat({ providers, onGoToModels }: Props) {
     return (
       <section>
         <h2>Coach</h2>
-        <p className="muted">Comprobando modelos…</p>
+        <p className="muted">{t("Checking models…", "Comprobando modelos…")}</p>
       </section>
     );
   }
@@ -125,10 +146,13 @@ function Chat({ providers, onGoToModels }: Props) {
         <h2>Coach</h2>
         <p className="muted">
           {providers.error
-            ? `No pude comprobar los modelos: ${providers.error}`
-            : "Todavía no hay ningún modelo conectado. Conecta Claude o ChatGPT para empezar."}
+            ? t(`Couldn't check the models: ${providers.error}`, `No pude comprobar los modelos: ${providers.error}`)
+            : t(
+                "No model is connected yet. Connect Claude or ChatGPT to get started.",
+                "Todavía no hay ningún modelo conectado. Conecta Claude o ChatGPT para empezar.",
+              )}
         </p>
-        <button onClick={onGoToModels}>Conectar modelos</button>
+        <button onClick={onGoToModels}>{t("Connect models", "Conectar modelos")}</button>
       </section>
     );
   }
@@ -138,7 +162,7 @@ function Chat({ providers, onGoToModels }: Props) {
       <header className="chat-header">
         <h2>Coach</h2>
         <select
-          aria-label="Modelo"
+          aria-label={t("Model", "Modelo")}
           value={kind ?? ""}
           onChange={(e) => changeKind(e.currentTarget.value as ProviderKind)}
           disabled={busy}
@@ -150,15 +174,15 @@ function Chat({ providers, onGoToModels }: Props) {
           ))}
         </select>
         <button className="secondary" onClick={newChat} disabled={busy}>
-          Nueva conversación
+          {t("New conversation", "Nueva conversación")}
         </button>
       </header>
 
       <div className="messages" aria-live="polite">
         {messages.length === 0 && (
           <div className="examples">
-            <p className="muted">Prueba con:</p>
-            {EXAMPLES.map((ex) => (
+            <p className="muted">{t("Try:", "Prueba con:")}</p>
+            {examples().map((ex) => (
               <button key={ex} className="chip" onClick={() => send(ex)}>
                 {ex}
               </button>
@@ -189,10 +213,10 @@ function Chat({ providers, onGoToModels }: Props) {
         }}
       >
         <textarea
-          aria-label="Tu pregunta"
+          aria-label={t("Your question", "Tu pregunta")}
           value={input}
           rows={2}
-          placeholder="Escribe tu pregunta…"
+          placeholder={t("Type your question…", "Escribe tu pregunta…")}
           onChange={(e) => setInput(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -203,11 +227,11 @@ function Chat({ providers, onGoToModels }: Props) {
         />
         {busy ? (
           <button type="button" className="danger" onClick={stop}>
-            Detener
+            {t("Stop", "Detener")}
           </button>
         ) : (
           <button type="submit" disabled={!input.trim()}>
-            Enviar
+            {t("Send", "Enviar")}
           </button>
         )}
       </form>

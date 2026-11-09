@@ -1405,3 +1405,9 @@ a.inline-link {
   font-size: 13px;
   cursor: pointer;
 }
+
+.lang-picker {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 8px;
+}

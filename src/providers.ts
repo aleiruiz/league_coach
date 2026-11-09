@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export type ProviderKind = "claude_code" | "codex";
 
@@ -57,7 +58,7 @@ export function sendPrompt(
   });
 }
 
-/** Aplica un evento al texto acumulado de la respuesta. */
+/** Applies an event to the answer text gathered so far. */
 export function applyEvent(text: string, ev: ChatEvent): string {
   const sep = (t: string) => (t && !t.endsWith("\n\n") ? "\n\n" : "");
   switch (ev.type) {
@@ -74,34 +75,50 @@ export function applyEvent(text: string, ev: ChatEvent): string {
   }
 }
 
-const KNOWN_ERRORS: [RegExp, string][] = [
+const knownErrors = (): [RegExp, string][] => [
   [
     /unknown feature flag|unexpected argument|unrecognized option/i,
-    "Tu versión del programa del modelo es antigua. Actualízala (p. ej. npm i -g @openai/codex) y vuelve a probar.",
+    t(
+      "Your version of the model's program is old. Update it (e.g. npm i -g @openai/codex) and try again.",
+      "Tu versión del programa del modelo es antigua. Actualízala (p. ej. npm i -g @openai/codex) y vuelve a probar.",
+    ),
   ],
   [
     /usage limit|rate limit|quota|too many requests|429/i,
-    "Llegaste al límite de uso de tu plan. Espera un rato o cambia de modelo en Modelos.",
+    t(
+      "You reached your plan's usage limit. Wait a while or switch models in Models.",
+      "Llegaste al límite de uso de tu plan. Espera un rato o cambia de modelo en Modelos.",
+    ),
   ],
   [
     /not logged in|unauthori[sz]ed|authentication|401|expired|invalid api key|log ?in again/i,
-    "La sesión no es válida o caducó. Vuelve a iniciar sesión en Modelos.",
+    t(
+      "The session isn't valid or has expired. Sign in again in Models.",
+      "La sesión no es válida o caducó. Vuelve a iniciar sesión en Modelos.",
+    ),
   ],
   [
-    /no está instalado|not found|enoent/i,
-    "No encuentro el programa del modelo. Revisa la instalación en Modelos.",
+    /is not installed|no está instalado|not found|enoent/i,
+    t(
+      "I can't find the model's program. Check the installation in Models.",
+      "No encuentro el programa del modelo. Revisa la instalación en Modelos.",
+    ),
   ],
-  [/network|connect|timed out|dns|offline/i, "Problema de conexión a internet. Inténtalo de nuevo."],
+  [
+    /network|connect|timed out|dns|offline/i,
+    t("Internet connection problem. Try again.", "Problema de conexión a internet. Inténtalo de nuevo."),
+  ],
 ];
 
-/** Traduce los errores comunes de los CLIs a un mensaje en español con la acción sugerida. */
+/** Messages the app writes itself (in either language): already readable. */
+const APP_MESSAGE =
+  /^(Request stopped|Consulta detenida|The model took|El modelo tardó|Codex tried|Codex intentó|Invalid conversation id|Id de conversación)/;
+
+/** Turns common CLI errors into a readable message with the suggested action. */
 export function humanizeError(raw: string): string {
-  // Los mensajes que genera la app ya están en español.
-  if (/^(Consulta detenida|El modelo tardó|Codex intentó|Id de conversación)/.test(raw)) {
-    return raw;
-  }
-  for (const [re, msg] of KNOWN_ERRORS) {
-    if (re.test(raw)) return `${msg} (Detalle: ${raw})`;
+  if (APP_MESSAGE.test(raw)) return raw;
+  for (const [re, msg] of knownErrors()) {
+    if (re.test(raw)) return `${msg} (${t("Detail", "Detalle")}: ${raw})`;
   }
   return raw;
 }

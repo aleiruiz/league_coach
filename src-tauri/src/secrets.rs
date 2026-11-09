@@ -5,6 +5,8 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
 
+use crate::i18n::tr;
+
 const SERVICE: &str = "com.aleiruiz.leaguecoach";
 
 /// Proveedores cuyas credenciales sabe guardar la app.
@@ -15,19 +17,41 @@ const MAX_KEY_LEN: usize = 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretError {
-    #[error("proveedor desconocido: {0}")]
+    #[error("unknown provider: {0}")]
     UnknownProvider(String),
-    #[error("la key está vacía")]
+    #[error("the key is empty")]
     EmptyKey,
-    #[error("la key no es válida: {0}")]
-    InvalidKey(&'static str),
-    #[error("error del llavero del sistema: {0}")]
+    /// Why the key is invalid, in English and Spanish.
+    #[error("the key isn't valid: {0}")]
+    InvalidKey(&'static str, &'static str),
+    #[error("system keychain error: {0}")]
     Store(String),
+}
+
+impl SecretError {
+    /// Message for the UI, in the app language.
+    pub fn message(&self) -> String {
+        match self {
+            SecretError::UnknownProvider(p) => tr(
+                format!("unknown provider: {p}"),
+                format!("proveedor desconocido: {p}"),
+            ),
+            SecretError::EmptyKey => tr("the key is empty", "la key está vacía").into(),
+            SecretError::InvalidKey(en, es) => tr(
+                format!("the key isn't valid: {en}"),
+                format!("la key no es válida: {es}"),
+            ),
+            SecretError::Store(e) => tr(
+                format!("system keychain error: {e}"),
+                format!("error del llavero del sistema: {e}"),
+            ),
+        }
+    }
 }
 
 impl Serialize for SecretError {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
+        s.serialize_str(&self.message())
     }
 }
 
@@ -87,10 +111,14 @@ pub fn validate_key(key: &str) -> Result<&str, SecretError> {
         return Err(SecretError::EmptyKey);
     }
     if key.len() > MAX_KEY_LEN {
-        return Err(SecretError::InvalidKey("es demasiado larga"));
+        return Err(SecretError::InvalidKey(
+            "it is too long",
+            "es demasiado larga",
+        ));
     }
     if key.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(SecretError::InvalidKey(
+            "it contains spaces or line breaks",
             "contiene espacios o saltos de línea",
         ));
     }
@@ -142,7 +170,7 @@ pub fn list_keys(store: &dyn SecretStore) -> Vec<KeyStatus> {
             let (state, error) = match store.get(p) {
                 Ok(Some(_)) => (KeyState::Configured, None),
                 Ok(None) => (KeyState::Missing, None),
-                Err(e) => (KeyState::Error, Some(e.to_string())),
+                Err(e) => (KeyState::Error, Some(e.message())),
             };
             KeyStatus {
                 provider: p,
@@ -256,15 +284,15 @@ mod tests {
         assert!(matches!(validate_key("   "), Err(SecretError::EmptyKey)));
         assert!(matches!(
             validate_key("sk ant"),
-            Err(SecretError::InvalidKey(_))
+            Err(SecretError::InvalidKey(..))
         ));
         assert!(matches!(
             validate_key("sk\nant"),
-            Err(SecretError::InvalidKey(_))
+            Err(SecretError::InvalidKey(..))
         ));
         assert!(matches!(
             validate_key(&"a".repeat(MAX_KEY_LEN + 1)),
-            Err(SecretError::InvalidKey(_))
+            Err(SecretError::InvalidKey(..))
         ));
         assert_eq!(validate_key(" RGAPI-abc ").unwrap(), "RGAPI-abc");
     }

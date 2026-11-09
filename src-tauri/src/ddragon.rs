@@ -13,36 +13,119 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
+use crate::i18n::{self, Lang, tr};
+
 const BASE: &str = "https://ddragon.leagueoflegends.com";
-const LOCALE: &str = "es_MX";
 const FILES: [&str; 4] = [
     "champion.json",
     "item.json",
     "runesReforged.json",
     "summoner.json",
 ];
-/// Fragmentos de estadística (no vienen en runesReforged.json): una fila
-/// por posición, con el nombre y el archivo de ícono en `perk-images/StatMods`.
-pub const SHARDS: [&[(&str, &str)]; 3] = [
+/// Stat shards (not in runesReforged.json): one row per position, each as
+/// (English name, Spanish name, short EN, short ES, icon file in `perk-images/StatMods`).
+pub const SHARDS: [&[ShardDef]; 3] = [
     &[
-        ("Fuerza adaptable", "StatModsAdaptiveForceIcon.png"),
-        ("Velocidad de ataque", "StatModsAttackSpeedIcon.png"),
-        ("Velocidad de habilidades", "StatModsCDRScalingIcon.png"),
-    ],
-    &[
-        ("Fuerza adaptable", "StatModsAdaptiveForceIcon.png"),
-        ("Velocidad de movimiento", "StatModsMovementSpeedIcon.png"),
-        ("Vida escalable", "StatModsHealthPlusIcon.png"),
-    ],
-    &[
-        ("Vida", "StatModsHealthScalingIcon.png"),
         (
+            "Adaptive Force",
+            "Fuerza adaptable",
+            "Adaptive",
+            "Fuerza",
+            "StatModsAdaptiveForceIcon.png",
+        ),
+        (
+            "Attack Speed",
+            "Velocidad de ataque",
+            "Atk speed",
+            "Vel. ataque",
+            "StatModsAttackSpeedIcon.png",
+        ),
+        (
+            "Ability Haste",
+            "Velocidad de habilidades",
+            "Haste",
+            "Vel. habilid.",
+            "StatModsCDRScalingIcon.png",
+        ),
+    ],
+    &[
+        (
+            "Adaptive Force",
+            "Fuerza adaptable",
+            "Adaptive",
+            "Fuerza",
+            "StatModsAdaptiveForceIcon.png",
+        ),
+        (
+            "Move Speed",
+            "Velocidad de movimiento",
+            "Move spd",
+            "Vel. mov.",
+            "StatModsMovementSpeedIcon.png",
+        ),
+        (
+            "Health Scaling",
+            "Vida escalable",
+            "Health scal.",
+            "Vida esc.",
+            "StatModsHealthPlusIcon.png",
+        ),
+    ],
+    &[
+        (
+            "Health",
+            "Vida",
+            "Health",
+            "Vida",
+            "StatModsHealthScalingIcon.png",
+        ),
+        (
+            "Tenacity and Slow Resist",
             "Tenacidad y resistencia a ralentizaciones",
+            "Tenacity",
+            "Tenacidad",
             "StatModsTenacityIcon.png",
         ),
-        ("Vida escalable", "StatModsHealthPlusIcon.png"),
+        (
+            "Health Scaling",
+            "Vida escalable",
+            "Health scal.",
+            "Vida esc.",
+            "StatModsHealthPlusIcon.png",
+        ),
     ],
 ];
+
+pub type ShardDef = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
+
+/// A stat shard as the UI and the prompt see it, in the app language.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Shard {
+    pub name: String,
+    pub short: String,
+    pub icon: String,
+}
+
+fn shard_rows(lang: Lang) -> Vec<Vec<Shard>> {
+    SHARDS
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|(en, es, sen, ses, icon)| Shard {
+                    name: lang.pick(*en, *es).into(),
+                    short: lang.pick(*sen, *ses).into(),
+                    icon: shard_icon(icon),
+                })
+                .collect()
+        })
+        .collect()
+}
 
 pub fn shard_icon(file: &str) -> String {
     format!("{BASE}/cdn/img/perk-images/StatMods/{file}")
@@ -115,6 +198,10 @@ pub struct GameData {
     pub rune_trees: Vec<RuneTree>,
     /// Hechizos de invocador de la Grieta (modo CLASSIC).
     pub spells: Vec<Spell>,
+    /// Stat shard rows, in the app language.
+    pub shards: Vec<Vec<Shard>>,
+    /// Language the names are in.
+    pub lang: Lang,
     /// Aviso para la UI cuando se usa una copia local más vieja.
     pub notice: Option<String>,
 }
@@ -193,7 +280,7 @@ fn str_vec(v: &Value) -> Vec<String> {
 
 pub fn parse_champions(json: &str, version: &str) -> Result<Vec<Champion>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let data = v["data"].as_object().ok_or("champion.json sin data")?;
+    let data = v["data"].as_object().ok_or("champion.json has no data")?;
     let mut out: Vec<Champion> = data
         .values()
         .map(|c| Champion {
@@ -227,7 +314,7 @@ fn other_mode_starter(i: &Value) -> bool {
 
 pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let data = v["data"].as_object().ok_or("item.json sin data")?;
+    let data = v["data"].as_object().ok_or("item.json has no data")?;
     let in_store: Vec<(&String, &Value)> = data
         .iter()
         .filter(|(id, i)| {
@@ -288,7 +375,7 @@ pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
 
 pub fn parse_runes(json: &str) -> Result<Vec<RuneTree>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let trees = v.as_array().ok_or("runesReforged.json no es una lista")?;
+    let trees = v.as_array().ok_or("runesReforged.json is not a list")?;
     let icon = |p: &Value| format!("{BASE}/cdn/img/{}", p.as_str().unwrap_or_default());
     Ok(trees
         .iter()
@@ -327,7 +414,7 @@ pub fn parse_runes(json: &str) -> Result<Vec<RuneTree>, String> {
 
 pub fn parse_spells(json: &str, version: &str) -> Result<Vec<Spell>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let data = v["data"].as_object().ok_or("summoner.json sin data")?;
+    let data = v["data"].as_object().ok_or("summoner.json has no data")?;
     let mut out: Vec<Spell> = data
         .values()
         .filter(|s| str_vec(&s["modes"]).iter().any(|m| m == "CLASSIC"))
@@ -359,7 +446,7 @@ pub fn strip_tags(s: &str) -> String {
     out
 }
 
-pub fn build(version: &str, files: &HashMap<&str, String>) -> Result<GameData, String> {
+pub fn build(version: &str, files: &HashMap<&str, String>, lang: Lang) -> Result<GameData, String> {
     Ok(GameData {
         version: version.to_string(),
         patch: patch_name(version),
@@ -367,6 +454,8 @@ pub fn build(version: &str, files: &HashMap<&str, String>) -> Result<GameData, S
         items: parse_items(&files["item.json"], version)?,
         rune_trees: parse_runes(&files["runesReforged.json"])?,
         spells: parse_spells(&files["summoner.json"], version)?,
+        shards: shard_rows(lang),
+        lang,
         notice: None,
     })
 }
@@ -414,7 +503,7 @@ async fn latest_version(client: &reqwest::Client) -> Result<String, String> {
         .into_iter()
         .next()
         .filter(|v| valid_version(v))
-        .ok_or_else(|| "versions.json vacío".into())
+        .ok_or_else(|| "versions.json is empty".into())
 }
 
 async fn read_cached(dir: &Path) -> Option<HashMap<&'static str, String>> {
@@ -430,11 +519,12 @@ async fn download(
     client: &reqwest::Client,
     version: &str,
     root: &Path,
+    lang: Lang,
 ) -> Result<GameData, String> {
     let mut files = HashMap::new();
     for f in FILES {
         let text = client
-            .get(format!("{BASE}/cdn/{version}/data/{LOCALE}/{f}"))
+            .get(format!("{BASE}/cdn/{version}/data/{}/{f}", lang.locale()))
             .send()
             .await
             .map_err(|e| e.to_string())?
@@ -446,10 +536,15 @@ async fn download(
         files.insert(f, text);
     }
     // Si Riot (o un portal cautivo) devuelve algo que no se puede leer, no se cachea.
-    let data = build(version, &files)?;
+    let data = build(version, &files, lang)?;
     // Se escribe a una carpeta temporal y se renombra: nunca queda una caché a medias.
     let dir = root.join(version);
-    let tmp = root.join(format!(".tmp-{version}"));
+    // Unique per download: two loads at once (e.g. right after a language
+    // switch) never write into the same temporary folder.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let tmp = root.join(format!(".tmp-{version}-{nonce}"));
     let _ = tokio::fs::remove_dir_all(&tmp).await;
     tokio::fs::create_dir_all(&tmp)
         .await
@@ -460,9 +555,10 @@ async fn download(
             .map_err(|e| e.to_string())?;
     }
     let _ = tokio::fs::remove_dir_all(&dir).await;
-    tokio::fs::rename(&tmp, &dir)
-        .await
-        .map_err(|e| e.to_string())?;
+    // If another load stored this patch first, its copy is just as good.
+    if tokio::fs::rename(&tmp, &dir).await.is_err() {
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
+    }
     Ok(data)
 }
 
@@ -472,15 +568,16 @@ async fn load_version(
     client: &reqwest::Client,
     root: &Path,
     version: &str,
+    lang: Lang,
 ) -> Result<GameData, String> {
     let dir = root.join(version);
     if let Some(files) = read_cached(&dir).await {
-        if let Ok(data) = build(version, &files) {
+        if let Ok(data) = build(version, &files, lang) {
             return Ok(data);
         }
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
-    download(client, version, root).await
+    download(client, version, root, lang).await
 }
 
 /// Borra parches viejos: se quedan los `keep` más recientes.
@@ -513,15 +610,29 @@ async fn newest_cached(root: &Path) -> Option<String> {
         .max_by_key(|v| version_key(v))
 }
 
-async fn load(app: &AppHandle) -> Result<GameData, String> {
-    let root = cache_root(app)?;
+async fn load(app: &AppHandle, lang: Lang) -> Result<GameData, String> {
+    let base = cache_root(app)?;
+    // Older builds kept es_MX patches directly in the base folder: move them
+    // into the es_MX folder (so an offline first launch still has data).
+    let legacy_root = base.join(Lang::Es.locale());
+    for v in cached_versions(&base).await {
+        let (from, to) = (base.join(&v), legacy_root.join(&v));
+        let moved = tokio::fs::create_dir_all(&legacy_root).await.is_ok()
+            && !tokio::fs::try_exists(&to).await.unwrap_or(true)
+            && tokio::fs::rename(&from, &to).await.is_ok();
+        if !moved {
+            let _ = tokio::fs::remove_dir_all(&from).await;
+        }
+    }
+    // One folder per locale: switching language doesn't drop the other one.
+    let root = base.join(lang.locale());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())?;
 
     let net_err = match latest_version(&client).await {
-        Ok(version) => match load_version(&client, &root, &version).await {
+        Ok(version) => match load_version(&client, &root, &version, lang).await {
             Ok(data) => {
                 prune(&root, 2).await;
                 return Ok(data);
@@ -533,15 +644,28 @@ async fn load(app: &AppHandle) -> Result<GameData, String> {
 
     // Sin internet, o falló la descarga del parche nuevo: último parche guardado.
     let version = newest_cached(&root).await.ok_or_else(|| {
-        format!("No pude descargar los datos del parche y no hay copia local: {net_err}")
+        tr(
+            format!("Couldn't download the patch data and there is no local copy: {net_err}"),
+            format!("No pude descargar los datos del parche y no hay copia local: {net_err}"),
+        )
     })?;
-    let files = read_cached(&root.join(&version))
-        .await
-        .ok_or("La copia local del parche está incompleta.")?;
-    let mut data = build(&version, &files)?;
-    data.notice = Some(format!(
-        "No pude actualizar los datos del parche; uso la copia guardada del {}.",
-        data.patch
+    let files = read_cached(&root.join(&version)).await.ok_or_else(|| {
+        tr(
+            "The local copy of the patch is incomplete.",
+            "La copia local del parche está incompleta.",
+        )
+        .to_string()
+    })?;
+    let mut data = build(&version, &files, lang)?;
+    data.notice = Some(tr(
+        format!(
+            "Couldn't update the patch data; using the saved copy of patch {}.",
+            data.patch
+        ),
+        format!(
+            "No pude actualizar los datos del parche; uso la copia guardada del {}.",
+            data.patch
+        ),
     ));
     Ok(data)
 }
@@ -549,14 +673,25 @@ async fn load(app: &AppHandle) -> Result<GameData, String> {
 #[derive(Default)]
 pub struct Cache(Mutex<Option<Arc<GameData>>>);
 
-/// Datos del parche, cargados una vez por ejecución de la app.
+impl Cache {
+    pub async fn clear(&self) {
+        *self.0.lock().await = None;
+    }
+}
+
+/// Patch data, loaded once per run (and again if the language changes).
+/// The lock is only held to read or store the result, never during the
+/// download, so changing the language (`clear`) never waits on the network.
 pub async fn get(app: &AppHandle, cache: &Cache) -> Result<Arc<GameData>, String> {
-    let mut guard = cache.0.lock().await;
-    if let Some(d) = guard.as_ref() {
+    let lang = i18n::lang();
+    if let Some(d) = cache.0.lock().await.as_ref().filter(|d| d.lang == lang) {
         return Ok(d.clone());
     }
-    let data = Arc::new(load(app).await?);
-    *guard = Some(data.clone());
+    let data = Arc::new(load(app, lang).await?);
+    // Don't store data for a language the user already switched away from.
+    if i18n::lang() == lang {
+        *cache.0.lock().await = Some(data.clone());
+    }
     Ok(data)
 }
 
@@ -621,7 +756,8 @@ pub mod fixtures {
         ]
         .into_iter()
         .collect();
-        build("15.22.1", &files).unwrap()
+        // The fixtures are es_MX data.
+        build("15.22.1", &files, Lang::Es).unwrap()
     }
 }
 

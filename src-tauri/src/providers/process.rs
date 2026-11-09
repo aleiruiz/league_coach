@@ -7,8 +7,19 @@ use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use super::ChatEvent;
+use crate::i18n::tr;
 
 /// Tiempo máximo de una consulta antes de matar el proceso.
+/// Error returned when the user stops a request, in either language.
+pub fn stopped_message() -> &'static str {
+    tr("Request stopped.", "Consulta detenida.")
+}
+
+/// Whether an error is the user's own «Stop» (not a failure).
+pub fn is_stopped(e: &str) -> bool {
+    e == "Request stopped." || e == "Consulta detenida."
+}
+
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Busca el ejecutable en el PATH (en Windows también encuentra `.cmd`/`.exe`).
@@ -93,7 +104,12 @@ pub async fn stream(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("No pude ejecutar {}: {e}", bin.display()))?;
+        .map_err(|e| {
+            tr(
+                format!("Couldn't run {}: {e}", bin.display()),
+                format!("No pude ejecutar {}: {e}", bin.display()),
+            )
+        })?;
 
     // stdin en su propia tarea: así un prompt grande no se bloquea mientras el
     // hijo escribe stdout, y si el CLI sale sin leerlo (flag inválido, sin
@@ -148,10 +164,10 @@ pub async fn stream(
 
     let outcome = tokio::select! {
         r = read_all => r,
-        _ = cancel => Err("Consulta detenida.".to_string()),
-        _ = tokio::time::sleep(opts.timeout) => Err(format!(
-            "El modelo tardó más de {} s en responder; detuve la consulta.",
-            opts.timeout.as_secs()
+        _ = cancel => Err(stopped_message().to_string()),
+        _ = tokio::time::sleep(opts.timeout) => Err(tr(
+            format!("The model took more than {} s to answer; I stopped the request.", opts.timeout.as_secs()),
+            format!("El modelo tardó más de {} s en responder; detuve la consulta.", opts.timeout.as_secs()),
         )),
     };
 
@@ -168,7 +184,10 @@ pub async fn stream(
     if !status.success() && !saw_error {
         let t = tail(&stderr_text, 5);
         return Err(if t.is_empty() {
-            format!("El CLI terminó con error ({status}).")
+            tr(
+                format!("The CLI exited with an error ({status})."),
+                format!("El CLI terminó con error ({status})."),
+            )
         } else {
             t
         });
@@ -263,7 +282,7 @@ mod tests {
         let mut o = opts(&dir, "");
         o.timeout = Duration::from_millis(200);
         let (r, _) = run_sh("sleep 30", o).await;
-        assert!(r.unwrap_err().contains("tardó"));
+        assert!(r.unwrap_err().contains("took more than"));
     }
 
     #[tokio::test]
@@ -277,7 +296,7 @@ mod tests {
             let _ = tx.send(());
         });
         let (r, _) = run_sh("sleep 30", o).await;
-        assert_eq!(r.unwrap_err(), "Consulta detenida.");
+        assert_eq!(r.unwrap_err(), "Request stopped.");
     }
 
     #[tokio::test]

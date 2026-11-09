@@ -2,24 +2,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES } from "./game";
+import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES, RuneTree, Shard } from "./game";
 import { RoleIcon } from "./icons";
 import { damageProfile } from "./draft";
 import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
+import { Lang, t } from "./i18n";
 
-/** Build recibida, con el modelo y el draft que la generaron. */
-type Result = Recommendation & { kind: ProviderKind; draft: Draft };
+/** Build received, with the model and the draft that produced it. */
+type Result = Recommendation & {
+  kind: ProviderKind;
+  draft: Draft;
+  /** Rune trees and shards in the language the card was built in. */
+  trees: RuneTree[];
+  shards: Shard[][];
+};
 
-/** Motivo del fallo de la tarjeta, en palabras del jugador. */
+/** Why the card failed, in the player's words. */
 function cardFailure(e: string): string {
-  if (e.startsWith("El modelo tardó")) return "El modelo tardó demasiado en armar la tarjeta.";
-  if (/^(JSON inválido|La respuesta no contiene)/.test(e)) {
-    return "No pude convertir la respuesta del modelo en una tarjeta.";
+  if (/^(The model took|El modelo tardó)/.test(e)) {
+    return t("The model took too long to build the card.", "El modelo tardó demasiado en armar la tarjeta.");
   }
-  // Límite de uso, sesión caducada, CLI que falla…: el motivo real importa.
-  return `No pude armar la tarjeta: ${humanizeError(e)}`;
+  if (/^(Invalid JSON|The answer has no JSON|JSON inválido|La respuesta no contiene)/.test(e)) {
+    return t(
+      "I couldn't turn the model's answer into a card.",
+      "No pude convertir la respuesta del modelo en una tarjeta.",
+    );
+  }
+  // Usage limit, expired session, failing CLI…: the real reason matters.
+  return t(`I couldn't build the card: ${humanizeError(e)}`, `No pude armar la tarjeta: ${humanizeError(e)}`);
 }
 
 function Portrait({ champ, label, onClick, onClear, star, me }: {
@@ -33,16 +45,16 @@ function Portrait({ champ, label, onClick, onClear, star, me }: {
   const cls = ["slot", champ && "filled", me && "me", star?.on && "lane"].filter(Boolean).join(" ");
   return (
     <div className={cls}>
-      <button className="slot-main" onClick={onClick} aria-label={champ ? `${label}: ${champ.name}. Cambiar` : `Elegir ${label}`}>
+      <button className="slot-main" onClick={onClick} aria-label={champ ? t(`${label}: ${champ.name}. Change`, `${label}: ${champ.name}. Cambiar`) : t(`Pick ${label}`, `Elegir ${label}`)}>
         {champ ? <img src={champ.image} alt="" /> : <span className="plus">+</span>}
         <span className="slot-text">
-          {me && <span className="slot-tag">Tú</span>}
-          {star?.on && <span className="slot-tag lane">Rival de línea</span>}
+          {me && <span className="slot-tag">{t("You", "Tú")}</span>}
+          {star?.on && <span className="slot-tag lane">{t("Lane opponent", "Rival de línea")}</span>}
           <span className="slot-name">{champ?.name ?? label}</span>
         </span>
       </button>
       {champ && onClear && (
-        <button className="slot-x" onClick={onClear} aria-label={`Quitar ${champ.name}`}>
+        <button className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
           ×
         </button>
       )}
@@ -51,8 +63,8 @@ function Portrait({ champ, label, onClick, onClear, star, me }: {
           className={star.on ? "slot-star on" : "slot-star"}
           onClick={star.toggle}
           aria-pressed={star.on}
-          title="Rival de línea"
-          aria-label={`Marcar a ${champ.name} como rival de línea`}
+          title={t("Lane opponent", "Rival de línea")}
+          aria-label={t(`Mark ${champ.name} as lane opponent`, `Marcar a ${champ.name} como rival de línea`)}
         >
           ★
         </button>
@@ -61,27 +73,53 @@ function Portrait({ champ, label, onClick, onClear, star, me }: {
   );
 }
 
-/** Reparto estimado del daño rival (con las valoraciones de Riot, no con estadísticas). */
+/** Estimated split of enemy damage (from Riot's ratings, not from stats). */
 function DamageBar({ champs }: { champs: Champion[] }) {
   if (champs.length === 0) return null;
   const p = damageProfile(champs);
   return (
-    <div className="dmg" title="Estimado con las valoraciones de daño de cada campeón">
+    <div className="dmg" title={t("Estimated from each champion's damage ratings", "Estimado con las valoraciones de daño de cada campeón")}>
       <div className="dmg-bar" aria-hidden="true">
         <span className="ad" style={{ flexGrow: p.ad }} />
         <span className="ap" style={{ flexGrow: p.ap }} />
         <span className="mixed" style={{ flexGrow: p.mixed }} />
       </div>
       <p className="dmg-legend small">
-        <span className="ad-t">Físico {p.adPct}%</span> · <span className="ap-t">Mágico {p.apPct}%</span>
-        {p.mixed > 0 && <span className="muted"> · Mixto {100 - p.adPct - p.apPct}%</span>}
-        {p.tanks > 0 && <span className="muted"> · {p.tanks} resistente{p.tanks > 1 ? "s" : ""}</span>}
+        <span className="ad-t">
+          {t("Physical", "Físico")} {p.adPct}%
+        </span>{" "}
+        ·{" "}
+        <span className="ap-t">
+          {t("Magic", "Mágico")} {p.apPct}%
+        </span>
+        {p.mixed > 0 && (
+          <span className="muted">
+            {" "}
+            · {t("Mixed", "Mixto")} {100 - p.adPct - p.apPct}%
+          </span>
+        )}
+        {p.tanks > 0 && (
+          <span className="muted">
+            {" "}
+            · {p.tanks} {t("durable", p.tanks > 1 ? "resistentes" : "resistente")}
+          </span>
+        )}
       </p>
     </div>
   );
 }
 
-function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onGoToModels: () => void }) {
+function DraftView({
+  providers,
+  lang,
+  onBusy,
+  onGoToModels,
+}: {
+  providers: ProvidersState;
+  lang: Lang;
+  onBusy: (busy: boolean) => void;
+  onGoToModels: () => void;
+}) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
   const [data, setData] = useState<GameData | null>(null);
@@ -89,7 +127,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
   const [d, setD] = useState<DraftState>(EMPTY_DRAFT);
   const [picking, setPicking] = useState<Slot | null>(null);
-  // Para devolver el foco a la casilla al cerrar el selector.
+  // To give focus back to the slot when the picker closes.
   const opener = useRef<HTMLElement | null>(null);
 
   const [busy, setBusy] = useState(false);
@@ -100,14 +138,24 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   const [answers, setAnswers] = useState<{ q: string; a: string; error?: string }[]>([]);
   const requestId = useRef<string | null>(null);
   const result = useRef<HTMLDivElement>(null);
-  // Al llegar una build nueva, se lleva a la vista (queda debajo del draft).
+  // When a new build arrives, scroll to it (it sits below the draft).
   useEffect(() => {
     if (rec) result.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [rec]);
 
   useEffect(() => {
-    gameData().then(setData).catch((e) => setDataError(String(e)));
-  }, []);
+    // Reloads when the language changes: names come in the new locale.
+    let current = true;
+    setDataError(null);
+    gameData()
+      .then((g) => current && setData(g))
+      .catch((e) => current && setDataError(String(e)));
+    return () => {
+      current = false;
+    };
+  }, [lang]);
+
+  useEffect(() => onBusy(busy), [busy, onBusy]);
 
   useEffect(() => {
     if (!ready.some((p) => p.kind === kind)) setKind(ready[0]?.kind ?? null);
@@ -115,7 +163,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
   const byId = useMemo(() => new Map(data?.champions.map((c) => [c.id, c]) ?? []), [data]);
   const draft = toDraft(d);
-  // La build ya no corresponde a lo que hay en pantalla.
+  // The build no longer matches what is on screen.
   const stale = !!rec && !sameDraft(rec.draft, draft);
 
   function openPicker(slot: Slot) {
@@ -150,12 +198,12 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
     setError(null);
     setRec(null);
     setAnswers([]);
-    setStatus("Preparando la build…");
+    setStatus(t("Preparing the build…", "Preparando la build…"));
     try {
       const r = await recommendBuild(usedKind, draft, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
       });
-      setRec({ ...r, kind: usedKind, draft });
+      setRec({ ...r, kind: usedKind, draft, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
     } catch (e) {
       setError(humanizeError(String(e)));
     } finally {
@@ -167,7 +215,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
   async function ask() {
     const q = followUp.trim();
-    // Se sigue con el mismo modelo que hizo la build: la sesión es suya.
+    // Keep going with the model that made the build: the session is its own.
     if (!q || !rec?.session_id || stale || busy) return;
     setFollowUp("");
     setBusy(true);
@@ -179,7 +227,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
     try {
       await sendPrompt(
         rec.kind,
-        `${q}\n\n(Responde en texto normal, no en JSON.)`,
+        `${q}\n\n(Answer in plain text, not JSON.)`,
         rec.session_id,
         id,
         (ev) => {
@@ -203,9 +251,9 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   if (!ready.length && !providers.loading) {
     return (
       <section>
-        <h2>Tu partida</h2>
-        <p className="muted">Conecta Claude o ChatGPT para recibir builds.</p>
-        <button onClick={onGoToModels}>Conectar modelos</button>
+        <h2>{t("Your game", "Tu partida")}</h2>
+        <p className="muted">{t("Connect Claude or ChatGPT to get builds.", "Conecta Claude o ChatGPT para recibir builds.")}</p>
+        <button onClick={onGoToModels}>{t("Connect models", "Conectar modelos")}</button>
       </section>
     );
   }
@@ -213,10 +261,14 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   return (
     <section className="draft">
       <header className="draft-header">
-        <h2>Tu partida</h2>
-        {data && <span className="badge">Parche {data.patch}</span>}
+        <h2>{t("Your game", "Tu partida")}</h2>
+        {data && (
+          <span className="badge">
+            {t("Patch", "Parche")} {data.patch}
+          </span>
+        )}
         {ready.length > 1 && (
-          <select aria-label="Modelo" value={kind ?? ""} onChange={(e) => setKind(e.currentTarget.value as ProviderKind)} disabled={busy}>
+          <select aria-label={t("Model", "Modelo")} value={kind ?? ""} onChange={(e) => setKind(e.currentTarget.value as ProviderKind)} disabled={busy}>
             {ready.map((p) => (
               <option key={p.kind} value={p.kind}>
                 {p.label}
@@ -225,17 +277,21 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
           </select>
         )}
         <button className="secondary" onClick={reset} disabled={busy}>
-          Nueva partida
+          {t("New game", "Nueva partida")}
         </button>
       </header>
 
       {data?.notice && <p className="muted small">{data.notice}</p>}
-      {dataError && <p className="error">No pude cargar los datos del parche: {dataError}</p>}
-      {!data && !dataError && <p className="muted">Cargando campeones del parche…</p>}
+      {dataError && (
+        <p className="error">
+          {t("Couldn't load the patch data:", "No pude cargar los datos del parche:")} {dataError}
+        </p>
+      )}
+      {!data && !dataError && <p className="muted">{t("Loading the patch's champions…", "Cargando campeones del parche…")}</p>}
 
       {data && (
         <>
-          <div className="role-bar" role="radiogroup" aria-label="Tu rol">
+          <div className="role-bar" role="radiogroup" aria-label={t("Your role", "Tu rol")}>
             {ROLES.map((r) => (
               <button
                 key={r.id}
@@ -245,17 +301,17 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
                 onClick={() => setD((s) => ({ ...s, role: r.id }))}
               >
                 <RoleIcon role={r.id} />
-                {r.label}
+                {r.label()}
               </button>
             ))}
           </div>
 
           <div className="teams">
             <div className="team ally-team">
-              <h3>Tu equipo</h3>
+              <h3>{t("Your team", "Tu equipo")}</h3>
               <Portrait
                 champ={d.me ? byId.get(d.me) : undefined}
-                label="Tu campeón"
+                label={t("Your champion", "Tu campeón")}
                 me
                 onClick={() => openPicker({ team: "me", index: 0 })}
                 onClear={() => setD((s) => setSlot(s, { team: "me", index: 0 }, null))}
@@ -264,7 +320,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
                 <Portrait
                   key={i}
                   champ={a ? byId.get(a) : undefined}
-                  label="Aliado"
+                  label={t("Ally", "Aliado")}
                   onClick={() => openPicker({ team: "ally", index: i })}
                   onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
                 />
@@ -272,13 +328,13 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             </div>
             <div className="vs">VS</div>
             <div className="team enemy-team">
-              <h3>Rivales</h3>
+              <h3>{t("Enemies", "Rivales")}</h3>
               <DamageBar champs={d.enemies.flatMap((e) => (e && byId.get(e) ? [byId.get(e)!] : []))} />
               {d.enemies.map((e, i) => (
                 <Portrait
                   key={i}
                   champ={e ? byId.get(e) : undefined}
-                  label="Rival"
+                  label={t("Enemy", "Rival")}
                   onClick={() => openPicker({ team: "enemy", index: i })}
                   onClear={() => setD((s) => setSlot(s, { team: "enemy", index: i }, null))}
                   star={e ? { on: d.lane === e, toggle: () => setD((s) => toggleLane(s, e)) } : undefined}
@@ -289,9 +345,12 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
           <div className="draft-actions">
             <textarea
-              aria-label="Notas de la partida"
+              aria-label={t("Game notes", "Notas de la partida")}
               rows={2}
-              placeholder="Opcional: cómo va la partida (p. ej. voy 0/2, su jungla campea mucho mi línea)"
+              placeholder={t(
+                "Optional: how the game is going (e.g. I'm 0/2, their jungler camps my lane a lot)",
+                "Opcional: cómo va la partida (p. ej. voy 0/2, su jungla campea mucho mi línea)",
+              )}
               value={d.notes}
               onChange={(e) => {
                 const notes = e.currentTarget.value;
@@ -300,15 +359,22 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             />
             {busy ? (
               <button className="danger" onClick={() => requestId.current && cancelPrompt(requestId.current)}>
-                Detener
+                {t("Stop", "Detener")}
               </button>
             ) : (
               <button className="primary" onClick={recommend} disabled={!draft || !kind}>
-                {stale ? "Recalcular build" : "Recomendar build"}
+                {stale ? t("Recalculate build", "Recalcular build") : t("Recommend build", "Recomendar build")}
               </button>
             )}
           </div>
-          {!d.me && <p className="muted small">Elige al menos tu campeón. Con rivales la build se adapta mucho mejor.</p>}
+          {!d.me && (
+            <p className="muted small">
+              {t(
+                "Pick at least your champion. With enemies the build adapts much better.",
+                "Elige al menos tu campeón. Con rivales la build se adapta mucho mejor.",
+              )}
+            </p>
+          )}
         </>
       )}
 
@@ -319,36 +385,45 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       {busy && !rec && answers.length === 0 && <BuildCardSkeleton />}
       {stale && !busy && (
         <p className="stale-note" role="status">
-          Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.
+          {t(
+            "You changed the game since this build. Press “Recalculate build” to adapt it.",
+            "Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.",
+          )}
         </p>
       )}
       <div ref={result} />
       {rec?.card_error && (
         <section className={stale ? "panel analysis-only stale" : "panel analysis-only"}>
-          <h4 className="panel-title">Análisis del modelo</h4>
+          <h4 className="panel-title">{t("Model analysis", "Análisis del modelo")}</h4>
           <div className="card-warnings">
             <p className="error small">
               {cardFailure(rec.card_error)}{" "}
-              Aquí tienes su análisis mientras tanto.
+              {t("Here is its analysis in the meantime.", "Aquí tienes su análisis mientras tanto.")}
             </p>
             {!stale && !busy && (
               <button className="secondary" onClick={recommend}>
-                Pedir otra build
+                {t("Ask for another build", "Pedir otra build")}
               </button>
             )}
           </div>
-          <p className="muted small">Texto del modelo sin verificar: las cifras que mencione no están comprobadas.</p>
+          <p className="muted small">
+            {t(
+              "Unverified model text: any figures it mentions aren't checked.",
+              "Texto del modelo sin verificar: las cifras que mencione no están comprobadas.",
+            )}
+          </p>
           <SafeMarkdown>{rec.analysis}</SafeMarkdown>
         </section>
       )}
       {rec && !rec.card_error && (
         <div className={stale ? "stale" : undefined}>
           <BuildCard
-            trees={data?.rune_trees ?? []}
+            trees={rec.trees}
+            shards={rec.shards}
             champion={byId.get(rec.draft.champion)}
             lane={rec.draft.lane_opponent ? byId.get(rec.draft.lane_opponent) : undefined}
             role={rec.draft.role}
-            roleLabel={ROLES.find((r) => r.id === rec.draft.role)?.label ?? rec.draft.role}
+            roleLabel={ROLES.find((r) => r.id === rec.draft.role)?.label() ?? rec.draft.role}
             card={rec.card}
             patch={rec.patch}
             warnings={rec.warnings}
@@ -363,7 +438,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
       {rec?.session_id && !stale && (
         <section className="follow-up">
-          <h4>Preguntar más sobre esta partida</h4>
+          <h4>{t("Ask more about this game", "Preguntar más sobre esta partida")}</h4>
           {answers.map((x, i) => (
             <div key={i} className="qa">
               <p className="q">{x.q}</p>
@@ -381,9 +456,12 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             }}
           >
             <textarea
-              aria-label="Pregunta sobre la build"
+              aria-label={t("Question about the build", "Pregunta sobre la build")}
               rows={2}
-              placeholder="¿Y si su ADC se adelanta? ¿Cuándo voy por el Heraldo?"
+              placeholder={t(
+                "What if their ADC gets ahead? When do I go for Herald?",
+                "¿Y si su ADC se adelanta? ¿Cuándo voy por el Heraldo?",
+              )}
               value={followUp}
               onChange={(e) => setFollowUp(e.currentTarget.value)}
               onKeyDown={(e) => {
@@ -394,7 +472,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
               }}
             />
             <button type="submit" disabled={busy || !followUp.trim()}>
-              Preguntar
+              {t("Ask", "Preguntar")}
             </button>
           </form>
         </section>
@@ -404,7 +482,13 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
         <ChampionPicker
           champions={data.champions}
           taken={takenIds(d)}
-          title={picking.team === "me" ? "Tu campeón" : picking.team === "ally" ? "Aliado" : "Rival"}
+          title={
+            picking.team === "me"
+              ? t("Your champion", "Tu campeón")
+              : picking.team === "ally"
+                ? t("Ally", "Aliado")
+                : t("Enemy", "Rival")
+          }
           onPick={pick}
           onClose={closePicker}
         />
