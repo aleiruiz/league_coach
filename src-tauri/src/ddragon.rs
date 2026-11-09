@@ -539,7 +539,12 @@ async fn download(
     let data = build(version, &files, lang)?;
     // Se escribe a una carpeta temporal y se renombra: nunca queda una caché a medias.
     let dir = root.join(version);
-    let tmp = root.join(format!(".tmp-{version}"));
+    // Unique per download: two loads at once (e.g. right after a language
+    // switch) never write into the same temporary folder.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let tmp = root.join(format!(".tmp-{version}-{nonce}"));
     let _ = tokio::fs::remove_dir_all(&tmp).await;
     tokio::fs::create_dir_all(&tmp)
         .await
@@ -550,9 +555,10 @@ async fn download(
             .map_err(|e| e.to_string())?;
     }
     let _ = tokio::fs::remove_dir_all(&dir).await;
-    tokio::fs::rename(&tmp, &dir)
-        .await
-        .map_err(|e| e.to_string())?;
+    // If another load stored this patch first, its copy is just as good.
+    if tokio::fs::rename(&tmp, &dir).await.is_err() {
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
+    }
     Ok(data)
 }
 
@@ -606,9 +612,17 @@ async fn newest_cached(root: &Path) -> Option<String> {
 
 async fn load(app: &AppHandle, lang: Lang) -> Result<GameData, String> {
     let base = cache_root(app)?;
-    // Older builds kept es_MX patches directly in the base folder.
+    // Older builds kept es_MX patches directly in the base folder: move them
+    // into the es_MX folder (so an offline first launch still has data).
+    let legacy_root = base.join(Lang::Es.locale());
     for v in cached_versions(&base).await {
-        let _ = tokio::fs::remove_dir_all(base.join(v)).await;
+        let (from, to) = (base.join(&v), legacy_root.join(&v));
+        let moved = tokio::fs::create_dir_all(&legacy_root).await.is_ok()
+            && !tokio::fs::try_exists(&to).await.unwrap_or(true)
+            && tokio::fs::rename(&from, &to).await.is_ok();
+        if !moved {
+            let _ = tokio::fs::remove_dir_all(&from).await;
+        }
     }
     // One folder per locale: switching language doesn't drop the other one.
     let root = base.join(lang.locale());
@@ -666,14 +680,18 @@ impl Cache {
 }
 
 /// Patch data, loaded once per run (and again if the language changes).
+/// The lock is only held to read or store the result, never during the
+/// download, so changing the language (`clear`) never waits on the network.
 pub async fn get(app: &AppHandle, cache: &Cache) -> Result<Arc<GameData>, String> {
     let lang = i18n::lang();
-    let mut guard = cache.0.lock().await;
-    if let Some(d) = guard.as_ref().filter(|d| d.lang == lang) {
+    if let Some(d) = cache.0.lock().await.as_ref().filter(|d| d.lang == lang) {
         return Ok(d.clone());
     }
     let data = Arc::new(load(app, lang).await?);
-    *guard = Some(data.clone());
+    // Don't store data for a language the user already switched away from.
+    if i18n::lang() == lang {
+        *cache.0.lock().await = Some(data.clone());
+    }
     Ok(data)
 }
 
