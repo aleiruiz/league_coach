@@ -72,8 +72,11 @@ function PainCard({
   return (
     <article
       className="panel pain"
+      tabIndex={cited.length ? 0 : undefined}
       onMouseEnter={() => cited.length && onHighlight(p.games)}
       onMouseLeave={() => onHighlight(null)}
+      onFocus={() => cited.length && onHighlight(p.games)}
+      onBlur={() => onHighlight(null)}
     >
       <header className="pain-head">
         <span className="pain-n" aria-hidden="true">
@@ -374,6 +377,8 @@ function Progress({
   const refs = useMemo(() => new Map((latest?.game_refs ?? []).map((id, i) => [id, `G${i + 1}`])), [latest]);
   const refOf = (id: string) => refs.get(id) ?? null;
   const [highlight, setHighlight] = useState<string[] | null>(null);
+  // Show at least every game the latest review cites, even after newer ones arrive.
+  const listed = Math.max(20, ...view.games.map((g, i) => (refs.has(g.id) ? i + 1 : 0)));
 
   return (
     <section className="progress">
@@ -538,7 +543,7 @@ function Progress({
         <div className="panel">
           <h3 className="panel-title">{t("Recent games", "Partidas recientes")}</h3>
           <ul className="game-list">
-            {view.games.slice(0, 20).map((g) => (
+            {view.games.slice(0, listed).map((g) => (
               <GameRow
                 key={g.id}
                 g={g}
