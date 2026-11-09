@@ -12,10 +12,14 @@ export type Champion = {
   image: string;
 };
 
+export type Rune = { id: number; name: string; short_desc: string; icon: string };
+export type RuneTree = { id: number; name: string; icon: string; slots: Rune[][] };
+
 export type GameData = {
   version: string;
   patch: string;
   champions: Champion[];
+  rune_trees: RuneTree[];
   /** Aviso cuando se usa una copia local más vieja del parche. */
   notice: string | null;
 };
@@ -53,6 +57,7 @@ export type Card = {
     primary: Ref[];
     secondary_tree: Ref;
     secondary: Ref[];
+    shards: Ref[];
   };
   summoner_spells: Ref[];
   skill_order: { max: string[]; first_levels: string };
@@ -60,7 +65,42 @@ export type Card = {
   matchup_tips: string[];
   threats: { champion: string; why: string }[];
   caveat: string | null;
+  stats: Stat[];
 };
+
+/** Cifra citada de un sitio de estadísticas, con su fuente. */
+export type Stat = {
+  site: string;
+  url: string;
+  patch: string;
+  about: string;
+  win_rate: number | null;
+  pick_rate: number | null;
+  ban_rate: number | null;
+  games: number | null;
+  tier: string | null;
+  rank: string | null;
+  current_patch: boolean;
+};
+
+/** Fragmentos de estadística por fila (igual que en ddragon.rs): [nombre, etiqueta corta]. */
+export const SHARD_ROWS: [string, string][][] = [
+  [
+    ["Fuerza adaptable", "Fuerza"],
+    ["Velocidad de ataque", "Vel. ataque"],
+    ["Velocidad de habilidades", "Vel. habilid."],
+  ],
+  [
+    ["Fuerza adaptable", "Fuerza"],
+    ["Velocidad de movimiento", "Vel. mov."],
+    ["Vida escalable", "Vida esc."],
+  ],
+  [
+    ["Vida", "Vida"],
+    ["Tenacidad y resistencia a ralentizaciones", "Tenacidad"],
+    ["Vida escalable", "Vida esc."],
+  ],
+];
 
 export type Recommendation = {
   card: Card;

@@ -4,6 +4,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
 import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES } from "./game";
+import { RoleIcon } from "./icons";
+import { damageProfile } from "./draft";
 import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
@@ -60,6 +62,26 @@ function Portrait({ champ, label, onClick, onClear, star, me }: {
           ★
         </button>
       )}
+    </div>
+  );
+}
+
+/** Reparto estimado del daño rival (con las valoraciones de Riot, no con estadísticas). */
+function DamageBar({ champs }: { champs: Champion[] }) {
+  if (champs.length === 0) return null;
+  const p = damageProfile(champs);
+  return (
+    <div className="dmg" title="Estimado con las valoraciones de daño de cada campeón">
+      <div className="dmg-bar" aria-hidden="true">
+        <span className="ad" style={{ flexGrow: p.ad }} />
+        <span className="ap" style={{ flexGrow: p.ap }} />
+        <span className="mixed" style={{ flexGrow: p.mixed }} />
+      </div>
+      <p className="dmg-legend small">
+        <span className="ad-t">Físico {p.adPct}%</span> · <span className="ap-t">Mágico {p.apPct}%</span>
+        {p.mixed > 0 && <span className="muted"> · Mixto {100 - p.adPct - p.apPct}%</span>}
+        {p.tanks > 0 && <span className="muted"> · {p.tanks} resistente{p.tanks > 1 ? "s" : ""}</span>}
+      </p>
     </div>
   );
 }
@@ -222,6 +244,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
                 className={d.role === r.id ? "role on" : "role"}
                 onClick={() => setD((s) => ({ ...s, role: r.id }))}
               >
+                <RoleIcon role={r.id} />
                 {r.label}
               </button>
             ))}
@@ -250,6 +273,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             <div className="vs">VS</div>
             <div className="team enemy-team">
               <h3>Rivales</h3>
+              <DamageBar champs={d.enemies.flatMap((e) => (e && byId.get(e) ? [byId.get(e)!] : []))} />
               {d.enemies.map((e, i) => (
                 <Portrait
                   key={i}
@@ -301,6 +325,11 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       {rec && (
         <div className={stale ? "stale" : undefined}>
           <BuildCard
+            trees={data?.rune_trees ?? []}
+            champion={byId.get(rec.draft.champion)}
+            lane={rec.draft.lane_opponent ? byId.get(rec.draft.lane_opponent) : undefined}
+            role={rec.draft.role}
+            roleLabel={ROLES.find((r) => r.id === rec.draft.role)?.label ?? rec.draft.role}
             card={rec.card}
             patch={rec.patch}
             warnings={rec.warnings}

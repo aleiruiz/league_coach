@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane } from "./draft";
+import { damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -72,5 +72,16 @@ describe("draft", () => {
     expect(sameDraft(toDraft(a), toDraft(b))).toBe(false);
     expect(sameDraft(toDraft(a), toDraft({ ...a, role: "mid" }))).toBe(false);
     expect(taken(a)).toEqual(new Set(["Jax", "Darius", "Ahri"]));
+  });
+});
+
+describe("damageProfile", () => {
+  const c = (attack: number, magic: number, defense = 3, tags: string[] = []) => ({ ...champ("x", "x"), attack, magic, defense, tags });
+
+  it("cuenta AD, AP y mixtos y reparte los mixtos a medias", () => {
+    const p = damageProfile([c(9, 1), c(2, 8), c(5, 5, 8), c(8, 2, 3, ["Tank"])]);
+    expect([p.ad, p.ap, p.mixed, p.tanks]).toEqual([2, 1, 1, 2]);
+    expect(p.adPct).toBe(63);
+    expect(p.apPct).toBe(38);
   });
 });

@@ -68,6 +68,30 @@ pub struct RawCard {
     pub threats: Vec<RawThreat>,
     #[serde(deserialize_with = "null_default")]
     pub caveat: Option<String>,
+    #[serde(deserialize_with = "null_default")]
+    pub stats: Vec<RawStat>,
+}
+
+/// Cifra citada de un sitio de estadísticas (u.gg, op.gg…).
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct RawStat {
+    #[serde(deserialize_with = "null_default")]
+    pub site: String,
+    #[serde(deserialize_with = "null_default")]
+    pub url: String,
+    #[serde(deserialize_with = "null_default")]
+    pub patch: String,
+    #[serde(deserialize_with = "null_default")]
+    pub about: String,
+    pub win_rate: Option<f64>,
+    pub pick_rate: Option<f64>,
+    pub ban_rate: Option<f64>,
+    pub games: Option<u64>,
+    #[serde(deserialize_with = "null_default")]
+    pub tier: String,
+    #[serde(deserialize_with = "null_default")]
+    pub rank: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -92,6 +116,9 @@ pub struct RawRunes {
     pub secondary_tree: String,
     #[serde(deserialize_with = "null_default")]
     pub secondary: Vec<String>,
+    /// Fragmentos: ofensivo, flexible, defensivo.
+    #[serde(deserialize_with = "null_default")]
+    pub shards: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -146,6 +173,81 @@ pub struct Runes {
     pub primary: Vec<Ref>,
     pub secondary_tree: Ref,
     pub secondary: Vec<Ref>,
+    pub shards: Vec<Ref>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct Stat {
+    pub site: String,
+    pub url: String,
+    pub patch: String,
+    pub about: String,
+    pub win_rate: Option<f64>,
+    pub pick_rate: Option<f64>,
+    pub ban_rate: Option<f64>,
+    pub games: Option<u64>,
+    pub tier: Option<String>,
+    pub rank: Option<String>,
+    /// La cifra es del parche actual.
+    pub current_patch: bool,
+}
+
+/// Sitios de estadísticas que aceptamos como fuente.
+const STAT_SITES: &[(&str, &str)] = &[
+    ("u.gg", "u.gg"),
+    ("op.gg", "op.gg"),
+    ("mobalytics.gg", "Mobalytics"),
+    ("lolalytics.com", "Lolalytics"),
+    ("leagueofgraphs.com", "League of Graphs"),
+    ("metasrc.com", "METAsrc"),
+];
+
+/// Nombre del sitio si la URL es https y de un sitio conocido.
+fn stat_site(url: &str) -> Option<&'static str> {
+    let rest = url.strip_prefix("https://")?;
+    let host = rest.split(['/', '?', '#']).next()?.to_ascii_lowercase();
+    if host.contains('@') || host.contains(':') {
+        return None;
+    }
+    STAT_SITES
+        .iter()
+        .find(|(domain, _)| host == *domain || host.ends_with(&format!(".{domain}")))
+        .map(|(_, name)| *name)
+}
+
+/// Solo se muestran cifras con una fuente verificable y valores con sentido.
+/// Las que no cumplen se descartan (no se puede comprobar qué leyó el modelo).
+pub fn clean_stats(raw: &[RawStat], patch: &str) -> Vec<Stat> {
+    let pct = |v: Option<f64>| v.filter(|x| (0.0..=100.0).contains(x));
+    raw.iter()
+        .filter_map(|s| {
+            let site = stat_site(s.url.trim())?;
+            let (win_rate, pick_rate, ban_rate) =
+                (pct(s.win_rate), pct(s.pick_rate), pct(s.ban_rate));
+            if win_rate.is_none()
+                && pick_rate.is_none()
+                && ban_rate.is_none()
+                && s.tier.trim().is_empty()
+            {
+                return None;
+            }
+            let opt = |t: &str| Some(t.trim().to_string()).filter(|t| !t.is_empty());
+            Some(Stat {
+                site: site.to_string(),
+                url: s.url.trim().to_string(),
+                patch: s.patch.trim().to_string(),
+                about: s.about.trim().to_string(),
+                win_rate,
+                pick_rate,
+                ban_rate,
+                games: s.games,
+                tier: opt(&s.tier),
+                rank: opt(&s.rank),
+                current_patch: s.patch.trim() == patch,
+            })
+        })
+        .take(6)
+        .collect()
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -162,6 +264,8 @@ pub struct Card {
     pub matchup_tips: Vec<String>,
     pub threats: Vec<RawThreat>,
     pub caveat: Option<String>,
+    /// Cifras de sitios de estadísticas, cada una con su fuente.
+    pub stats: Vec<Stat>,
 }
 
 #[derive(Debug, Serialize)]
@@ -220,14 +324,18 @@ const SCHEMA: &str = r#"{
   "runes": {
     "primary_tree": "rama principal", "keystone": "piedra angular",
     "primary": ["runa", "runa", "runa"],
-    "secondary_tree": "rama secundaria", "secondary": ["runa", "runa"]
+    "secondary_tree": "rama secundaria", "secondary": ["runa", "runa"],
+    "shards": ["fragmento ofensivo", "fragmento flexible", "fragmento defensivo"]
   },
   "summoner_spells": ["Destello", "..."],
   "skill_order": {"max": ["Q", "E", "W"], "first_levels": "p. ej. Q-E-W"},
   "game_plan": {"early": "...", "mid": "...", "late": "..."},
   "matchup_tips": ["consejo concreto contra el rival de línea", "..."],
   "threats": [{"champion": "rival", "why": "por qué es peligroso y cómo jugarlo"}],
-  "caveat": "una sola línea de duda si la hay, o null"
+  "caveat": "una sola línea de duda si la hay, o null",
+  "stats": [{"site": "u.gg", "url": "URL exacta de la página que leíste", "patch": "parche que muestra la página",
+             "about": "qué mide: p. ej. Jax top, o Jax vs Darius", "win_rate": 51.2, "pick_rate": 6.3,
+             "ban_rate": 4.1, "games": 12345, "tier": "A", "rank": "Esmeralda+"}]
 }"#;
 
 pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
@@ -323,12 +431,19 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
         let _ = writeln!(p, "- {}: {}", t.name, rows.join(" | "));
     }
 
+    let _ = writeln!(p, "\nFRAGMENTOS (uno por fila, en orden):");
+    for (i, row) in ddragon::SHARDS.iter().enumerate() {
+        let names: Vec<&str> = row.iter().map(|(n, _)| *n).collect();
+        let _ = writeln!(p, "- Fila {}: {}", i + 1, names.join(", "));
+    }
+
     let _ = writeln!(
         p,
         "\nINSTRUCCIONES:\n\
 - Da UNA recomendación concreta y completa: página de runas entera, 3 ítems principales en orden, botas, iniciales, hechizos y orden de habilidades. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
 - Adáptala a ESTOS rivales (daño, curación, CC, tanques) y explica en \"situational\" y \"threats\" qué cambia contra cada amenaza.\n\
 - Si usas búsqueda web, usa solo datos del parche {} y descarta los de parches anteriores.\n\
+- En \"stats\" cita SOLO cifras que hayas leído en una página de u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc durante esta respuesta, con la URL exacta de esa página y el parche que muestra. Usa null en lo que la página no diga. Si no buscaste o no encontraste datos, deja \"stats\": []. Nunca inventes ni estimes cifras.\n\
 - Si dudas de algo, ponlo en \"caveat\" en una sola línea; no lo repartas por toda la respuesta.\n\
 - Responde SOLO con un objeto JSON válido, sin texto antes ni después, con esta forma:\n{SCHEMA}",
         data.patch
@@ -510,12 +625,35 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
             secondary.len()
         ));
     }
+    let shards: Vec<Ref> = r
+        .shards
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let found = ddragon::SHARDS.get(i).and_then(|row| {
+                row.iter()
+                    .find(|(n, _)| ddragon::normalize(n) == ddragon::normalize(name))
+            });
+            if found.is_none() && !name.trim().is_empty() {
+                warnings.push(format!("Fragmento \"{name}\" no va en la fila {}", i + 1));
+            }
+            Ref {
+                name: found.map_or(name.to_string(), |(n, _)| n.to_string()),
+                image: found.map(|(_, f)| ddragon::shard_icon(f)),
+                valid: found.is_some(),
+            }
+        })
+        .collect();
+    if shards.len() > 3 {
+        warnings.push("Van 3 fragmentos de estadística".into());
+    }
     let runes = Runes {
         primary_tree: primary_tree_ref,
         keystone,
         primary,
         secondary_tree: secondary_tree_ref,
         secondary,
+        shards,
     };
 
     let summoner_spells = raw
@@ -547,6 +685,7 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
         matchup_tips: raw.matchup_tips.clone(),
         threats: raw.threats.clone(),
         caveat: raw.caveat.clone().filter(|c| !c.trim().is_empty()),
+        stats: clean_stats(&raw.stats, &data.patch),
     };
     (card, warnings)
 }
@@ -748,7 +887,8 @@ mod tests {
         "situational":[],
         "runes":{"primary_tree":"Precisión","keystone":"Conquistador",
                  "primary":["Triunfo","Leyenda: Presteza","Último Esfuerzo"],
-                 "secondary_tree":"Valor","secondary":["Segundo Aliento","Demoler"]},
+                 "secondary_tree":"Valor","secondary":["Segundo Aliento","Demoler"],
+                 "shards":["Velocidad de ataque","fuerza adaptable","Vida"]},
         "summoner_spells":["Destello","Teleportar"],
         "skill_order":{"max":["Q","W","E"],"first_levels":"E-Q-W"},
         "game_plan":{"early":"a","mid":"b","late":"c"},
@@ -833,6 +973,42 @@ mod tests {
         let (_, warnings) =
             check(&GOOD.replace(r#""Segundo Aliento","Demoler""#, r#""Segundo Aliento""#));
         assert!(warnings.iter().any(|w| w.contains("Van 2")));
+    }
+
+    #[test]
+    fn shards_are_checked_by_row() {
+        let (card, _) = check(GOOD);
+        assert!(
+            card.runes
+                .shards
+                .iter()
+                .all(|s| s.valid && s.image.is_some())
+        );
+        let (card, warnings) = check(&GOOD.replace(r#""Vida"]"#, r#""Velocidad de ataque"]"#));
+        assert!(!card.runes.shards[2].valid);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn stats_need_a_known_https_source() {
+        let raw: Vec<RawStat> = serde_json::from_str(
+            r#"[
+              {"site":"u.gg","url":"https://u.gg/lol/champions/jax/build/top","patch":"25.22","about":"Jax top","win_rate":51.2,"games":12000,"tier":"A"},
+              {"site":"op.gg","url":"https://www.op.gg/champions/jax/top/build","patch":"25.21","win_rate":50.1},
+              {"site":"inventado","url":"https://misstats.example/jax","win_rate":60},
+              {"site":"u.gg","url":"http://u.gg/jax","win_rate":51},
+              {"site":"u.gg","url":"https://u.gg.evil.com/jax","win_rate":51},
+              {"site":"u.gg","url":"https://u.gg/jax","win_rate":140},
+              {"site":"u.gg","url":"","win_rate":51}
+            ]"#,
+        )
+        .unwrap();
+        let s = clean_stats(&raw, "25.22");
+        assert_eq!(s.len(), 2, "{s:?}");
+        assert_eq!(s[0].site, "u.gg");
+        assert!(s[0].current_patch);
+        assert_eq!(s[1].site, "op.gg");
+        assert!(!s[1].current_patch);
     }
 
     #[test]
