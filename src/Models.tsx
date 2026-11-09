@@ -1,13 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { humanizeError, openLogin, ProviderKind, ProviderStatus, testProvider } from "./providers";
+import {
+  humanizeError,
+  openLogin,
+  ProviderKind,
+  ProviderStatus,
+  ProviderUsage,
+  testProvider,
+  usageOverview,
+} from "./providers";
+import { ProviderDetails } from "./Usage";
 import type { ProvidersState } from "./App";
-import { t } from "./i18n";
+import { Lang, t } from "./i18n";
 
 type Test = { state: "running" | "ok" | "error"; text: string };
 
 /** Status, sign-in and test for each AI CLI (used by Models and the first-run setup). */
-export function ProviderSetup({ providers }: { providers: ProvidersState }) {
+export function ProviderSetup({
+  providers,
+  details,
+}: {
+  providers: ProvidersState;
+  /** Extra content under a signed-in provider (Models shows usage there). */
+  details?: (p: ProviderStatus) => ReactNode;
+}) {
   const { list, loading, error, refresh } = providers;
   const [message, setMessage] = useState<string | null>(null);
   const [tests, setTests] = useState<Partial<Record<ProviderKind, Test>>>({});
@@ -103,8 +119,7 @@ export function ProviderSetup({ providers }: { providers: ProvidersState }) {
                 </span>
               </div>
               <p className="muted small">
-                {p.detail}
-                {p.version ? ` · ${p.version}` : ""}
+                {[p.detail, p.version].filter(Boolean).join(" · ")}
               </p>
               {test && (
                 <p className={test.state === "error" ? "error small" : "muted small"} role="status">
@@ -123,6 +138,7 @@ export function ProviderSetup({ providers }: { providers: ProvidersState }) {
                   {loading ? t("Checking…", "Verificando…") : t("Check", "Verificar")}
                 </button>
               </div>
+              {p.logged_in && details?.(p)}
             </li>
           );
         })}
@@ -140,12 +156,35 @@ export const modelsIntro = () =>
     "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
   );
 
-function Models({ providers }: { providers: ProvidersState }) {
+function Models({ providers, active, lang }: { providers: ProvidersState; active: boolean; lang: Lang }) {
+  const [usage, setUsage] = useState<ProviderUsage[]>([]);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const loadUsage = useCallback(() => {
+    usageOverview()
+      .then((u) => {
+        setUsage(u);
+        setUsageError(null);
+      })
+      .catch((e) => setUsageError(String(e)));
+  }, []);
+  // Each time the tab is opened (the view stays mounted while hidden).
+  useEffect(() => {
+    if (active) loadUsage();
+  }, [active, loadUsage]);
+
   return (
     <section>
       <h2>{t("Models", "Modelos")}</h2>
       <p className="muted">{modelsIntro()}</p>
-      <ProviderSetup providers={providers} />
+      {usageError && (
+        <p className="error small">
+          {t("Couldn't read usage:", "No pude leer el uso:")} {usageError}
+        </p>
+      )}
+      <ProviderSetup
+        providers={providers}
+        details={(p) => <ProviderDetails key={`${p.kind}-${lang}`} kind={p.kind} usage={usage.find((u) => u.kind === p.kind)} />}
+      />
     </section>
   );
 }

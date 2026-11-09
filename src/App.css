@@ -1802,3 +1802,100 @@ a.inline-link {
 .setup-app .content {
   min-height: 100vh;
 }
+
+/* Models: model picker, plan limits, token use */
+.usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.usage-block h4 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.usage-block p {
+  margin: 4px 0 0;
+}
+.usage-model select {
+  width: 100%;
+}
+.meter + .meter {
+  margin-top: 10px;
+}
+.meter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+.meter-head .badge {
+  margin-left: 6px;
+}
+.meter-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+.meter-track.high .meter-fill {
+  background: var(--warn);
+}
+.meter-track.full .meter-fill {
+  background: var(--danger);
+}
+.usage-today {
+  font-size: 0.95rem;
+}
+.spark {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 64px;
+  margin-top: 8px;
+}
+.spark-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: default;
+  min-width: 0;
+}
+.spark-col:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.spark-bar {
+  display: block;
+  background: var(--accent);
+  opacity: 0.55;
+  border-radius: 4px 4px 0 0;
+}
+.spark-col.focus .spark-bar,
+.spark-col:last-child .spark-bar {
+  opacity: 1;
+}
+.spark-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1;
+}

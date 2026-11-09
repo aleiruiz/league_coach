@@ -7,6 +7,7 @@ use serde_json::Value;
 use super::ChatEvent;
 use super::process::{self, Parsed};
 use crate::i18n::tr;
+use crate::usage::LimitWindow;
 
 pub async fn login_status(bin: &Path) -> (bool, Option<String>) {
     match process::run_capture(bin, &["auth", "status", "--json"]).await {
@@ -66,7 +67,7 @@ pub fn parse_auth_status(stdout: &str) -> (bool, Option<String>) {
 /// Aislamos la sesión de la configuración del usuario: sin sus MCP, hooks,
 /// plugins, skills ni settings, y con todo lo que no sea búsqueda web denegado.
 /// No usamos `--bare` porque desactiva el login con suscripción.
-pub fn args(prompt_file: &Path, session_id: Option<&str>) -> Vec<String> {
+pub fn args(prompt_file: &Path, session_id: Option<&str>, model: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = [
         "-p",
         "--output-format",
@@ -95,6 +96,10 @@ pub fn args(prompt_file: &Path, session_id: Option<&str>) -> Vec<String> {
         // Forma pegada: `--resume` tiene valor opcional y no debe poder leerse
         // un flag como valor (el id ya se validó antes).
         a.push(format!("--resume={id}"));
+    }
+    if let Some(m) = model {
+        // Joined form, like `--resume`; the id was validated (`models::valid_id`).
+        a.push(format!("--model={m}"));
     }
     a
 }
@@ -125,7 +130,9 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
                 .flat_map(|b| urls_in(&b["content"]))
                 .collect(),
         ),
+        Some("rate_limit_event") => limits(&v["rate_limit_info"]),
         Some("result") => {
+            let usage = usage(&v["usage"]);
             let text = v["result"].as_str().unwrap_or_default().to_string();
             if v["is_error"].as_bool().unwrap_or(false) || v["subtype"] != "success" {
                 let message = if text.is_empty() {
@@ -136,12 +143,59 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
                 } else {
                     text
                 };
-                vec![ChatEvent::Error { message }]
+                usage
+                    .into_iter()
+                    .chain([ChatEvent::Error { message }])
+                    .collect()
             } else {
-                vec![ChatEvent::Final { text }]
+                usage
+                    .into_iter()
+                    .chain([ChatEvent::Final { text }])
+                    .collect()
             }
         }
         _ => vec![],
+    }
+}
+
+/// Tokens of the whole answer (all its turns). Cached prompt tokens count
+/// as input: they are part of what the model read.
+fn usage(u: &Value) -> Option<ChatEvent> {
+    let n = |k: &str| u[k].as_u64().unwrap_or(0);
+    let input = n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens");
+    let output = n("output_tokens");
+    (u.is_object() && input + output > 0).then_some(ChatEvent::Usage {
+        input_tokens: input,
+        output_tokens: output,
+    })
+}
+
+/// `rate_limit_info.unifiedWindows`: `{"five_hour": {"utilization": 0.1,
+/// "resetsAt": 1794274800}, "seven_day": {...}}`. Utilization is 0 to 1.
+fn limits(info: &Value) -> Vec<ChatEvent> {
+    let Some(map) = info["unifiedWindows"].as_object() else {
+        return vec![];
+    };
+    let windows: Vec<LimitWindow> = map
+        .iter()
+        .filter_map(|(id, w)| {
+            let used = w["utilization"].as_f64()?;
+            Some(LimitWindow {
+                id: id.clone(),
+                used_percent: (used * 100.0).clamp(0.0, 100.0),
+                window_minutes: match id.as_str() {
+                    "five_hour" => Some(5 * 60),
+                    "seven_day" => Some(7 * 24 * 60),
+                    _ => None,
+                },
+                resets_at: w["resetsAt"].as_i64(),
+            })
+        })
+        .collect();
+    if windows.is_empty() {
+        vec![]
+    } else {
+        vec![ChatEvent::Limits { windows }]
     }
 }
 
@@ -303,7 +357,7 @@ mod tests {
 
     #[test]
     fn args_isolate_user_config() {
-        let a = args(Path::new("coach.md"), None);
+        let a = args(Path::new("coach.md"), None, None);
         for flag in [
             "--strict-mcp-config",
             "--setting-sources=",
@@ -321,8 +375,10 @@ mod tests {
 
     #[test]
     fn resume_uses_attached_form() {
-        let a = args(Path::new("coach.md"), Some("abc-123"));
+        let a = args(Path::new("coach.md"), Some("abc-123"), None);
         assert_eq!(a.last().unwrap(), "--resume=abc-123");
+        let a = args(Path::new("coach.md"), None, Some("sonnet"));
+        assert_eq!(a.last().unwrap(), "--model=sonnet");
     }
 
     #[test]
@@ -350,6 +406,34 @@ mod tests {
                 ChatEvent::Final {
                     text: "Compra Mercurios".into()
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_usage_and_limits() {
+        let ev = events(&[
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1794274800},"seven_day":{"utilization":0.22,"resetsAt":1794787200},"broken":{}}}}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"ok","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":900,"output_tokens":4}}"#,
+        ]);
+        let ChatEvent::Limits { windows } = &ev[0] else {
+            panic!("{ev:?}")
+        };
+        assert_eq!(windows.len(), 2);
+        let five = windows.iter().find(|w| w.id == "five_hour").unwrap();
+        assert!((five.used_percent - 10.0).abs() < 1e-9);
+        assert_eq!(
+            (five.window_minutes, five.resets_at),
+            (Some(300), Some(1794274800))
+        );
+        assert_eq!(
+            ev[1..],
+            [
+                ChatEvent::Usage {
+                    input_tokens: 1002,
+                    output_tokens: 4
+                },
+                ChatEvent::Final { text: "ok".into() }
             ]
         );
     }

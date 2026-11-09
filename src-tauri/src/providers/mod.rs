@@ -4,6 +4,7 @@
 
 pub mod claude_code;
 pub mod codex;
+pub mod models;
 mod process;
 pub use process::{DEFAULT_TIMEOUT, is_stopped};
 pub mod prompts;
@@ -93,6 +94,17 @@ pub enum ChatEvent {
     Sources {
         urls: Vec<String>,
     },
+    /// Tokens of the answer, as the CLI reports them. Recorded in the usage
+    /// store by `run`, never sent to the UI.
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    /// Plan limits the CLI reported with the answer (Claude Code). Recorded
+    /// like `Usage`.
+    Limits {
+        windows: Vec<crate::usage::LimitWindow>,
+    },
     Done,
 }
 
@@ -147,6 +159,11 @@ async fn status(kind: ProviderKind) -> ProviderStatus {
     st.logged_in = logged_in;
     st.detail = detail;
     st
+}
+
+/// Path of the provider's CLI, if it is installed.
+pub fn resolve(kind: ProviderKind) -> Option<std::path::PathBuf> {
+    process::resolve(kind.binary())
 }
 
 fn not_installed(kind: ProviderKind) -> String {
@@ -301,6 +318,8 @@ pub async fn run(
     // build, review), so the model never has to guess it.
     let system = prompts::coach(lang, live_patch(app).await.as_ref());
 
+    let model = models::selected(app, kind);
+    let model = model.as_deref();
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
@@ -309,12 +328,12 @@ pub async fn run(
             let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
             std::fs::write(&prompt_file, &system).map_err(|e| e.to_string())?;
             (
-                claude_code::args(&prompt_file, session_id),
+                claude_code::args(&prompt_file, session_id, model),
                 prompt.to_string(),
             )
         }
         ProviderKind::Codex => (
-            codex::args(session_id),
+            codex::args(session_id, model),
             codex::stdin_prompt(prompt, session_id.is_none().then_some(system.as_str())),
         ),
     };
@@ -328,7 +347,24 @@ pub async fn run(
         timeout,
         cancel,
     };
-    process::stream(&bin, &args, opts, parse, send).await
+    // Usage and limits go to the usage store, not to the UI.
+    let store = app.state::<crate::usage::Store>();
+    let send = |ev: ChatEvent| match ev {
+        ChatEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => store.record_tokens(
+            app,
+            kind,
+            crate::usage::Tokens {
+                input: input_tokens,
+                output: output_tokens,
+            },
+        ),
+        ChatEvent::Limits { windows } => store.record_limits(app, kind, windows),
+        ev => send(ev),
+    };
+    process::stream(&bin, &args, opts, parse, &send).await
 }
 
 /// Current patch, only if Data Dragon was already loaded this run (the main

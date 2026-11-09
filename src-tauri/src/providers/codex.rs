@@ -9,6 +9,7 @@ use super::process::{self, Parsed};
 #[cfg(test)]
 use super::prompts;
 use crate::i18n::tr;
+use crate::usage::LimitWindow;
 
 pub async fn login_status(bin: &Path) -> (bool, Option<String>) {
     match process::run_capture(bin, &["login", "status"]).await {
@@ -115,12 +116,15 @@ fn common() -> Vec<String> {
     a
 }
 
-pub fn args(session_id: Option<&str>) -> Vec<String> {
+pub fn args(session_id: Option<&str>, model: Option<&str>) -> Vec<String> {
     let mut a = vec!["exec".to_string()];
+    // Joined form: the id was validated (`models::valid_id`).
+    let model = model.map(|m| format!("--model={m}"));
     match session_id {
         Some(id) => {
             a.push("resume".into());
             a.extend(common());
+            a.extend(model);
             // El id ya se validó (no empieza con '-'), así que no se lee como flag.
             a.push(id.into());
         }
@@ -128,6 +132,7 @@ pub fn args(session_id: Option<&str>) -> Vec<String> {
             a.push("--sandbox".into());
             a.push("read-only".into());
             a.extend(common());
+            a.extend(model);
         }
     }
     // El prompt llega por stdin.
@@ -187,6 +192,19 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
             .as_str()
             .map(|t| ev(ChatEvent::Message { text: t.into() }))
             .unwrap_or_default(),
+        // `input_tokens` already includes the cached ones.
+        Some("turn.completed") => {
+            let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
+            let (input, output) = (n("input_tokens"), n("output_tokens"));
+            if input + output > 0 {
+                ev(ChatEvent::Usage {
+                    input_tokens: input,
+                    output_tokens: output,
+                })
+            } else {
+                vec![]
+            }
+        }
         Some("turn.failed") => ev(ChatEvent::Error {
             message: v["error"]["message"]
                 .as_str()
@@ -204,6 +222,112 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
         }),
         _ => vec![],
     }
+}
+
+/// One request to `codex app-server` (JSON-RPC over stdio): plan limits and
+/// the model list come from there, without spending a model query.
+async fn app_server(bin: &Path, method: &str, params: Value) -> Result<Value, String> {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let mut child = process::command(bin)
+        .arg("app-server")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let stdout = child.stdout.take().ok_or("no stdout")?;
+    let messages = [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"clientInfo": {"name": "league-coach", "version": env!("CARGO_PKG_VERSION")}}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "initialized"}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": method, "params": params}),
+    ];
+    let mut text = String::new();
+    for m in messages {
+        text.push_str(&m.to_string());
+        text.push('\n');
+    }
+    let read = async {
+        stdin
+            .write_all(text.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if v["id"] == 2 {
+                return match v.get("error") {
+                    Some(e) => Err(e["message"].as_str().unwrap_or("error").to_string()),
+                    None => Ok(v["result"].clone()),
+                };
+            }
+        }
+        Err(tr(
+            "Codex closed without answering.",
+            "Codex se cerró sin responder.",
+        )
+        .to_string())
+    };
+    let out = tokio::time::timeout(std::time::Duration::from_secs(10), read)
+        .await
+        .unwrap_or_else(|_| {
+            Err(tr(
+                "Codex took too long to answer.",
+                "Codex tardó demasiado en responder.",
+            )
+            .into())
+        });
+    let _ = child.kill().await;
+    out
+}
+
+/// Current plan limits (needs a ChatGPT sign-in).
+pub async fn rate_limits(bin: &Path) -> Result<Vec<LimitWindow>, String> {
+    let r = app_server(bin, "account/rateLimits/read", Value::Null).await?;
+    Ok(parse_rate_limits(&r))
+}
+
+/// `{"rateLimits": {"primary": {"usedPercent": 12, "windowDurationMins":
+/// 300, "resetsAt": 1794274800}, "secondary": {...}}}`
+pub fn parse_rate_limits(r: &Value) -> Vec<LimitWindow> {
+    ["primary", "secondary"]
+        .iter()
+        .filter_map(|id| {
+            let w = &r["rateLimits"][id];
+            Some(LimitWindow {
+                id: id.to_string(),
+                used_percent: w["usedPercent"].as_f64()?.clamp(0.0, 100.0),
+                window_minutes: w["windowDurationMins"].as_u64(),
+                resets_at: w["resetsAt"].as_i64(),
+            })
+        })
+        .collect()
+}
+
+/// Models the user's Codex offers, as `(id, name, description, is_default)`.
+pub async fn list_models(bin: &Path) -> Result<Vec<(String, String, String, bool)>, String> {
+    let r = app_server(bin, "model/list", serde_json::json!({})).await?;
+    Ok(parse_models(&r))
+}
+
+pub fn parse_models(r: &Value) -> Vec<(String, String, String, bool)> {
+    r["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| !m["hidden"].as_bool().unwrap_or(false))
+        .filter_map(|m| {
+            let id = m["model"].as_str().or(m["id"].as_str())?.to_string();
+            let name = m["displayName"].as_str().unwrap_or(&id).to_string();
+            let desc = m["description"].as_str().unwrap_or_default().to_string();
+            Some((id, name, desc, m["isDefault"].as_bool().unwrap_or(false)))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -229,17 +353,53 @@ mod tests {
     }
 
     #[test]
+    fn parses_app_server_answers() {
+        let r: Value = serde_json::from_str(
+            r#"{"rateLimits":{"primary":{"usedPercent":12.5,"windowDurationMins":300,"resetsAt":1794274800},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":null}}}"#,
+        )
+        .unwrap();
+        let w = parse_rate_limits(&r);
+        assert_eq!(w.len(), 2);
+        assert_eq!(
+            (w[0].id.as_str(), w[0].used_percent, w[0].window_minutes),
+            ("primary", 12.5, Some(300))
+        );
+        assert_eq!((w[1].resets_at, w[1].window_minutes), (None, Some(10080)));
+        assert!(
+            parse_rate_limits(&serde_json::json!({"rateLimits": {"primary": null}})).is_empty()
+        );
+
+        let m: Value = serde_json::from_str(
+            r#"{"data":[{"id":"a","model":"gpt-6.1-sol","displayName":"GPT-6.1-Sol","description":"Workhorse","hidden":false,"isDefault":true},{"id":"h","model":"secret","displayName":"S","hidden":true,"isDefault":false}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parse_models(&m),
+            vec![(
+                "gpt-6.1-sol".into(),
+                "GPT-6.1-Sol".into(),
+                "Workhorse".into(),
+                true
+            )]
+        );
+    }
+
+    #[test]
     fn args_new_and_resume() {
-        let new = args(None);
+        let new = args(None, None);
         assert_eq!(&new[..3], &["exec", "--sandbox", "read-only"]);
         assert_eq!(new.last().unwrap(), "-");
         let pos = new.iter().position(|x| x == "shell_tool").unwrap();
         assert_eq!(new[pos - 1], "--disable");
         assert!(new.contains(&"mcp_servers={}".to_string()));
 
-        let resumed = args(Some("t-9"));
+        assert!(!new.iter().any(|x| x.starts_with("--model")));
+        let resumed = args(Some("t-9"), Some("gpt-6-sol"));
         assert_eq!(&resumed[..3], &["exec", "resume", "--json"]);
-        assert_eq!(&resumed[resumed.len() - 2..], &["t-9", "-"]);
+        assert_eq!(
+            &resumed[resumed.len() - 3..],
+            &["--model=gpt-6-sol", "t-9", "-"]
+        );
         assert!(resumed.contains(&"sandbox_mode=read-only".to_string()));
     }
 
@@ -271,6 +431,10 @@ mod tests {
                 }),
                 Parsed::Event(ChatEvent::Message {
                     text: "Ve Trinity Force.".into()
+                }),
+                Parsed::Event(ChatEvent::Usage {
+                    input_tokens: 10,
+                    output_tokens: 5
                 }),
                 Parsed::Event(ChatEvent::Error {
                     message: "rate limited".into()

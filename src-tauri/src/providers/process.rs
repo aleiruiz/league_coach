@@ -33,7 +33,7 @@ pub struct Output {
     pub stderr: String,
 }
 
-fn command(bin: &Path) -> Command {
+pub(super) fn command(bin: &Path) -> Command {
     let mut cmd = Command::new(bin);
     #[cfg(windows)]
     {
