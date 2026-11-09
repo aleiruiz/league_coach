@@ -885,7 +885,7 @@ pub async fn recommend_build(
 
     let (mut card, warnings) = validate(&raw, &data);
     (card.stats, card.stats_dropped) = clean_stats(&raw.stats, &data, &seen);
-    card.stats_verifiable = kind != ProviderKind::Codex;
+    card.stats_verifiable = kind == ProviderKind::ClaudeCode;
     Ok(Recommendation {
         card,
         warnings,

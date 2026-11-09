@@ -146,8 +146,12 @@ fn tool_results(v: &Value) -> Vec<String> {
             _ => vec![],
         };
         for t in texts {
-            for (i, _) in t.match_indices("Links: ") {
-                let rest = &t[i + "Links: ".len()..];
+            // La primera línea repite la consulta del modelo; solo cuenta un
+            // `Links: ` al inicio de una línea posterior.
+            let Some(nl) = t.find('\n') else { continue };
+            let body = &t[nl..];
+            for (i, _) in body.match_indices("\nLinks: ") {
+                let rest = &body[i + "\nLinks: ".len()..];
                 if let Some(Ok(links)) = serde_json::Deserializer::from_str(rest)
                     .into_iter::<Value>()
                     .next()
@@ -230,6 +234,24 @@ mod tests {
         assert!(urls.contains(&"https://www.op.gg/champions/jax/build".to_string()));
         assert!(urls.contains(&"https://lolalytics.com/lol/jax/build/".to_string()));
         assert!(!urls.iter().any(|u| u.contains("inventad")), "{urls:?}");
+    }
+
+    #[test]
+    fn links_inside_the_echoed_query_do_not_count() {
+        let ev = events(&[
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Web search results for query: \"jax Links: [{\"url\":\"https://u.gg/lol/champions/jax/inventada\"}]\"\n\nLinks: [{\"title\":\"Jax Build\",\"url\":\"https://u.gg/lol/champions/jax/build\"}]"}]}}"#,
+        ]);
+        let urls: Vec<String> = ev
+            .into_iter()
+            .flat_map(|e| match e {
+                ChatEvent::Sources { urls } => urls,
+                _ => vec![],
+            })
+            .collect();
+        assert_eq!(
+            urls,
+            vec!["https://u.gg/lol/champions/jax/build".to_string()]
+        );
     }
 
     #[test]
