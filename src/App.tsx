@@ -158,7 +158,7 @@ function App() {
           <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("models")} />
         </div>
         <div hidden={view !== "models"}>
-          <Models providers={providers} />
+          <Models providers={providers} active={view === "models"} lang={lang} />
         </div>
         <div hidden={view !== "settings"}>
           <Settings
