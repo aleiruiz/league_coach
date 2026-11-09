@@ -302,10 +302,11 @@ impl Client {
 
     /// Account-V1: Riot ID → PUUID.
     pub async fn puuid(&self, game_name: &str, tag_line: &str) -> Result<String, RiotError> {
-        #[derive(Deserialize)]
-        struct Account {
-            puuid: String,
-        }
+        Ok(self.account(game_name, tag_line).await?.puuid)
+    }
+
+    /// Account-V1 with the Riot ID as Riot spells it (capitals included).
+    pub async fn account(&self, game_name: &str, tag_line: &str) -> Result<Account, RiotError> {
         let url = Self::url(
             self.region.account_cluster,
             &[
@@ -318,7 +319,25 @@ impl Client {
                 tag_line,
             ],
         );
-        Ok(self.get::<Account>(url).await?.puuid)
+        self.get(url).await
+    }
+
+    /// Summoner-V4 on the player's own server: icon and level.
+    pub async fn summoner(&self, puuid: &str) -> Result<Summoner, RiotError> {
+        let url = Self::url(
+            self.region.id,
+            &["lol", "summoner", "v4", "summoners", "by-puuid", puuid],
+        );
+        self.get(url).await
+    }
+
+    /// League-V4: ranked entries (solo/duo, flex). Empty when unranked.
+    pub async fn ranks(&self, puuid: &str) -> Result<Vec<LeagueEntry>, RiotError> {
+        let url = Self::url(
+            self.region.id,
+            &["lol", "league", "v4", "entries", "by-puuid", puuid],
+        );
+        self.get(url).await
     }
 
     /// Match-V5: ids of the most recent games, newest first.
@@ -348,6 +367,118 @@ impl Client {
         );
         self.get(url).await
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    pub puuid: String,
+    #[serde(default)]
+    pub game_name: Option<String>,
+    #[serde(default)]
+    pub tag_line: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summoner {
+    pub profile_icon_id: i64,
+    pub summoner_level: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "camelCase"))]
+pub struct LeagueEntry {
+    pub queue_type: String,
+    pub tier: String,
+    pub rank: String,
+    pub league_points: i64,
+    pub wins: i64,
+    pub losses: i64,
+}
+
+/// What the search shows for an exact Riot ID match.
+#[derive(Debug, Serialize)]
+pub struct SummonerPreview {
+    game_name: String,
+    tag_line: String,
+    region: &'static str,
+    level: i64,
+    icon_url: Option<String>,
+    /// Solo/duo first, then flex; other queues are left out.
+    ranks: Vec<LeagueEntry>,
+}
+
+fn rank_order(q: &str) -> Option<u8> {
+    match q {
+        "RANKED_SOLO_5x5" => Some(0),
+        "RANKED_FLEX_SR" => Some(1),
+        _ => None,
+    }
+}
+
+pub fn ranked_queues(mut entries: Vec<LeagueEntry>) -> Vec<LeagueEntry> {
+    entries.retain(|e| rank_order(&e.queue_type).is_some());
+    entries.sort_by_key(|e| rank_order(&e.queue_type));
+    entries
+}
+
+/// Exact Riot ID lookup for the search box. Riot has no name search, so
+/// there is no partial match: either this Riot ID exists on that server or
+/// it doesn't. Gives up after 10 s so typing never waits on a rate limit.
+#[tauri::command]
+pub async fn lookup_summoner(
+    app: AppHandle,
+    cache: tauri::State<'_, crate::ddragon::Cache>,
+    riot_id: String,
+    region: String,
+) -> Result<SummonerPreview, String> {
+    let (name, tag) = parse_riot_id(&riot_id)?;
+    let reg = find_region(&region)
+        .ok_or_else(|| tr("Pick a region.", "Elige una región.").to_string())?;
+    let lookup = async {
+        let client = Client::new(reg)?;
+        let account = client.account(&name, &tag).await?;
+        let (summoner, ranks) = tokio::join!(
+            client.summoner(&account.puuid),
+            client.ranks(&account.puuid)
+        );
+        Ok::<_, RiotError>((account, summoner?, ranks.unwrap_or_default()))
+    };
+    let (account, summoner, ranks) = tokio::time::timeout(Duration::from_secs(10), lookup)
+        .await
+        .map_err(|_| {
+            tr(
+                "Riot took too long to answer.",
+                "Riot tardó demasiado en responder.",
+            )
+            .to_string()
+        })?
+        .map_err(|e| match e {
+            RiotError::NotFound => tr(
+                format!("No player is called {name}#{tag} on {}.", reg.label),
+                format!("Nadie se llama {name}#{tag} en {}.", reg.label),
+            ),
+            e => e.message(),
+        })?;
+    // The icon needs a Data Dragon version: the one already loaded, or a
+    // short try at loading it (during first-run setup nothing is loaded yet).
+    let data = match crate::ddragon::loaded(&cache).await {
+        Some(d) => Some(d),
+        None => tokio::time::timeout(Duration::from_secs(5), crate::ddragon::get(&app, &cache))
+            .await
+            .ok()
+            .and_then(Result::ok),
+    };
+    let version = data.map(|d| d.version.clone());
+    Ok(SummonerPreview {
+        game_name: account.game_name.unwrap_or(name),
+        tag_line: account.tag_line.unwrap_or(tag),
+        region: reg.id,
+        level: summoner.summoner_level,
+        icon_url: version.map(|v| crate::ddragon::profile_icon(&v, summoner.profile_icon_id)),
+        ranks: ranked_queues(ranks),
+    })
 }
 
 #[cfg(test)]
@@ -427,6 +558,26 @@ mod tests {
             ..p.clone()
         };
         assert_ne!(p.store_id(), euw.store_id());
+    }
+
+    #[test]
+    fn keeps_solo_then_flex() {
+        let e = |q: &str| LeagueEntry {
+            queue_type: q.into(),
+            tier: "GOLD".into(),
+            rank: "II".into(),
+            league_points: 10,
+            wins: 1,
+            losses: 2,
+        };
+        let r = ranked_queues(vec![e("RANKED_FLEX_SR"), e("CHERRY"), e("RANKED_SOLO_5x5")]);
+        let q: Vec<_> = r.iter().map(|x| x.queue_type.as_str()).collect();
+        assert_eq!(q, ["RANKED_SOLO_5x5", "RANKED_FLEX_SR"]);
+        let json: Vec<LeagueEntry> = serde_json::from_str(
+            r#"[{"queueType":"RANKED_SOLO_5x5","tier":"EMERALD","rank":"IV","leaguePoints":33,"wins":20,"losses":18,"puuid":"x"}]"#,
+        )
+        .unwrap();
+        assert_eq!(json[0].league_points, 33);
     }
 
     #[test]

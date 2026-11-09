@@ -1802,3 +1802,128 @@ a.inline-link {
 .setup-app .content {
   min-height: 100vh;
 }
+
+/* Riot ID search (Settings and first-run setup) */
+.summoner-search {
+  max-width: 640px;
+}
+.search-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 4px;
+}
+.search-bar:focus-within {
+  border-color: var(--accent);
+}
+.search-bar select.search-region {
+  flex: 0 0 auto;
+  border: 0;
+  padding-inline: 14px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  font-weight: 600;
+}
+.search-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.search-field input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.search-field input:focus {
+  outline: none;
+}
+.search-bar button[type="submit"] {
+  border-radius: 999px;
+}
+.search-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: -8px;
+  right: -8px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.search-suggestions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.search-suggestions li.active,
+.search-suggestions li:hover {
+  background: var(--panel-2);
+}
+.search-suggestions .search-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-suggestions button {
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.search-suggestions .star.on {
+  color: var(--gold);
+}
+.search-preview {
+  min-height: 1.5em;
+  margin-top: 8px;
+}
+.summoner-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.summoner-card img,
+.summoner-icon-blank {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  flex: 0 0 auto;
+  background: var(--panel);
+}
+.summoner-card p {
+  margin: 2px 0 0;
+}
+@media (max-width: 520px) {
+  .search-bar {
+    flex-wrap: wrap;
+    border-radius: var(--radius);
+  }
+  .search-bar select.search-region {
+    max-width: none;
+  }
+  .search-field {
+    flex-basis: 100%;
+    order: 3;
+  }
+}
