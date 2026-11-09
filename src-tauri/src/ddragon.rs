@@ -59,7 +59,7 @@ pub const SHARDS: [&[ShardDef]; 3] = [
         (
             "Move Speed",
             "Velocidad de movimiento",
-            "Move speed",
+            "Move spd",
             "Vel. mov.",
             "StatModsMovementSpeedIcon.png",
         ),

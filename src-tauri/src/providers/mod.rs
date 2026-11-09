@@ -289,12 +289,20 @@ pub async fn run(
         .join("workspace");
     std::fs::create_dir_all(&workdir).map_err(|e| e.to_string())?;
 
+    // A resumed session keeps the system prompt of its first turn: repeat the
+    // answer language on each new turn so a language switch applies.
+    let lang = i18n::lang();
+    let prompt = match session_id {
+        Some(_) => format!("{prompt}\n\n({})", lang.answer_instruction()),
+        None => prompt.to_string(),
+    };
+    let prompt = prompt.as_str();
+
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
             // One file per language: a chat and a build running at once
             // never read each other's prompt.
-            let lang = i18n::lang();
             let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
             std::fs::write(&prompt_file, prompts::coach(lang)).map_err(|e| e.to_string())?;
             (
