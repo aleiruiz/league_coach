@@ -413,7 +413,10 @@ fn mentions_model(error: &str, model: &str) -> bool {
         "unknown model",
         "invalid model",
     ];
-    e.contains(&model.to_lowercase()) && !e.contains("limit") && gone.iter().any(|g| e.contains(g))
+    e.contains(&model.to_lowercase())
+        && e.contains("model")
+        && !e.contains("limit")
+        && gone.iter().any(|g| e.contains(g))
 }
 
 /// Current patch, only if Data Dragon was already loaded this run (the main
@@ -481,6 +484,7 @@ mod tests {
             "opus"
         ));
         assert!(!mentions_model("Opus is overloaded, try again", "opus"));
+        assert!(!mentions_model("Session not found (opus)", "opus"));
     }
 
     #[test]
