@@ -666,21 +666,32 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawReport {
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     headline: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     strength: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     caveat: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     pain_points: Vec<RawPainPoint>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawPainPoint {
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     title: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     metric: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     evidence: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     why: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     drill: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     target: String,
+    #[serde(deserialize_with = "crate::recommend::null_default")]
     games: Vec<String>,
 }
 
@@ -1420,6 +1431,15 @@ mod tests {
         );
         assert_eq!(r.pain_points[2].title, "C");
         assert!(parse_report(r#"{"pain_points": []}"#, &games).is_err());
+        // Models often send null for optional fields.
+        let r = parse_report(
+            r#"{"headline": null, "strength": "KP", "caveat": null,
+                "pain_points": [{"title": "A", "drill": "a", "metric": null, "games": null}]}"#,
+            &games,
+        )
+        .unwrap();
+        assert_eq!(r.caveat, "");
+        assert_eq!(r.pain_points[0].games, Vec::<String>::new());
         assert!(parse_report("no json", &games).is_err());
     }
 

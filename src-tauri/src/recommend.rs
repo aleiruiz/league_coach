@@ -34,7 +34,7 @@ pub struct Draft {
 
 /// `#[serde(default)]` solo cubre campos ausentes; los modelos a veces mandan
 /// `null` (p. ej. `"boots": null` con Cassiopeia). Eso no debe tumbar la tarjeta.
-fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+pub(crate) fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Default + Deserialize<'de>,
