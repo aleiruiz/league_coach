@@ -33,6 +33,10 @@ describe("humanizeError", () => {
     expect(humanizeError("401 Unauthorized")).toMatch(/iniciar sesión/);
   });
 
+  it("pide actualizar el CLI si no reconoce un flag", () => {
+    expect(humanizeError("Error: Unknown feature flag: browser_use")).toMatch(/Actualízala/);
+  });
+
   it("deja tal cual los mensajes propios", () => {
     expect(humanizeError("Consulta detenida.")).toBe("Consulta detenida.");
   });
