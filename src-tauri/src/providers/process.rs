@@ -46,8 +46,18 @@ pub async fn run_capture(bin: &Path, args: &[&str]) -> std::io::Result<Output> {
     })
 }
 
+/// Resume la salida de error de un CLI: corta el backtrace de Rust (que solo
+/// trae líneas `N: <unknown>`) y, si hay una línea `Error...`, la prefiere.
 pub fn tail(text: &str, n: usize) -> String {
+    let text = text.split("Stack backtrace:").next().unwrap_or_default();
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    if let Some(err) = lines
+        .iter()
+        .rev()
+        .find(|l| l.trim_start().starts_with("Error"))
+    {
+        return err.trim().to_string();
+    }
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
@@ -164,6 +174,22 @@ pub async fn stream(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tail_tests {
+    use super::tail;
+
+    #[test]
+    fn prefers_error_line_and_drops_backtrace() {
+        let s = "warn: algo\nError: Unknown feature flag: foo\n\nStack backtrace:\n   0: <unknown>\n   1: <unknown>\n";
+        assert_eq!(tail(s, 5), "Error: Unknown feature flag: foo");
+    }
+
+    #[test]
+    fn falls_back_to_last_lines() {
+        assert_eq!(tail("a\nb\n\nc\n", 2), "b\nc");
+    }
 }
 
 #[cfg(all(test, unix))]

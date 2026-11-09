@@ -61,6 +61,9 @@ fn common() -> Vec<String> {
     let mut a: Vec<String> = [
         "--json",
         "--skip-git-repo-check",
+        // No cargar ~/.codex/config.toml: ahí el usuario podría tener MCP,
+        // perfiles o permisos que no queremos en el coach. El login se mantiene.
+        "--ignore-user-config",
         "-c",
         "sandbox_mode=read-only",
         "-c",

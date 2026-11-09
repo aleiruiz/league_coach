@@ -75,6 +75,10 @@ export function applyEvent(text: string, ev: ChatEvent): string {
 
 const KNOWN_ERRORS: [RegExp, string][] = [
   [
+    /unknown feature flag|unexpected argument|unrecognized option/i,
+    "Tu versión del programa del modelo es antigua. Actualízala (p. ej. npm i -g @openai/codex) y vuelve a probar.",
+  ],
+  [
     /usage limit|rate limit|quota|too many requests|429/i,
     "Llegaste al límite de uso de tu plan. Espera un rato o cambia de modelo en Modelos.",
   ],
