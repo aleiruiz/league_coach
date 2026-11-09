@@ -68,6 +68,8 @@ export type Card = {
   stats: Stat[];
   /** Cifras que el modelo dio pero no salían en los resultados de su búsqueda. */
   stats_dropped: number;
+  /** El modelo expone las fuentes de su búsqueda (Claude sí, Codex no). */
+  stats_verifiable: boolean;
 };
 
 /** Cifra citada de un sitio de estadísticas, con su fuente. */

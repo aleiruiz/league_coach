@@ -324,6 +324,9 @@ pub struct Card {
     pub stats: Vec<Stat>,
     /// Cifras que el modelo dio pero no se pudieron atribuir a una búsqueda.
     pub stats_dropped: usize,
+    /// El proveedor expone las URLs de su búsqueda (Claude sí; Codex no), así
+    /// que sus cifras se pueden comprobar.
+    pub stats_verifiable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -750,6 +753,7 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
         // Se completan en `recommend_build`, que sabe qué devolvió la búsqueda.
         stats: Vec::new(),
         stats_dropped: 0,
+        stats_verifiable: true,
     };
     (card, warnings)
 }
@@ -881,6 +885,7 @@ pub async fn recommend_build(
 
     let (mut card, warnings) = validate(&raw, &data);
     (card.stats, card.stats_dropped) = clean_stats(&raw.stats, &data, &seen);
+    card.stats_verifiable = kind != ProviderKind::Codex;
     Ok(Recommendation {
         card,
         warnings,

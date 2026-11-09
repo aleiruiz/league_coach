@@ -257,11 +257,16 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
             ))}
           </ul>
         ) : (
-          <p className="small">Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build.</p>
+          <p className="small">
+            {card.stats_verifiable
+              ? "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build."
+              : "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran."}
+          </p>
         )}
         <p className="small muted">
           {card.stats.length > 0 && "Cifras que el modelo vio en los resultados de su búsqueda; ábrelas para comprobarlas. "}
-          {card.stats_dropped > 0 &&
+          {card.stats_verifiable &&
+            card.stats_dropped > 0 &&
             `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}
           League Coach no calcula win rates.
           {champion && (
