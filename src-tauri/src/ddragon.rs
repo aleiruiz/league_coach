@@ -695,6 +695,13 @@ pub async fn get(app: &AppHandle, cache: &Cache) -> Result<Arc<GameData>, String
     Ok(data)
 }
 
+/// Patch data already loaded this run, without touching the disk or the
+/// network (the patch number is the same in every language). For the
+/// system prompt: a chat message must never wait on a Data Dragon download.
+pub async fn loaded(cache: &Cache) -> Option<Arc<GameData>> {
+    cache.0.lock().await.clone()
+}
+
 #[tauri::command]
 pub async fn game_data(app: AppHandle, cache: State<'_, Cache>) -> Result<Arc<GameData>, String> {
     get(&app, &cache).await

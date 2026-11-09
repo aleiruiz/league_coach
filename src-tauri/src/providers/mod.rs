@@ -331,11 +331,13 @@ pub async fn run(
     process::stream(&bin, &args, opts, parse, send).await
 }
 
-/// Current patch from Data Dragon (cached after the first load). `None` if it
-/// can't be read (offline with no saved copy): the prompt then says so.
+/// Current patch, only if Data Dragon was already loaded this run (the main
+/// views load it at start). Never downloads: offline that would add seconds
+/// to every message, and the setup screen's connection test must not wait
+/// on it. `None`: the prompt asks the model to say which patch it means.
 async fn live_patch(app: &AppHandle) -> Option<prompts::LivePatch> {
     let cache = app.state::<crate::ddragon::Cache>();
-    let data = crate::ddragon::get(app, &cache).await.ok()?;
+    let data = crate::ddragon::loaded(&cache).await?;
     Some(prompts::LivePatch {
         patch: data.patch.clone(),
         version: data.version.clone(),
