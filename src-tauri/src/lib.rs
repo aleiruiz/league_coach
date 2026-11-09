@@ -1,5 +1,6 @@
 mod ddragon;
 mod providers;
+mod recommend;
 mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -18,6 +19,7 @@ pub fn run() {
             providers::cancel_prompt,
             providers::test_provider,
             ddragon::game_data,
+            recommend::recommend_build,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar League Coach");

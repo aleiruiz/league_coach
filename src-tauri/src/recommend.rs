@@ -197,7 +197,11 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
             .ok_or_else(|| format!("Campeón desconocido: {id}"))
     };
     let me = get(&draft.champion)?;
-    let allies: Vec<&Champion> = draft.allies.iter().map(|a| get(a)).collect::<Result<_, _>>()?;
+    let allies: Vec<&Champion> = draft
+        .allies
+        .iter()
+        .map(|a| get(a))
+        .collect::<Result<_, _>>()?;
     let enemies: Vec<&Champion> = draft
         .enemies
         .iter()
@@ -244,12 +248,20 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let _ = writeln!(p, "\nRUNAS VÁLIDAS (rama: fila de piedras angulares | resto):");
+    let _ = writeln!(
+        p,
+        "\nRUNAS VÁLIDAS (rama: fila de piedras angulares | resto):"
+    );
     for t in &data.rune_trees {
         let rows: Vec<String> = t
             .slots
             .iter()
-            .map(|s| s.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", "))
+            .map(|s| {
+                s.iter()
+                    .map(|r| r.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
             .collect();
         let _ = writeln!(p, "- {}: {}", t.name, rows.join(" | "));
     }
@@ -281,12 +293,15 @@ pub fn parse_card(text: &str) -> Result<RawCard, String> {
     serde_json::from_str(json).map_err(|e| format!("JSON inválido: {e}"))
 }
 
-pub fn validate(raw: RawCard, data: &GameData) -> (Card, Vec<String>) {
+pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
     let mut item = |name: &str| {
         let found = data.item_by_name(name);
         if found.is_none() && !name.trim().is_empty() {
-            warnings.push(format!("Ítem \"{name}\" no existe en el parche {}", data.patch));
+            warnings.push(format!(
+                "Ítem \"{name}\" no existe en el parche {}",
+                data.patch
+            ));
         }
         Ref {
             name: found.map_or(name.to_string(), |i| i.name.clone()),
@@ -309,7 +324,10 @@ pub fn validate(raw: RawCard, data: &GameData) -> (Card, Vec<String>) {
     let mut rune = |name: &str| {
         let found = data.rune_by_name(name);
         if found.is_none() && !name.trim().is_empty() {
-            warnings.push(format!("Runa \"{name}\" no existe en el parche {}", data.patch));
+            warnings.push(format!(
+                "Runa \"{name}\" no existe en el parche {}",
+                data.patch
+            ));
         }
         Ref {
             name: found.map_or(name.to_string(), |r| r.name.clone()),
@@ -341,18 +359,18 @@ pub fn validate(raw: RawCard, data: &GameData) -> (Card, Vec<String>) {
     };
 
     let card = Card {
-        summary: raw.summary,
+        summary: raw.summary.clone(),
         starting_items,
         core_items,
         boots,
         situational,
         runes,
-        summoner_spells: raw.summoner_spells,
-        skill_order: raw.skill_order,
-        game_plan: raw.game_plan,
-        matchup_tips: raw.matchup_tips,
-        threats: raw.threats,
-        caveat: raw.caveat.filter(|c| !c.trim().is_empty()),
+        summoner_spells: raw.summoner_spells.clone(),
+        skill_order: raw.skill_order.clone(),
+        game_plan: raw.game_plan.clone(),
+        matchup_tips: raw.matchup_tips.clone(),
+        threats: raw.threats.clone(),
+        caveat: raw.caveat.clone().filter(|c| !c.trim().is_empty()),
     };
     (card, warnings)
 }
@@ -380,7 +398,7 @@ async fn ask(
         kind,
         prompt,
         session_id,
-        providers::process_timeout(),
+        providers::DEFAULT_TIMEOUT,
         Some(cancel),
         &send,
     )
@@ -411,59 +429,54 @@ pub async fn recommend_build(
     };
     status("Analizando el draft…");
 
-    let (tx, rx) = oneshot::channel();
-    running.0.lock().unwrap().insert(request_id.clone(), tx);
+    let rx = running.register(&request_id);
     let first = ask(&app, kind, &prompt, None, rx, &on_event).await;
-    running.0.lock().unwrap().remove(&request_id);
+    running.finish(&request_id);
     let first = first?;
     let mut session_id = first.session_id.clone();
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
-    let (raw, retry_reason) = match parse_card(&first.text) {
+    let first_card = parse_card(&first.text);
+    let retry_reason = match &first_card {
         Ok(raw) => {
-            let (_, warnings) = validate(
-                RawCard {
-                    ..clone_names(&raw)
-                },
-                &data,
-            );
-            if warnings.is_empty() {
-                (Some(raw), None)
-            } else {
-                (Some(raw), Some(format!(
+            let (_, warnings) = validate(raw, &data);
+            (!warnings.is_empty()).then(|| {
+                format!(
                     "Estos nombres no existen en el parche {}: {}. Reemplázalos por ítems o runas de la lista válida.",
                     data.patch,
                     warnings.join("; ")
-                )))
-            }
+                )
+            })
         }
-        Err(e) => (None, Some(format!("Tu respuesta no se pudo leer ({e})."))),
+        Err(e) => Some(format!("Tu respuesta no se pudo leer ({e}).")),
     };
 
-    let raw = match (raw, retry_reason, session_id.as_deref()) {
-        (raw, Some(reason), Some(sid)) => {
+    let raw = match (retry_reason, session_id.clone()) {
+        (Some(reason), Some(sid)) => {
             status("Corrigiendo la build…");
-            let (tx, rx) = oneshot::channel();
-            running.0.lock().unwrap().insert(request_id.clone(), tx);
+            let rx = running.register(&request_id);
             let fix_prompt = format!(
                 "{reason} Responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
             );
-            let second = ask(&app, kind, &fix_prompt, Some(sid), rx, &on_event).await;
-            running.0.lock().unwrap().remove(&request_id);
-            match second.and_then(|c| {
-                session_id = c.session_id.clone().or(session_id.clone());
+            let second = ask(&app, kind, &fix_prompt, Some(&sid), rx, &on_event).await;
+            running.finish(&request_id);
+            let fixed = second.and_then(|c| {
+                if c.session_id.is_some() {
+                    session_id = c.session_id.clone();
+                }
                 parse_card(&c.text)
-            }) {
-                Ok(fixed) => fixed,
-                Err(e) => raw.ok_or(e)?,
+            });
+            // Si la corrección falla, nos quedamos con la primera tarjeta (marcada).
+            match (fixed, first_card) {
+                (Ok(f), _) => f,
+                (Err(_), Ok(f)) => f,
+                (Err(e), Err(_)) => return Err(e),
             }
         }
-        (Some(raw), _, _) => raw,
-        (None, Some(reason), None) => return Err(reason),
-        (None, None, _) => unreachable!("sin tarjeta y sin motivo"),
+        _ => first_card?,
     };
 
-    let (card, warnings) = validate(raw, &data);
+    let (card, warnings) = validate(&raw, &data);
     Ok(Recommendation {
         card,
         warnings,
@@ -471,31 +484,6 @@ pub async fn recommend_build(
         patch: data.patch.clone(),
         version: data.version.clone(),
     })
-}
-
-/// Copia solo los nombres (para validar sin consumir la tarjeta original).
-fn clone_names(raw: &RawCard) -> RawCard {
-    RawCard {
-        starting_items: raw.starting_items.clone(),
-        core_items: raw.core_items.clone(),
-        boots: raw.boots.clone(),
-        situational: raw
-            .situational
-            .iter()
-            .map(|s| RawSituational {
-                item: s.item.clone(),
-                when: String::new(),
-            })
-            .collect(),
-        runes: RawRunes {
-            primary_tree: raw.runes.primary_tree.clone(),
-            keystone: raw.runes.keystone.clone(),
-            primary: raw.runes.primary.clone(),
-            secondary_tree: raw.runes.secondary_tree.clone(),
-            secondary: raw.runes.secondary.clone(),
-        },
-        ..Default::default()
-    }
 }
 
 #[cfg(test)]
@@ -574,7 +562,7 @@ mod tests {
                 "caveat":""}"#,
         )
         .unwrap();
-        let (card, warnings) = validate(raw, &data);
+        let (card, warnings) = validate(&raw, &data);
         assert_eq!(card.core_items[0].name, "Fuerza de Trinidad");
         assert!(card.core_items[0].valid && card.core_items[0].image.is_some());
         assert!(!card.core_items[1].valid);
@@ -589,7 +577,7 @@ mod tests {
     #[test]
     fn missing_fields_default_instead_of_failing() {
         let raw = parse_card(r#"{"summary":"solo esto"}"#).unwrap();
-        let (card, warnings) = validate(raw, &fixtures::data());
+        let (card, warnings) = validate(&raw, &fixtures::data());
         assert_eq!(card.summary, "solo esto");
         assert!(card.core_items.is_empty());
         assert!(warnings.is_empty());
