@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Lang, LANGUAGES, t } from "./i18n";
-import { looksLikeRiotId, Region, riotAccount, riotIdOf, saveRiotAccount } from "./history";
+import { Region, riotAccount, riotIdOf, riotIdProblem, saveRiotAccount } from "./history";
 import { humanizeError } from "./providers";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
@@ -30,8 +30,11 @@ const INITIAL: KeyStatus[] = Object.keys(LABELS).map((provider) => ({
   error: null,
 }));
 
-/** Riot ID + region (server) for the post-game review in "My progress". */
-function RiotAccount({ onSaved }: { onSaved: () => void }) {
+/**
+ * Riot ID + region (server). In Settings it also explains the API key and the
+ * automatic review; the first-run setup shows just the form (`compact`).
+ */
+export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void; compact?: boolean }) {
   const [regions, setRegions] = useState<Region[]>([]);
   const [riotId, setRiotId] = useState("");
   const [region, setRegion] = useState("");
@@ -56,8 +59,9 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
   async function save(id: string, reg: string, autoAnalyze: boolean, done: string) {
     setMessage(null);
     setError(null);
-    if (!looksLikeRiotId(id)) {
-      setError(t("Write your Riot ID as Name#TAG.", "Escribe tu Riot ID como Nombre#TAG."));
+    const problem = riotIdProblem(id);
+    if (problem) {
+      setError(problem);
       return;
     }
     try {
@@ -80,7 +84,8 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
 
   return (
     <>
-      <h3>{t("Riot account", "Cuenta de Riot")}</h3>
+      {!compact && <h3>{t("Riot account", "Cuenta de Riot")}</h3>}
+      {!compact && (
       <p className="muted">
         {t(
           "Used only to read your finished games for \"My progress\". It also needs a Riot API key (below): get one at ",
@@ -94,6 +99,7 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
           ". Las development keys caducan cada 24 horas; una Personal API key no.",
         )}
       </p>
+      )}
       <form
         className="key-form riot-form"
         onSubmit={(e) => {

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./Chat";
 import DraftView from "./DraftView";
 import Progress from "./Progress";
 import Models from "./Models";
 import Settings from "./Settings";
+import Onboarding from "./Onboarding";
+import { riotAccount, riotIdOf, RiotProfile } from "./history";
 import { NavIcon } from "./icons";
 import { providerStatuses, ProviderStatus } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
@@ -68,6 +70,51 @@ function App() {
 
   const providers: ProvidersState = { list, loading, error, refresh };
 
+  // First-run setup: nothing else shows until an AI CLI is connected and the
+  // Riot ID + region are saved. Checked once at startup; after that, signing
+  // out of a CLI doesn't lock the app again (Models says what's wrong).
+  const [account, setAccount] = useState<RiotProfile | null | undefined>(undefined);
+  useEffect(() => {
+    riotAccount()
+      .then((a) => setAccount(a.profile))
+      .catch(() => setAccount(null));
+  }, [accountVersion]);
+  const aiReady = list.some((p) => p.logged_in);
+  const accountReady = !!account && !!riotIdOf(account) && !!account.region;
+  const checking = account === undefined || (loading && list.length === 0);
+  const [entered, setEntered] = useState(false);
+  const firstCheck = useRef(true);
+  useEffect(() => {
+    if (checking || !firstCheck.current) return;
+    firstCheck.current = false;
+    if (aiReady && accountReady) setEntered(true);
+  }, [checking, aiReady, accountReady]);
+
+  if (!entered) {
+    return (
+      <div className="app setup-app">
+        <main className="content">
+          {/* While the first check runs, and in the frame before the effect lets an
+              already set-up player in, show the splash instead of flashing setup. */}
+          {firstCheck.current && (checking || (aiReady && accountReady)) ? (
+            <p className="muted setup-checking">{t("Checking your setup…", "Comprobando tu configuración…")}</p>
+          ) : (
+            <Onboarding
+              providers={providers}
+              aiReady={aiReady}
+              accountReady={accountReady}
+              lang={lang}
+              onLanguage={changeLanguage}
+              onAccountSaved={accountSaved}
+              onDone={() => setEntered(true)}
+            />
+          )}
+          <Legal lang={lang} />
+        </main>
+      </div>
+    );
+  }
+
   // Views stay mounted (only hidden) so switching tabs doesn't lose the
   // conversation or an answer in progress. Changing the language re-renders
   // them in place: the draft and the chat are kept, and the draft view
@@ -121,21 +168,27 @@ function App() {
             onRiotAccount={accountSaved}
           />
         </div>
-        <footer className="legal">
-          League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or
-          anyone officially involved in producing or managing Riot Games properties. Riot Games, and all
-          associated properties are trademarks or registered trademarks of Riot Games, Inc.
-          {lang === "es" && (
-            <>
-              <br />
-              League Coach no está respaldado por Riot Games y no refleja las opiniones de Riot Games ni de
-              nadie involucrado oficialmente en producir o gestionar sus propiedades. Riot Games y todas sus
-              propiedades asociadas son marcas comerciales o registradas de Riot Games, Inc.
-            </>
-          )}
-        </footer>
+        <Legal lang={lang} />
       </main>
     </div>
+  );
+}
+
+function Legal({ lang }: { lang: Lang }) {
+  return (
+    <footer className="legal">
+      League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or
+      anyone officially involved in producing or managing Riot Games properties. Riot Games, and all
+      associated properties are trademarks or registered trademarks of Riot Games, Inc.
+      {lang === "es" && (
+        <>
+          <br />
+          League Coach no está respaldado por Riot Games y no refleja las opiniones de Riot Games ni de
+          nadie involucrado oficialmente en producir o gestionar sus propiedades. Riot Games y todas sus
+          propiedades asociadas son marcas comerciales o registradas de Riot Games, Inc.
+        </>
+      )}
+    </footer>
   );
 }
 

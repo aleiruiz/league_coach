@@ -6,7 +6,8 @@ import { t } from "./i18n";
 
 type Test = { state: "running" | "ok" | "error"; text: string };
 
-function Models({ providers }: { providers: ProvidersState }) {
+/** Status, sign-in and test for each AI CLI (used by Models and the first-run setup). */
+export function ProviderSetup({ providers }: { providers: ProvidersState }) {
   const { list, loading, error, refresh } = providers;
   const [message, setMessage] = useState<string | null>(null);
   const [tests, setTests] = useState<Partial<Record<ProviderKind, Test>>>({});
@@ -27,18 +28,26 @@ function Models({ providers }: { providers: ProvidersState }) {
       await openLogin(p.kind);
       setMessage(
         t(
-          `A terminal opened with the ${p.label} sign-in. Finish signing in in your browser; the app will notice on its own.`,
-          `Se abrió una terminal con el login de ${p.label}. Completa el inicio de sesión en tu navegador; la app lo detectará sola.`,
+          `A terminal opened with the ${p.label} sign-in. Finish signing in in your browser; the app will notice on its own for the next few minutes.`,
+          `Se abrió una terminal con el login de ${p.label}. Completa el inicio de sesión en tu navegador; la app lo detectará sola durante los próximos minutos.`,
         ),
       );
-      // Checks the status every 4 s for a minute.
+      // Checks the status every 4 s for 3 minutes; after that, says so.
       stopPolling();
       waitingFor.current = p.kind;
       let ticks = 0;
       poll.current = window.setInterval(async () => {
         ticks += 1;
         await refresh();
-        if (ticks >= 15) stopPolling();
+        if (ticks >= 45 && waitingFor.current === p.kind) {
+          stopPolling();
+          setMessage(
+            t(
+              `I haven't detected the ${p.label} sign-in yet. When you finish it, press Check.`,
+              `Todavía no detecto el inicio de sesión de ${p.label}. Cuando lo completes, pulsa Verificar.`,
+            ),
+          );
+        }
       }, 4000);
     } catch (e) {
       setMessage(`Error: ${e}`);
@@ -63,18 +72,15 @@ function Models({ providers }: { providers: ProvidersState }) {
   }
 
   useEffect(() => {
-    if (list.some((p) => p.kind === waitingFor.current && p.logged_in)) stopPolling();
+    const done = list.find((p) => p.kind === waitingFor.current && p.logged_in);
+    if (done) {
+      stopPolling();
+      setMessage(t(`${done.label} connected.`, `${done.label} conectado.`));
+    }
   }, [list]);
 
   return (
-    <section>
-      <h2>{t("Models", "Modelos")}</h2>
-      <p className="muted">
-        {t(
-          "League Coach uses your subscriptions through the official programs (Claude Code and Codex CLI). Sign-in happens on each provider's page: the app never sees or stores your credentials.",
-          "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
-        )}
-      </p>
+    <>
       {loading && list.length === 0 && <p className="muted">{t("Checking models…", "Comprobando modelos…")}</p>}
       {error && (
         <p className="error">
@@ -124,6 +130,22 @@ function Models({ providers }: { providers: ProvidersState }) {
       <p className="message" role="status" aria-live="polite">
         {message}
       </p>
+    </>
+  );
+}
+
+export const modelsIntro = () =>
+  t(
+    "League Coach uses your subscriptions through the official programs (Claude Code and Codex CLI). Sign-in happens on each provider's page: the app never sees or stores your credentials.",
+    "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
+  );
+
+function Models({ providers }: { providers: ProvidersState }) {
+  return (
+    <section>
+      <h2>{t("Models", "Modelos")}</h2>
+      <p className="muted">{modelsIntro()}</p>
+      <ProviderSetup providers={providers} />
     </section>
   );
 }
