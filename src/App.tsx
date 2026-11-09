@@ -1,41 +1,46 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Chat from "./Chat";
+import Models from "./Models";
 import Settings from "./Settings";
+import { providerStatuses, ProviderStatus } from "./providers";
 import "./App.css";
 
-type View = "coach" | "settings";
+type View = "coach" | "models" | "settings";
+
+const NAV: { view: View; label: string }[] = [
+  { view: "coach", label: "Coach" },
+  { view: "models", label: "Modelos" },
+  { view: "settings", label: "API keys (opcional)" },
+];
 
 function App() {
   const [view, setView] = useState<View>("coach");
+  const [providers, setProviders] = useState<ProviderStatus[]>([]);
+
+  useEffect(() => {
+    providerStatuses().then(setProviders).catch(() => setProviders([]));
+  }, []);
 
   return (
     <div className="app">
       <nav className="sidebar">
         <h1 className="brand">League Coach</h1>
-        <button
-          className={view === "coach" ? "nav active" : "nav"}
-          onClick={() => setView("coach")}
-        >
-          Coach
-        </button>
-        <button
-          className={view === "settings" ? "nav active" : "nav"}
-          onClick={() => setView("settings")}
-        >
-          Ajustes
-        </button>
+        {NAV.map((n) => (
+          <button
+            key={n.view}
+            className={view === n.view ? "nav active" : "nav"}
+            onClick={() => setView(n.view)}
+          >
+            {n.label}
+          </button>
+        ))}
       </nav>
       <main className="content">
-        {view === "coach" ? (
-          <section>
-            <h2>Coach</h2>
-            <p className="muted">
-              Aquí vivirá el chat con el modelo (paso 2 del plan). Primero
-              configura al menos un proveedor en Ajustes.
-            </p>
-          </section>
-        ) : (
-          <Settings />
+        {view === "coach" && (
+          <Chat providers={providers} onGoToModels={() => setView("models")} />
         )}
+        {view === "models" && <Models onChange={setProviders} />}
+        {view === "settings" && <Settings />}
       </main>
     </div>
   );

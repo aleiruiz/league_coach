@@ -1,3 +1,4 @@
+mod providers;
 mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -8,6 +9,9 @@ pub fn run() {
             secrets::set_api_key,
             secrets::delete_api_key,
             secrets::list_api_keys,
+            providers::provider_statuses,
+            providers::open_login,
+            providers::send_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar League Coach");
