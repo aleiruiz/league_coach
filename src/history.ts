@@ -255,7 +255,8 @@ export type SummonerPreview = {
   region: string;
   level: number;
   icon_url: string | null;
-  ranks: RankEntry[];
+  /** null: Riot didn't return the rank this time (not the same as unranked). */
+  ranks: RankEntry[] | null;
 };
 
 /** Exact Riot ID lookup (Riot has no name search). */

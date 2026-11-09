@@ -405,8 +405,9 @@ pub struct SummonerPreview {
     region: &'static str,
     level: i64,
     icon_url: Option<String>,
-    /// Solo/duo first, then flex; other queues are left out.
-    ranks: Vec<LeagueEntry>,
+    /// Solo/duo first, then flex; other queues are left out. `None`: League-V4
+    /// failed, so the rank is unknown (not "unranked").
+    ranks: Option<Vec<LeagueEntry>>,
 }
 
 fn rank_order(q: &str) -> Option<u8> {
@@ -425,7 +426,8 @@ pub fn ranked_queues(mut entries: Vec<LeagueEntry>) -> Vec<LeagueEntry> {
 
 /// Exact Riot ID lookup for the search box. Riot has no name search, so
 /// there is no partial match: either this Riot ID exists on that server or
-/// it doesn't. Gives up after 10 s so typing never waits on a rate limit.
+/// it doesn't. Gives up after 10 s so typing never waits on a rate limit
+/// (plus up to 5 s for the icon's Data Dragon version if none is loaded).
 #[tauri::command]
 pub async fn lookup_summoner(
     app: AppHandle,
@@ -443,7 +445,7 @@ pub async fn lookup_summoner(
             client.summoner(&account.puuid),
             client.ranks(&account.puuid)
         );
-        Ok::<_, RiotError>((account, summoner?, ranks.unwrap_or_default()))
+        Ok::<_, RiotError>((account, summoner?, ranks.ok()))
     };
     let (account, summoner, ranks) = tokio::time::timeout(Duration::from_secs(10), lookup)
         .await
@@ -477,7 +479,7 @@ pub async fn lookup_summoner(
         region: reg.id,
         level: summoner.summoner_level,
         icon_url: version.map(|v| crate::ddragon::profile_icon(&v, summoner.profile_icon_id)),
-        ranks: ranked_queues(ranks),
+        ranks: ranks.map(ranked_queues),
     })
 }
 

@@ -298,7 +298,9 @@ export function SummonerSearch({
               <p className="muted small">
                 {regionOf(found.region)?.label ?? regionCode(found.region)} · {t("Level", "Nivel")} {found.level}
               </p>
-              {found.ranks.length ? (
+              {found.ranks === null ? (
+                <p className="muted small">{t("Rank unavailable right now", "Rango no disponible por ahora")}</p>
+              ) : found.ranks.length ? (
                 found.ranks.map((r) => (
                   <p key={r.queue_type} className="small">
                     <span className="muted">{t(...(QUEUES[r.queue_type] ?? [r.queue_type, r.queue_type]))}:</span>{" "}
