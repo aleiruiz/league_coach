@@ -248,6 +248,13 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
         <span className="badge patch">Parche {patch}</span>
       </header>
 
+      {card.answer && (
+        <section className="panel answer-panel" aria-label="Respuesta a tus notas">
+          <h4 className="panel-title">Tu pregunta</h4>
+          <p>{card.answer}</p>
+        </section>
+      )}
+
       <section className="panel stats-panel">
         <h4 className="panel-title">Estadísticas citadas</h4>
         {card.stats.length > 0 ? (

@@ -83,6 +83,15 @@ function App() {
         <div hidden={view !== "settings"}>
           <Settings />
         </div>
+        <footer className="legal">
+          League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or
+          anyone officially involved in producing or managing Riot Games properties. Riot Games, and all
+          associated properties are trademarks or registered trademarks of Riot Games, Inc.
+          <br />
+          League Coach no está respaldado por Riot Games y no refleja las opiniones de Riot Games ni de nadie
+          involucrado oficialmente en producir o gestionar sus propiedades. Riot Games y todas sus propiedades
+          asociadas son marcas comerciales o registradas de Riot Games, Inc.
+        </footer>
       </main>
     </div>
   );

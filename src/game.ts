@@ -46,6 +46,8 @@ export type Draft = {
 export type Ref = { name: string; image: string | null; valid: boolean };
 
 export type Card = {
+  /** Respuesta directa a las notas del jugador, si las escribió. */
+  answer: string | null;
   summary: string;
   starting_items: Ref[];
   core_items: Ref[];

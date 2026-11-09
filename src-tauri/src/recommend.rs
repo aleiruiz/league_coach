@@ -44,6 +44,9 @@ where
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 pub struct RawCard {
+    /// Respuesta directa a las notas del jugador (si las hay).
+    #[serde(deserialize_with = "null_default")]
+    pub answer: String,
     #[serde(deserialize_with = "null_default")]
     pub summary: String,
     #[serde(deserialize_with = "null_default")]
@@ -308,6 +311,7 @@ pub fn clean_stats(raw: &[RawStat], data: &GameData, seen: &[String]) -> (Vec<St
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Card {
+    pub answer: Option<String>,
     pub summary: String,
     pub starting_items: Vec<Ref>,
     pub core_items: Vec<Ref>,
@@ -378,7 +382,8 @@ pub fn team_profile(enemies: &[&Champion]) -> String {
 }
 
 const SCHEMA: &str = r#"{
-  "summary": "1-2 frases: la idea de la build para ESTA partida",
+  "answer": "respuesta directa (1-3 líneas) a las NOTAS DEL JUGADOR, o \"\" si no hay notas",
+  "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
   "boots": "botas",
@@ -456,15 +461,19 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(", ")
     };
+    // Los componentes no se listan: nunca son la recomendación, y una lista
+    // más corta deja menos que repasar «en voz alta».
     let _ = writeln!(
         p,
-        "\nÍTEMS DEL PARCHE (usa estos nombres exactos):\n\
-- COMPLETOS (para core_items y situational): {}\n\
-- BOTAS (para boots): {}\n\
-- INICIALES Y COMPONENTES (solo para starting_items): {}",
-        names(&|i| i.completed && !is_boots(i)),
+        "\nÍTEMS DEL PARCHE (usa estos nombres exactos; no recomiendes componentes):\n\
+- INICIALES (solo para starting_items): {}\n\
+- INICIAL DE SOPORTE (obligatorio en starting_items si juegas de soporte, y solo entonces): {}\n\
+- BOTAS (solo para boots): {}\n\
+- COMPLETOS (para core_items y situational): {}",
+        names(&|i| i.starter && !i.support),
+        names(&|i| i.support),
         names(&|i| i.completed && is_boots(i)),
-        names(&|i| !i.completed),
+        names(&|i| i.completed && !is_boots(i)),
     );
     let _ = writeln!(
         p,
@@ -502,13 +511,17 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
     let _ = writeln!(
         p,
         "\nINSTRUCCIONES:\n\
-- Da UNA recomendación concreta y completa: página de runas entera, 3 ítems principales en orden, botas, iniciales, hechizos y orden de habilidades. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
+- PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores.\n\
+- Después razona y decide FUERA del JSON (en texto breve antes del bloque). El JSON solo lleva decisiones ya tomadas: nada de \"no, mejor…\", \"ver abajo\" ni dudas dentro de los campos.\n\
+- Si hay NOTAS DEL JUGADOR, \"answer\" responde exactamente a lo que preguntan, en 1-3 líneas concretas (p. ej. en qué minuto o tras qué ítem comprar antisanación). El resto de la tarjeta sigue siendo la build completa.\n\
+- Da UNA recomendación concreta y completa: página de runas entera, 3 ítems principales en orden, botas, iniciales, 2 hechizos y orden de habilidades. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
 - Adáptala a ESTOS rivales (daño, curación, CC, tanques) y explica en \"situational\" y \"threats\" qué cambia contra cada amenaza.\n\
-- Si usas búsqueda web, usa solo datos del parche {} y descarta los de parches anteriores.\n\
 - En \"stats\" cita SOLO cifras que aparezcan en los resultados de tu búsqueda web de esta respuesta (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche que indique. Usa null en lo que el resultado no diga. Si no buscaste o los resultados no traen cifras, deja \"stats\": []. Nunca pongas cifras de memoria ni estimadas: se descartan las que no correspondan a un resultado de búsqueda.\n\
 - Si dudas de algo, ponlo en \"caveat\" en una sola línea; no lo repartas por toda la respuesta.\n\
-- Responde SOLO con un objeto JSON válido, sin texto antes ni después, con esta forma:\n{SCHEMA}",
-        data.patch
+- Termina con UN bloque ```json que contenga un objeto JSON válido con esta forma, y nada después:\n{SCHEMA}",
+        me = me.name,
+        role = draft.role,
+        patch = data.patch
     );
     Ok(p)
 }
@@ -517,6 +530,16 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
 
 /// Saca el objeto JSON aunque venga envuelto en ```json o con texto alrededor.
 pub fn extract_json(text: &str) -> Option<&str> {
+    // El modelo razona antes del JSON: si hay un bloque ```json, manda el último.
+    if let Some(i) = text.rfind("```json") {
+        let body = &text[i + "```json".len()..];
+        let body = body.find("```").map_or(body, |end| &body[..end]);
+        if let (Some(a), Some(b)) = (body.find('{'), body.rfind('}'))
+            && b > a
+        {
+            return Some(&body[a..=b]);
+        }
+    }
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     (end > start).then(|| &text[start..=end])
@@ -542,7 +565,56 @@ fn row_in<'a>(tree: &'a RuneTree, name: &str) -> Option<(usize, &'a ddragon::Run
     })
 }
 
-pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
+/// Campos que la tarjeta necesita y llegaron vacíos (JSON cortado, o el
+/// modelo se quedó a medias). También disparan la ronda de corrección.
+pub fn missing(raw: &RawCard, draft: &Draft) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut need = |empty: bool, what: &str| {
+        if empty {
+            out.push(format!("Falta {what}"));
+        }
+    };
+    let blank = |t: &str| t.trim().is_empty();
+    let has_notes = draft.notes.as_deref().is_some_and(|n| !blank(n));
+    need(
+        has_notes && blank(&raw.answer),
+        "\"answer\": responde a las notas del jugador",
+    );
+    need(blank(&raw.summary), "\"summary\"");
+    need(raw.starting_items.is_empty(), "\"starting_items\"");
+    need(
+        raw.core_items.len() < 3,
+        "\"core_items\": van 3 ítems completos",
+    );
+    // Cassiopeia no puede comprar botas.
+    need(
+        blank(&raw.boots) && draft.champion != "Cassiopeia",
+        "\"boots\"",
+    );
+    let r = &raw.runes;
+    need(
+        blank(&r.primary_tree) || blank(&r.keystone) || r.primary.is_empty(),
+        "la rama principal de runas con su piedra angular y 3 runas",
+    );
+    need(
+        blank(&r.secondary_tree) || r.secondary.is_empty(),
+        "la rama secundaria con 2 runas",
+    );
+    need(r.shards.is_empty(), "los 3 fragmentos");
+    need(
+        raw.summoner_spells.len() != 2,
+        "\"summoner_spells\": van 2 hechizos",
+    );
+    need(raw.skill_order.max.is_empty(), "\"skill_order.max\"");
+    let p = &raw.game_plan;
+    need(
+        blank(&p.early) || blank(&p.mid) || blank(&p.late),
+        "\"game_plan\" (early, mid y late)",
+    );
+    out
+}
+
+pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
     let patch = &data.patch;
 
@@ -567,6 +639,20 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
                     i.name
                 ));
             }
+            Some(i) if slot == Slot::Start && i.completed => {
+                valid = false;
+                warnings.push(format!(
+                    "\"{}\" no es un ítem inicial; usa uno de la lista de INICIALES",
+                    i.name
+                ));
+            }
+            Some(i) if slot == Slot::Start && i.support && draft.role != "support" => {
+                valid = false;
+                warnings.push(format!(
+                    "\"{}\" es el inicial de soporte y tu rol es {}",
+                    i.name, draft.role
+                ));
+            }
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
                 valid = false;
                 warnings.push(format!("\"{}\" no son botas", i.name));
@@ -579,7 +665,7 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
             valid,
         }
     };
-    let starting_items = raw
+    let starting_items: Vec<Ref> = raw
         .starting_items
         .iter()
         .map(|n| item(n, Slot::Start))
@@ -594,6 +680,24 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
             when: s.when.clone(),
         })
         .collect();
+
+    let support_start = raw
+        .starting_items
+        .iter()
+        .filter_map(|n| data.item_by_name(n))
+        .any(|i| i.support);
+    if draft.role == "support" && !raw.starting_items.is_empty() && !support_start {
+        let atlas: Vec<&str> = data
+            .items
+            .iter()
+            .filter(|i| i.support)
+            .map(|i| i.name.as_str())
+            .collect();
+        warnings.push(format!(
+            "Como soporte, los iniciales deben incluir {}",
+            atlas.join(" o ")
+        ));
+    }
 
     // runas: además de existir, tienen que formar una página posible
     let r = &raw.runes;
@@ -738,6 +842,7 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
         .collect();
 
     let card = Card {
+        answer: Some(raw.answer.trim().to_string()).filter(|a| !a.is_empty()),
         summary: raw.summary.clone(),
         starting_items,
         core_items,
@@ -832,7 +937,8 @@ pub async fn recommend_build(
     let first_card = parse_card(&first.text);
     let retry_reason = match &first_card {
         Ok(raw) => {
-            let (_, warnings) = validate(raw, &data);
+            let (_, mut warnings) = validate(raw, &data, &draft);
+            warnings.extend(missing(raw, &draft));
             (!warnings.is_empty()).then(|| {
                 format!(
                     "Hay problemas con el parche {}: {}. Corrígelos usando solo las listas válidas.",
@@ -883,7 +989,8 @@ pub async fn recommend_build(
         }
     };
 
-    let (mut card, warnings) = validate(&raw, &data);
+    let (mut card, mut warnings) = validate(&raw, &data, &draft);
+    warnings.extend(missing(&raw, &draft));
     (card.stats, card.stats_dropped) = clean_stats(&raw.stats, &data, &seen);
     card.stats_verifiable = kind == ProviderKind::ClaudeCode;
     Ok(Recommendation {
@@ -949,6 +1056,72 @@ mod tests {
     }
 
     #[test]
+    fn prompt_groups_items_and_asks_to_search_first() {
+        let p = build_prompt(&draft(), &fixtures::data()).unwrap();
+        assert!(p.contains("- INICIALES (solo para starting_items): Escudo de Doran"));
+        assert!(p.contains(
+            "obligatorio en starting_items si juegas de soporte, y solo entonces): Mapamundi\n"
+        ));
+        assert!(p.contains("- BOTAS (solo para boots): Botas de Mercurio\n"));
+        // Los componentes no se ofrecen.
+        assert!(!p.contains("Llamado del Verdugo"));
+        let search = p
+            .find("busca la build de Jax top en el parche 25.22")
+            .unwrap();
+        assert!(search < p.find("Termina con UN bloque ```json").unwrap());
+        assert!(p.contains("\"answer\""));
+    }
+
+    #[test]
+    fn last_json_block_wins_over_reasoning() {
+        let t = "Busqué {u.gg}. Dudo entre {A} y {B}.\n```json\n{\"summary\": \"x\"}\n```\nlisto";
+        assert_eq!(extract_json(t), Some("{\"summary\": \"x\"}"));
+    }
+
+    #[test]
+    fn empty_required_fields_are_reported() {
+        let raw = parse_card(GOOD).unwrap();
+        let m = missing(&raw, &draft());
+        // Las notas piden respuesta y GOOD trae un solo ítem principal.
+        assert_eq!(m.len(), 2, "{m:?}");
+        assert!(m[0].contains("answer"));
+        assert!(m[1].contains("core_items"));
+
+        let mut d = draft();
+        d.notes = None;
+        let empty = parse_card(r#"{"summary":"x","runes":null}"#).unwrap();
+        let m = missing(&empty, &d);
+        assert!(m.iter().any(|w| w.contains("rama principal")), "{m:?}");
+        assert!(m.iter().any(|w| w.contains("summoner_spells")));
+        assert!(!m.iter().any(|w| w.contains("answer")));
+
+        d.champion = "Cassiopeia".into();
+        assert!(!missing(&empty, &d).iter().any(|w| w.contains("boots")));
+    }
+
+    #[test]
+    fn starting_items_match_the_role() {
+        let data = fixtures::data();
+        let card = |start: &str| parse_card(&GOOD.replace(r#"["Poción de Vida"]"#, start)).unwrap();
+        let mut support = draft();
+        support.role = "support".into();
+
+        let (_, w) = validate(
+            &card(r#"["Escudo de Doran","Poción de Vida"]"#),
+            &data,
+            &support,
+        );
+        assert!(w.iter().any(|w| w.contains("Mapamundi")), "{w:?}");
+        let (_, w) = validate(&card(r#"["Mapamundi","Poción de Vida"]"#), &data, &support);
+        assert!(w.is_empty(), "{w:?}");
+
+        let (c, w) = validate(&card(r#"["Mapamundi"]"#), &data, &draft());
+        assert!(!c.starting_items[0].valid, "{w:?}");
+        let (c, _) = validate(&card(r#"["Fuerza de Trinidad"]"#), &data, &draft());
+        assert!(!c.starting_items[0].valid);
+    }
+
+    #[test]
     fn extracts_json_from_fenced_text() {
         let t = "Aquí va:\n```json\n{\"summary\": \"x\"}\n```\n";
         assert_eq!(extract_json(t), Some("{\"summary\": \"x\"}"));
@@ -970,7 +1143,7 @@ mod tests {
         "caveat":""}"#;
 
     fn check(json: &str) -> (Card, Vec<String>) {
-        validate(&parse_card(json).unwrap(), &fixtures::data())
+        validate(&parse_card(json).unwrap(), &fixtures::data(), &draft())
     }
 
     #[test]
@@ -1132,7 +1305,7 @@ mod tests {
     #[test]
     fn missing_fields_default_instead_of_failing() {
         let raw = parse_card(r#"{"summary":"solo esto"}"#).unwrap();
-        let (card, warnings) = validate(&raw, &fixtures::data());
+        let (card, warnings) = validate(&raw, &fixtures::data(), &draft());
         assert_eq!(card.summary, "solo esto");
         assert!(card.core_items.is_empty());
         assert!(warnings.is_empty());

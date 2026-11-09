@@ -73,6 +73,11 @@ pub struct Item {
     pub tags: Vec<String>,
     /// Ítem final (no se combina en otro) o botas: lo que tiene sentido recomendar.
     pub completed: bool,
+    /// Ítem para empezar la partida (Doran, Sacrificar, mascotas de jungla,
+    /// pociones, Sello Oscuro…): barato, sin receta y marcado para línea o jungla.
+    pub starter: bool,
+    /// Ítem inicial de soporte (Mapamundi): el que da oro por misión.
+    pub support: bool,
     pub image: String,
 }
 
@@ -209,17 +214,25 @@ pub fn parse_champions(json: &str, version: &str) -> Result<Vec<Champion>, Strin
     Ok(out)
 }
 
+/// Ítems iniciales de ARAM (los «del Guardián») que Data Dragon también
+/// marca para la Grieta del Invocador.
+const ARAM_ONLY: [&str; 4] = ["2051", "3112", "3177", "3184"];
+
 pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let data = v["data"].as_object().ok_or("item.json sin data")?;
     let in_store: Vec<(&String, &Value)> = data
         .iter()
-        .filter(|(_, i)| {
+        .filter(|(id, i)| {
             i["maps"][SUMMONERS_RIFT].as_bool().unwrap_or(false)
                 && i["gold"]["purchasable"].as_bool().unwrap_or(false)
                 && i["inStore"].as_bool() != Some(false)
                 && i["requiredChampion"].is_null()
                 && i["requiredAlly"].is_null()
+                // Variantes de otros modos (Arena, etc.) con id de 6 cifras que
+                // Data Dragon marca también para la Grieta.
+                && id.len() <= 4
+                && !ARAM_ONLY.contains(&id.as_str())
         })
         .collect();
     let buyable: std::collections::HashSet<&str> =
@@ -238,13 +251,20 @@ pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
             });
             let is_boots = tags.iter().any(|t| t == "Boots");
             let consumable = tags.iter().any(|t| t == "Consumable" || t == "Trinket");
+            let has = |t: &str| tags.iter().any(|x| x == t);
+            let no_recipe = i["from"].as_array().is_none_or(|a| a.is_empty());
+            let starter =
+                no_recipe && gold <= 500 && !has("Trinket") && (has("Lane") || has("Jungle"));
             Item {
                 id: (*id).clone(),
                 name: i["name"].as_str().unwrap_or_default().into(),
                 plaintext: i["plaintext"].as_str().unwrap_or_default().into(),
                 gold,
                 completed: !consumable
+                    && !starter
                     && ((!builds_into && gold >= 900) || (is_boots && gold > 300)),
+                starter,
+                support: starter && has("GoldPer"),
                 tags,
                 image: format!(
                     "{BASE}/cdn/{version}/img/item/{}",
@@ -555,6 +575,8 @@ pub mod fixtures {
       "3111":{"name":"Botas de Mercurio","plaintext":"","from":["1001"],"image":{"full":"3111.png"},"gold":{"base":800,"purchasable":true,"total":1100,"sell":770},"tags":["Boots","SpellBlock","Tenacity"],"maps":{"11":true}},
       "3078":{"name":"Fuerza de Trinidad","plaintext":"","from":["3057","3044"],"image":{"full":"3078.png"},"gold":{"base":333,"purchasable":true,"total":3333,"sell":2333},"tags":["Damage","AttackSpeed"],"maps":{"11":true}},
       "3123":{"name":"Llamado del Verdugo","plaintext":"Hiere gravemente","into":["6609"],"image":{"full":"3123.png"},"gold":{"base":400,"purchasable":true,"total":800,"sell":560},"tags":["Damage"],"maps":{"11":true}},
+      "1054":{"name":"Escudo de Doran","plaintext":"","image":{"full":"1054.png"},"gold":{"base":450,"purchasable":true,"total":450,"sell":180},"tags":["Health","HealthRegen","Lane"],"maps":{"11":true}},
+      "3865":{"name":"Mapamundi","plaintext":"","image":{"full":"3865.png"},"gold":{"base":400,"purchasable":true,"total":400,"sell":160},"tags":["Health","GoldPer","Lane"],"maps":{"11":true}},
       "2003":{"name":"Poción de Vida","plaintext":"","image":{"full":"2003.png"},"gold":{"base":50,"purchasable":true,"total":50,"sell":20},"tags":["Consumable"],"maps":{"11":true}},
       "3599":{"name":"Lanza Negra de Kalista","plaintext":"","image":{"full":"3599.png"},"gold":{"base":0,"purchasable":true,"total":0,"sell":0},"tags":[],"maps":{"11":true},"requiredChampion":"Kalista"},
       "4403":{"name":"Espátula Dorada","plaintext":"","image":{"full":"4403.png"},"gold":{"base":0,"purchasable":false,"total":0,"sell":0},"tags":[],"maps":{"11":true}},
@@ -691,6 +713,32 @@ mod tests {
         let items = parse_items(json, "15.22.1").unwrap();
         assert_eq!(items.len(), 1);
         assert!(items[0].completed);
+    }
+
+    #[test]
+    fn starters_support_and_other_modes() {
+        let json = r#"{"data":{
+          "1054":{"name":"Escudo de Doran","image":{"full":"1054.png"},"gold":{"purchasable":true,"total":450},"tags":["Health","Lane"],"maps":{"11":true}},
+          "1036":{"name":"Espada Larga","into":["3071"],"image":{"full":"1036.png"},"gold":{"purchasable":true,"total":350},"tags":["Damage","Lane"],"maps":{"11":true}},
+          "1029":{"name":"Armadura de Tela","into":["3075"],"image":{"full":"1029.png"},"gold":{"purchasable":true,"total":300},"tags":["Armor"],"maps":{"11":true}},
+          "3865":{"name":"Mapamundi","image":{"full":"3865.png"},"gold":{"purchasable":true,"total":400},"tags":["GoldPer","Lane"],"maps":{"11":true}},
+          "3869":{"name":"Oposición Celestial","from":["3865"],"image":{"full":"3869.png"},"gold":{"purchasable":true,"total":400},"tags":["GoldPer","Lane"],"maps":{"11":true}},
+          "3340":{"name":"Centinela Invisible","image":{"full":"3340.png"},"gold":{"purchasable":true,"total":0},"tags":["Trinket","Lane"],"maps":{"11":true}},
+          "2051":{"name":"Cuerno del Guardián","image":{"full":"2051.png"},"gold":{"purchasable":true,"total":950},"tags":["Health","Lane"],"maps":{"11":true,"12":true}},
+          "663039":{"name":"Juicio de Atma","image":{"full":"663039.png"},"gold":{"purchasable":true,"total":2500},"tags":["Health"],"maps":{"11":true}}
+        }}"#;
+        let items = parse_items(json, "16.22.1").unwrap();
+        let get = |n: &str| items.iter().find(|i| i.name == n);
+        assert!(get("Cuerno del Guardián").is_none(), "ARAM");
+        assert!(get("Juicio de Atma").is_none(), "Arena");
+        let doran = get("Escudo de Doran").unwrap();
+        assert!(doran.starter && !doran.support && !doran.completed);
+        assert!(get("Espada Larga").unwrap().starter);
+        assert!(!get("Armadura de Tela").unwrap().starter);
+        let atlas = get("Mapamundi").unwrap();
+        assert!(atlas.starter && atlas.support);
+        assert!(!get("Oposición Celestial").unwrap().starter);
+        assert!(!get("Centinela Invisible").unwrap().starter);
     }
 
     #[test]
