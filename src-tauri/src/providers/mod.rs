@@ -5,6 +5,7 @@
 pub mod claude_code;
 pub mod codex;
 mod process;
+pub use process::DEFAULT_TIMEOUT;
 pub mod prompts;
 mod terminal;
 
@@ -158,6 +159,19 @@ pub fn valid_session_id(id: &str) -> bool {
 /// Consultas en curso, para poder detenerlas desde la UI.
 #[derive(Default)]
 pub struct Running(Mutex<HashMap<String, oneshot::Sender<()>>>);
+
+impl Running {
+    /// Registra una consulta y devuelve el receptor que la cancela.
+    pub fn register(&self, request_id: &str) -> oneshot::Receiver<()> {
+        let (tx, rx) = oneshot::channel();
+        self.0.lock().unwrap().insert(request_id.to_string(), tx);
+        rx
+    }
+
+    pub fn finish(&self, request_id: &str) {
+        self.0.lock().unwrap().remove(request_id);
+    }
+}
 
 #[tauri::command]
 pub fn cancel_prompt(running: State<'_, Running>, request_id: String) {

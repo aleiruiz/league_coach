@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Chat from "./Chat";
+import DraftView from "./DraftView";
 import Models from "./Models";
 import Settings from "./Settings";
 import { providerStatuses, ProviderStatus } from "./providers";
 import "./App.css";
 
-type View = "coach" | "models" | "settings";
+type View = "draft" | "coach" | "models" | "settings";
 
 const NAV: { view: View; label: string }[] = [
-  { view: "coach", label: "Coach" },
+  { view: "draft", label: "Partida" },
+  { view: "coach", label: "Preguntar" },
   { view: "models", label: "Modelos" },
   { view: "settings", label: "API keys (opcional)" },
 ];
@@ -21,7 +23,7 @@ export type ProvidersState = {
 };
 
 function App() {
-  const [view, setView] = useState<View>("coach");
+  const [view, setView] = useState<View>("draft");
   const [list, setList] = useState<ProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +64,9 @@ function App() {
         ))}
       </nav>
       <main className="content">
+        <div hidden={view !== "draft"}>
+          <DraftView providers={providers} onGoToModels={() => setView("models")} />
+        </div>
         <div hidden={view !== "coach"}>
           <Chat providers={providers} onGoToModels={() => setView("models")} />
         </div>
