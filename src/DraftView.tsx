@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
 import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES } from "./game";
@@ -12,20 +11,6 @@ import type { ProvidersState } from "./App";
 
 /** Build recibida, con el modelo y el draft que la generaron. */
 type Result = Recommendation & { kind: ProviderKind; draft: Draft };
-
-const mdLinks = {
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        if (href?.startsWith("https://")) openUrl(href);
-      }}
-    >
-      {children}
-    </a>
-  ),
-};
 
 function Portrait({ champ, label, onClick, onClear, star, me }: {
   champ: Champion | undefined;
@@ -349,9 +334,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             <div key={i} className="qa">
               <p className="q">{x.q}</p>
               <div className="bubble assistant">
-                <Markdown components={mdLinks} urlTransform={(u) => (u.startsWith("https://") ? u : "")}>
-                  {x.a}
-                </Markdown>
+                <SafeMarkdown>{x.a}</SafeMarkdown>
                 {x.error && <p className="error">⚠ {x.error}</p>}
               </div>
             </div>

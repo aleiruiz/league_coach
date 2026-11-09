@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
 import { SHARD_ROWS } from "./game";
 import { RoleIcon } from "./icons";
+import SafeMarkdown from "./SafeMarkdown";
 import { Key, skillPath, SPECIAL_R } from "./skills";
 
 const norm = (s: string) =>
@@ -234,6 +235,12 @@ function listaHumana(xs: string[]): string {
   return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
 }
 
+/** «falta el resumen», «faltan las botas», «faltan el resumen y las botas». */
+function faltan(xs: string[]): string {
+  const plural = xs.length > 1 || /^(los|las) /.test(xs[0] ?? "");
+  return `${plural ? "faltan" : "falta"} ${listaHumana(xs)}`;
+}
+
 function BuildCard({
   card,
   patch,
@@ -441,7 +448,9 @@ function BuildCard({
       {analysis && (
         <details className="analysis">
           <summary>Ver el análisis completo del modelo</summary>
-          <div className="analysis-text">{analysis}</div>
+          <div className="analysis-text">
+            <SafeMarkdown>{analysis}</SafeMarkdown>
+          </div>
         </details>
       )}
       {(warnings.length > 0 || incomplete.length > 0) && (
@@ -449,7 +458,7 @@ function BuildCard({
           <p className="error small">
             {retried ? "Le pedí al modelo que lo corrigiera y no lo logró del todo. " : ""}
             {warnings.length > 0 && <>Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}. </>}
-            {incomplete.length > 0 && <>La tarjeta quedó incompleta: falta {listaHumana(incomplete)}.</>}
+            {incomplete.length > 0 && <>La tarjeta quedó incompleta: {faltan(incomplete)}.</>}
           </p>
           {onRetry && (
             <button className="secondary" onClick={onRetry}>
