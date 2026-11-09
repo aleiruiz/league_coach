@@ -1,4 +1,4 @@
-"""Réplica en Python del flujo `recommend_build` (src-tauri/src/recommend.rs, versión de #7).
+"""Réplica en Python del flujo `recommend_build` (src-tauri/src/recommend.rs, versión de #7, d0ff380).
 
 Sirve para evaluar la tarjeta de build con el draft estructurado sin compilar la
 app. Si cambia `analysis_prompt`, `card_prompt` o `validate` en Rust, actualiza también esto.
@@ -22,7 +22,7 @@ SHARDS = [
 ]
 
 SCHEMA = """{
-  "answer": "respuesta a las NOTAS DEL JUGADOR, tan larga como pida la pregunta (lo esencial del análisis), o \\"\\" si no hay notas",
+  "answer": "respuesta a las NOTAS DEL JUGADOR en 3-6 viñetas cortas en markdown (\\"- ...\\"), o \\"\\" si no hay notas",
   "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
@@ -194,7 +194,8 @@ def analysis_prompt(draft: dict, data: GameData) -> str:
         "los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la "
         "tarjeta, donde se comprueban contra tu búsqueda.\n"
         "- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia "
-        "por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat.\n"
+        "por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat. Si pregunta qué comprar con cierto oro, di la compra exacta que alcanza "
+        "con ese oro (un componente vale).\n"
         "- Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, "
         "iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del "
         "matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos "
@@ -239,7 +240,8 @@ def card_prompt(data: GameData, analysis: str | None) -> str:
         p.append(f"- Fila {i + 1}: {', '.join(row)}")
     p.append(
         "\nREGLAS:\n"
-        '- "answer" es la respuesta a las notas del jugador ("" si no hay notas); "summary", UNA frase. Ningún campo '
+        '- "answer" es la respuesta a las notas del jugador ("" si no hay notas): 3-6 viñetas cortas con lo que tiene '
+        'que hacer, sin repetir runas ni la build (ya van en la tarjeta); "summary", UNA frase. Ningún campo '
         'lleva dudas ni correcciones ("no, mejor…", "ver abajo"): la duda, si la hay, va solo en "caveat".\n'
         '- En "stats" pon SOLO cifras que salieron en los resultados de tu búsqueda web en esta conversación (u.gg, '
         "op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche "
@@ -275,21 +277,6 @@ def invalid_names(card: dict, data: GameData, draft: dict | None = None) -> list
     bad = []
     role = (draft or {}).get("role")
 
-    me = data.champions.get((draft or {}).get("champion", ""))
-
-    def off_type(info):
-        """Como off_type de #7: ítem ofensivo del tipo de daño contrario en un campeón claramente AP o AD."""
-        if not me:
-            return None
-        has = lambda t: t in info["tags"]  # noqa: E731
-        physical = has("Damage") or has("CriticalStrike")
-        a, m = me["attack"], me["magic"]
-        if m - a >= 5 and physical and not has("SpellDamage"):
-            return "es de daño físico"
-        if a - m >= 5 and has("SpellDamage") and not physical:
-            return "es de poder de habilidad"
-        return None
-
     def item(n, slot):
         if not n:
             return
@@ -304,8 +291,6 @@ def invalid_names(card: dict, data: GameData, draft: dict | None = None) -> list
             bad.append(f"{name} no es un ítem inicial")
         elif slot == "start" and info["support"] and role != "support":
             bad.append(f"{name} es el inicial de soporte y tu rol es {role}")
-        elif slot == "core" and off_type(info):
-            bad.append(f"{name} {off_type(info)} y {me['name']} hace {_damage(me)}")
         elif slot == "boots" and not info["boots"]:
             bad.append(f"{name} no son botas")
 
