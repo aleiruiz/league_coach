@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Evaluación: corridas locales y snapshot de Data Dragon
+eval/results/
+eval/ddragon/
+eval/images/
+__pycache__/
