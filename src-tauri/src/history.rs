@@ -444,20 +444,22 @@ pub fn summarize(games: &[GameStats]) -> Summary {
         )
     };
     let game_counts = vec![
-        count("ahead of the lane opponent in CS at 10", &|g| {
+        count("Games ahead of the lane opponent in CS at 10", &|g| {
             g.cs_diff_10.filter(|_| cs_judged(g)).map(|d| d > 0)
         }),
-        count("ahead of the lane opponent in gold at 15", &|g| {
+        count("Games ahead of the lane opponent in gold at 15", &|g| {
             g.gold_diff_15.map(|d| d > 0)
         }),
-        count("2+ deaths before 14:00", &|g| {
+        count("Games with 2+ deaths before 14:00", &|g| {
             g.early_deaths.map(|d| d >= 2)
         }),
-        count("at least one solo death", &|g| {
+        count("Games with at least one solo death", &|g| {
             g.solo_deaths.map(|d| d >= 1)
         }),
-        count("0 control wards bought", &|g| Some(g.control_wards == 0)),
-        count("kill participation under 50%", &|g| {
+        count("Games with 0 control wards bought", &|g| {
+            Some(g.control_wards == 0)
+        }),
+        count("Games with kill participation under 50%", &|g| {
             Some(g.kill_participation < 0.5)
         }),
     ];
@@ -588,7 +590,7 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
     }
     for (label, n, of) in &s.counts {
         if *of > 0 {
-            let _ = writeln!(p, "Games with {label}: {n} of {of}");
+            let _ = writeln!(p, "{label}: {n} of {of}");
         }
     }
     if !s.thrown_leads.is_empty() {
@@ -713,7 +715,8 @@ pub fn parse_report(text: &str, games: &[GameStats]) -> Result<Report, String> {
         .pain_points
         .into_iter()
         .filter(|p| !p.title.trim().is_empty() && !p.drill.trim().is_empty())
-        .take(3)
+        // A small sample doesn't hold 3 patterns, whatever the model says.
+        .take(if games.len() < 8 { 2 } else { 3 })
         .map(|p| {
             let mut ids: Vec<String> = Vec::new();
             for r in &p.games {
@@ -1383,7 +1386,7 @@ mod tests {
         assert_eq!(s.in_losses.games, 1);
         assert!(
             s.counts
-                .contains(&("0 control wards bought".to_string(), 2, 2))
+                .contains(&("Games with 0 control wards bought".to_string(), 2, 2))
         );
         let p = review_prompt("Name#TAG", &games);
         assert!(p.contains("CS not judged (support)"));
@@ -1404,6 +1407,10 @@ mod tests {
             {"title": "No drill"},
             {"title": "B", "drill": "b"}, {"title": "C", "drill": "c"}, {"title": "D", "drill": "d"}
           ]}"#;
+        assert_eq!(parse_report(text, &games).unwrap().pain_points.len(), 2);
+        let games: Vec<GameStats> = (0..8)
+            .map(|i| game(&format!("M{i}"), true, None, None))
+            .collect();
         let r = parse_report(text, &games).unwrap();
         assert_eq!(r.caveat, "");
         assert_eq!(r.pain_points.len(), 3);
