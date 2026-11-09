@@ -300,10 +300,10 @@ pub fn clean_stats(raw: &[RawStat], data: &GameData, seen: &[String]) -> (Vec<St
                 rank: short(&s.rank),
             })
         })
-        .take(6)
         .collect();
+    // Descartadas = sin fuente o con valores sin sentido (no las que corta el tope).
     let dropped = raw.len() - kept.len();
-    (kept, dropped)
+    (kept.into_iter().take(6).collect(), dropped)
 }
 
 #[derive(Debug, Serialize, Clone)]

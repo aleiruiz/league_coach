@@ -264,7 +264,8 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
           </p>
         )}
         <p className="small muted">
-          {card.stats.length > 0 && "Cifras que el modelo vio en los resultados de su búsqueda; ábrelas para comprobarlas. "}
+          {card.stats.length > 0 &&
+            "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. "}
           {card.stats_verifiable &&
             card.stats_dropped > 0 &&
             `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}

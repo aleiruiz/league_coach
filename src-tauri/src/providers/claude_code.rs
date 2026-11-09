@@ -123,47 +123,53 @@ fn sources(urls: Vec<String>) -> Vec<ChatEvent> {
     }
 }
 
-/// URLs dentro de los `tool_result` de un mensaje "user" (y del campo
-/// `tool_use_result` que agregan las versiones nuevas de Claude Code).
+/// URLs de los resultados en un mensaje "user": el campo estructurado
+/// `tool_use_result.results[*].content[*].url` y, como respaldo, el arreglo
+/// JSON que sigue a `Links:` en el texto del `tool_result`. Nunca se escanea
+/// texto libre: la consulta la escribe el modelo y podría traer una URL.
 fn tool_results(v: &Value) -> Vec<String> {
-    let mut out: Vec<String> = v["message"]["content"]
+    let mut out = Vec::new();
+    for r in v["tool_use_result"]["results"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|b| b["type"] == "tool_result")
-        .flat_map(|b| urls_in(&b["content"]))
-        .collect();
-    out.extend(urls_in(&v["tool_use_result"]));
-    out
-}
-
-/// Todas las URLs https en un valor JSON: campos `url` y enlaces dentro de texto.
-pub fn urls_in(v: &Value) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_urls(v, &mut out);
-    out
-}
-
-fn collect_urls(v: &Value, out: &mut Vec<String>) {
-    match v {
-        Value::String(s) => {
-            let mut rest = s.as_str();
-            while let Some(i) = rest.find("https://") {
-                let tail = &rest[i..];
-                let end = tail
-                    .find(|c: char| c.is_whitespace() || "\"'<>()[]{}`".contains(c))
-                    .unwrap_or(tail.len());
-                let url = tail[..end].trim_end_matches(['.', ',', ';', ':']);
-                if url.len() > "https://".len() {
-                    out.push(url.to_string());
+    {
+        out.extend(urls_in(&r["content"]));
+    }
+    for b in v["message"]["content"].as_array().into_iter().flatten() {
+        if b["type"] != "tool_result" {
+            continue;
+        }
+        let texts: Vec<&str> = match &b["content"] {
+            Value::String(t) => vec![t.as_str()],
+            Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect(),
+            _ => vec![],
+        };
+        for t in texts {
+            for (i, _) in t.match_indices("Links: ") {
+                let rest = &t[i + "Links: ".len()..];
+                if let Some(Ok(links)) = serde_json::Deserializer::from_str(rest)
+                    .into_iter::<Value>()
+                    .next()
+                {
+                    out.extend(urls_in(&links));
                 }
-                rest = &tail[end..];
             }
         }
-        Value::Array(a) => a.iter().for_each(|x| collect_urls(x, out)),
-        Value::Object(o) => o.values().for_each(|x| collect_urls(x, out)),
-        _ => {}
     }
+    out
+}
+
+/// Valores de los campos `url` (https) de una lista de resultados, solo en
+/// el primer nivel de cada elemento: `[{"title":..,"url":..}, ...]`.
+pub fn urls_in(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["url"].as_str())
+        .filter(|u| u.starts_with("https://"))
+        .map(String::from)
+        .collect()
 }
 
 fn parse_stream_event(ev: &Value) -> Vec<ChatEvent> {
@@ -204,7 +210,7 @@ mod tests {
     fn search_result_urls_are_collected_but_not_model_text() {
         let ev = events(&[
             // WebSearch de Claude Code: enlaces dentro del tool_result.
-            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Web search results for query: \"jax build\"\n\nLinks: [{\"title\":\"Jax Build\",\"url\":\"https://u.gg/lol/champions/jax/build\"}]"}]},"tool_use_result":{"results":[{"content":[{"title":"x","url":"https://www.op.gg/champions/jax/build"}]}]}}"#,
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Web search results for query: \"https://u.gg/lol/champions/jax/inventada win rate\"\n\nLinks: [{\"title\":\"Jax Build\",\"url\":\"https://u.gg/lol/champions/jax/build\"}]"}]},"tool_use_result":{"query":"https://u.gg/lol/champions/jax/inventada win rate","results":[{"tool_use_id":"t1","content":[{"title":"x","url":"https://www.op.gg/champions/jax/build"}]}]}}"#,
             // Bloque de búsqueda del servidor.
             r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"s1","content":[{"type":"web_search_result","url":"https://lolalytics.com/lol/jax/build/","title":"t"}]}}}"#,
             // Texto del modelo: no cuenta como fuente.
@@ -223,7 +229,7 @@ mod tests {
         );
         assert!(urls.contains(&"https://www.op.gg/champions/jax/build".to_string()));
         assert!(urls.contains(&"https://lolalytics.com/lol/jax/build/".to_string()));
-        assert!(!urls.iter().any(|u| u.contains("inventado")));
+        assert!(!urls.iter().any(|u| u.contains("inventad")), "{urls:?}");
     }
 
     #[test]
