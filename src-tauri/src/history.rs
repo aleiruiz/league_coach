@@ -345,14 +345,19 @@ fn mean(xs: impl Iterator<Item = Option<f32>>) -> Option<f32> {
     (n > 0).then(|| round2(sum / n as f32))
 }
 
+/// Supports aren't judged on CS: their games stay out of every CS number.
+pub fn cs_judged(g: &GameStats) -> bool {
+    g.role != "UTILITY"
+}
+
 pub fn averages(games: &[GameStats]) -> Averages {
     let m = |f: fn(&GameStats) -> Option<f32>| mean(games.iter().map(f));
     Averages {
         games: games.len(),
         win_rate: m(|g| Some(if g.win { 1.0 } else { 0.0 })),
-        cs_per_min: m(|g| Some(g.cs_per_min)),
-        cs_at_10: m(|g| g.cs_at_10.map(|x| x as f32)),
-        cs_diff_10: m(|g| g.cs_diff_10.map(|x| x as f32)),
+        cs_per_min: m(|g| cs_judged(g).then_some(g.cs_per_min)),
+        cs_at_10: m(|g| g.cs_at_10.filter(|_| cs_judged(g)).map(|x| x as f32)),
+        cs_diff_10: m(|g| g.cs_diff_10.filter(|_| cs_judged(g)).map(|x| x as f32)),
         gold_diff_15: m(|g| g.gold_diff_15.map(|x| x as f32)),
         kill_participation: m(|g| Some(g.kill_participation)),
         deaths: m(|g| Some(g.deaths as f32)),
@@ -401,10 +406,16 @@ pub struct Summary {
     /// Last 5 games vs. the ones before: is it getting better or worse?
     pub recent: Averages,
     pub earlier: Averages,
+    /// Wins vs. losses: what actually separates them.
+    pub in_wins: Averages,
+    pub in_losses: Averages,
     pub roles: Vec<Count>,
     pub champions: Vec<Count>,
-    /// Games behind the lane opponent in CS at 10, out of games with an opponent.
+    /// Games behind the lane opponent in CS at 10, out of games with an
+    /// opponent (support games excluded).
     pub behind_at_10: (usize, usize),
+    /// Counts the model would otherwise miscount, "label: x of n games".
+    pub counts: Vec<(String, usize, usize)>,
     /// Refs (G1 = most recent) of games lost after leading at 15.
     pub thrown_leads: Vec<String>,
 }
@@ -417,11 +428,46 @@ pub fn game_ref(i: usize) -> String {
 /// `games` is newest first.
 pub fn summarize(games: &[GameStats]) -> Summary {
     let split = games.len().min(5);
-    let with_opp: Vec<i32> = games.iter().filter_map(|g| g.cs_diff_10).collect();
+    let with_opp: Vec<i32> = games
+        .iter()
+        .filter(|g| cs_judged(g))
+        .filter_map(|g| g.cs_diff_10)
+        .collect();
+    let wins: Vec<GameStats> = games.iter().filter(|g| g.win).cloned().collect();
+    let losses: Vec<GameStats> = games.iter().filter(|g| !g.win).cloned().collect();
+    let count = |label: &str, f: &dyn Fn(&GameStats) -> Option<bool>| {
+        let known: Vec<bool> = games.iter().filter_map(f).collect();
+        (
+            label.to_string(),
+            known.iter().filter(|x| **x).count(),
+            known.len(),
+        )
+    };
+    let game_counts = vec![
+        count("ahead of the lane opponent in CS at 10", &|g| {
+            g.cs_diff_10.filter(|_| cs_judged(g)).map(|d| d > 0)
+        }),
+        count("ahead of the lane opponent in gold at 15", &|g| {
+            g.gold_diff_15.map(|d| d > 0)
+        }),
+        count("2+ deaths before 14:00", &|g| {
+            g.early_deaths.map(|d| d >= 2)
+        }),
+        count("at least one solo death", &|g| {
+            g.solo_deaths.map(|d| d >= 1)
+        }),
+        count("0 control wards bought", &|g| Some(g.control_wards == 0)),
+        count("kill participation under 50%", &|g| {
+            Some(g.kill_participation < 0.5)
+        }),
+    ];
     Summary {
         all: averages(games),
         recent: averages(&games[..split]),
         earlier: averages(&games[split..]),
+        in_wins: averages(&wins),
+        in_losses: averages(&losses),
+        counts: game_counts,
         roles: counts(games, |g| &g.role),
         champions: counts(games, |g| &g.champion).into_iter().take(5).collect(),
         behind_at_10: (with_opp.iter().filter(|d| **d < 0).count(), with_opp.len()),
@@ -490,18 +536,24 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
         games.len()
     );
     p.push_str(
-        "\nFind the 3 pain points that would most improve this player's results, ordered by impact.\n\
+        "\nFind the pain points that would most improve this player's results, ordered by impact: 3, or only \
+         1-2 with fewer than 8 games (don't invent a third).\n\
          Rules:\n\
          - Use only the numbers below. Don't search the web.\n\
          - Don't compare with rank averages, pro players or benchmarks you don't have here. Compare only with \
            the player's own games (their trend, their best and worst games) and with their lane opponents in \
            these games (the \"diff\" numbers).\n\
-         - Prefer patterns that repeat across several games over a single bad game.\n\
+         - Prefer patterns that repeat across several games. A pain point can't rest on a single game; if a \
+           number comes from one game, say so.\n\
+         - Compare the \"In wins\" and \"In losses\" lines: what differs most between them is what costs games.\n\
+         - Use the counts given below instead of counting games yourself.\n\
          - Each pain point must cite the exact numbers and the games (G refs) that show it.\n\
          - The drill is something concrete to practice in the next games (one focus, how to do it). \
            The target uses the same metric, is measurable, and is reachable from their current numbers.\n\
-         - Consider the role and champions: a support isn't judged on CS, a jungler's CS diff is against the \
-           enemy jungler.\n\
+         - Consider the role and champions: a support is never judged on CS (their CS is left out on purpose), \
+           a jungler's CS diff is against the enemy jungler.\n\
+         - Evidence and why: at most 2 short sentences each.\n\
+         - If the sample is small, mixes roles, or one game skews a number, say it in \"caveat\".\n\
          - Also name one real strength, with its numbers.\n",
     );
 
@@ -515,6 +567,10 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
         );
         let _ = writeln!(p, "Games before those: {}", averages_line(&s.earlier));
     }
+    if s.in_wins.games > 0 && s.in_losses.games > 0 {
+        let _ = writeln!(p, "In wins: {}", averages_line(&s.in_wins));
+        let _ = writeln!(p, "In losses: {}", averages_line(&s.in_losses));
+    }
     let list = |cs: &[Count]| {
         cs.iter()
             .map(|c| format!("{} ({} games, {} wins)", c.name, c.games, c.wins))
@@ -523,11 +579,18 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
     };
     let _ = writeln!(p, "Roles: {}", list(&s.roles));
     let _ = writeln!(p, "Most played champions: {}", list(&s.champions));
-    let _ = writeln!(
-        p,
-        "Behind the lane opponent in CS at 10: {} of {} games",
-        s.behind_at_10.0, s.behind_at_10.1
-    );
+    if s.behind_at_10.1 > 0 {
+        let _ = writeln!(
+            p,
+            "Behind the lane opponent in CS at 10: {} of {} games (support games not counted)",
+            s.behind_at_10.0, s.behind_at_10.1
+        );
+    }
+    for (label, n, of) in &s.counts {
+        if *of > 0 {
+            let _ = writeln!(p, "Games with {label}: {n} of {of}");
+        }
+    }
     if !s.thrown_leads.is_empty() {
         let _ = writeln!(
             p,
@@ -546,7 +609,7 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
             .join(", ");
         let _ = writeln!(
             p,
-            "{} | {} | {} {} vs {} | {} | {} min | KDA {}/{}/{} | KP {} | CS/min {} | CS@10 {} (diff {}) | \
+            "{} | {} | {} {} vs {} | {} | {} min | KDA {}/{}/{} | KP {} | {} | \
              gold diff@15 {} | team gold diff@15 {} | deaths at minute [{}], before 14:00 {}, solo {} | \
              vision/min {}, wards placed {}, wards killed {}, control wards {} | damage share {} | first legendary item {}",
             game_ref(i),
@@ -560,9 +623,16 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
             g.deaths,
             g.assists,
             g.kill_participation,
-            g.cs_per_min,
-            opt(g.cs_at_10),
-            signed(g.cs_diff_10),
+            if cs_judged(g) {
+                format!(
+                    "CS/min {} | CS@10 {} (diff {})",
+                    g.cs_per_min,
+                    opt(g.cs_at_10),
+                    signed(g.cs_diff_10)
+                )
+            } else {
+                "CS not judged (support)".to_string()
+            },
             signed(g.gold_diff_15),
             signed(g.team_gold_diff_15),
             deaths,
@@ -581,11 +651,12 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
         "\nReply with ONLY a JSON object, no text before or after, in this shape:\n\
          {\"headline\": \"one sentence: the main thing to fix\",\n \
          \"strength\": \"one real strength, with its numbers\",\n \
+         \"caveat\": \"optional, one line: small sample, one-off game, or what the data can't show\",\n \
          \"pain_points\": [{\"title\": \"short name\", \"metric\": \"the metric it's measured by\", \
          \"evidence\": \"the numbers and games that show it\", \"why\": \"why it costs games\", \
          \"drill\": \"what to practice in the next games\", \"target\": \"measurable goal\", \
          \"games\": [\"G1\", \"G4\"]}]}\n\
-         Exactly 3 pain points. Keys in English; the text values in the answer language.",
+         Keys in English; the text values in the answer language.",
     );
     p
 }
@@ -595,6 +666,7 @@ pub fn review_prompt(riot_id: &str, games: &[GameStats]) -> String {
 struct RawReport {
     headline: String,
     strength: String,
+    caveat: String,
     pain_points: Vec<RawPainPoint>,
 }
 
@@ -626,6 +698,9 @@ pub struct PainPoint {
 pub struct Report {
     pub headline: String,
     pub strength: String,
+    /// Small sample, one-off game… (empty if none).
+    #[serde(default)]
+    pub caveat: String,
     pub pain_points: Vec<PainPoint>,
 }
 
@@ -670,6 +745,7 @@ pub fn parse_report(text: &str, games: &[GameStats]) -> Result<Report, String> {
     Ok(Report {
         headline: raw.headline.trim().into(),
         strength: raw.strength.trim().into(),
+        caveat: raw.caveat.trim().into(),
         pain_points,
     })
 }
@@ -697,6 +773,10 @@ pub struct SavedReport {
     pub newest_game: String,
     pub averages: Averages,
     pub report: Report,
+    /// Match ids in G order (G1 first) at review time, to show "G4" next
+    /// to the right game even after newer games arrive.
+    #[serde(default)]
+    pub game_refs: Vec<String>,
 }
 
 /// `id` is `Profile::store_id` (hex, so always a safe file name).
@@ -1098,6 +1178,7 @@ pub async fn review_matches(
         newest_game: games[0].id.clone(),
         averages: averages(&games),
         report,
+        game_refs: games.iter().map(|g| g.id.clone()).collect(),
     };
     let _guard = lock.0.lock().await;
     // Re-read: a sync may have added games while the model was answering.
@@ -1288,6 +1369,31 @@ mod tests {
     }
 
     #[test]
+    fn support_cs_is_left_out_and_wins_vs_losses_are_split() {
+        let mut sup = game("S", false, Some(-60), None);
+        sup.role = "UTILITY".into();
+        sup.cs_per_min = 1.0;
+        sup.control_wards = 0;
+        let mid = game("M", true, Some(5), None);
+        let games = vec![sup, mid];
+        let s = summarize(&games);
+        assert_eq!(s.behind_at_10, (0, 1));
+        assert_eq!(s.all.cs_per_min, Some(6.0));
+        assert_eq!(s.in_wins.games, 1);
+        assert_eq!(s.in_losses.games, 1);
+        assert!(
+            s.counts
+                .contains(&("0 control wards bought".to_string(), 2, 2))
+        );
+        let p = review_prompt("Name#TAG", &games);
+        assert!(p.contains("CS not judged (support)"));
+        assert!(p.contains("In wins: "));
+        assert!(p.contains("In losses: "));
+        assert!(p.contains("\"caveat\""));
+        assert!(!p.contains("Exactly 3"));
+    }
+
+    #[test]
     fn parses_report_and_resolves_refs() {
         let games = vec![game("M0", true, None, None), game("M1", false, None, None)];
         let text = r#"Here you go: {"headline": "Die less early", "strength": "KP 70%",
@@ -1299,6 +1405,7 @@ mod tests {
             {"title": "B", "drill": "b"}, {"title": "C", "drill": "c"}, {"title": "D", "drill": "d"}
           ]}"#;
         let r = parse_report(text, &games).unwrap();
+        assert_eq!(r.caveat, "");
         assert_eq!(r.pain_points.len(), 3);
         assert_eq!(
             r.pain_points[0].games,
@@ -1335,8 +1442,10 @@ mod tests {
             report: Report {
                 headline: String::new(),
                 strength: String::new(),
+                caveat: String::new(),
                 pain_points: vec![],
             },
+            game_refs: vec![],
         });
         assert!(!needs_review(&store));
         store.games.insert(0, game("M9", true, None, None));

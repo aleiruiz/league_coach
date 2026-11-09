@@ -63,10 +63,13 @@ export type Summary = {
   all: Averages;
   recent: Averages;
   earlier: Averages;
+  in_wins: Averages;
+  in_losses: Averages;
   roles: Count[];
   champions: Count[];
   behind_at_10: [number, number];
   thrown_leads: string[];
+  counts: [string, number, number][];
 };
 
 export type PainPoint = {
@@ -84,7 +87,9 @@ export type SavedReport = {
   kind: ProviderKind;
   newest_game: string;
   averages: Averages;
-  report: { headline: string; strength: string; pain_points: PainPoint[] };
+  report: { headline: string; strength: string; caveat: string; pain_points: PainPoint[] };
+  /** Match ids in G order at review time (G1 first). */
+  game_refs: string[];
 };
 
 export type HistoryView = {

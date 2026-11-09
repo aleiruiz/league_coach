@@ -53,25 +53,37 @@ function PainCard({
   games,
   byId,
   lang,
+  refOf,
+  onHighlight,
 }: {
   n: number;
   p: PainPoint;
   games: GameStats[];
   byId: Map<string, Champion>;
   lang: Lang;
+  /** "G4" for a match id, as the review named it. */
+  refOf: (id: string) => string | null;
+  /** Highlights the cited games in the list (null clears). */
+  onHighlight: (ids: string[] | null) => void;
 }) {
   const cited = p.games.map((id) => games.find((g) => g.id === id)).filter((g): g is GameStats => !!g);
+  // Drill and target first: that's what the player acts on. The numbers
+  // behind it come after, and the "why" is one click away.
   return (
-    <article className="panel pain">
+    <article
+      className="panel pain"
+      onMouseEnter={() => cited.length && onHighlight(p.games)}
+      onMouseLeave={() => onHighlight(null)}
+    >
       <header className="pain-head">
         <span className="pain-n" aria-hidden="true">
           {n}
         </span>
-        <h4>{p.title}</h4>
-        {p.metric && <span className="badge patch">{p.metric}</span>}
+        <div className="pain-title">
+          <h4>{p.title}</h4>
+          {p.metric && <span className="pain-metric">{p.metric}</span>}
+        </div>
       </header>
-      {p.evidence && <p className="pain-evidence">{p.evidence}</p>}
-      {p.why && <p className="muted">{p.why}</p>}
       <div className="pain-drill">
         <strong>{t("Practice", "Practica")}</strong>
         <p>{p.drill}</p>
@@ -81,15 +93,23 @@ function PainCard({
           <strong>{t("Target", "Meta")}:</strong> {p.target}
         </p>
       )}
+      {p.evidence && <p className="pain-evidence">{p.evidence}</p>}
       {cited.length > 0 && (
         <div className="pain-games" aria-label={t("Games that show it", "Partidas que lo muestran")}>
           {cited.map((g) => (
             <span key={g.id} className={g.win ? "game-chip win" : "game-chip loss"} title={gameTitle(g, lang)}>
               <ChampIcon id={g.champion} byId={byId} size={18} />
+              {refOf(g.id) && <b>{refOf(g.id)}</b>}
               {g.kills}/{g.deaths}/{g.assists}
             </span>
           ))}
         </div>
+      )}
+      {p.why && (
+        <details className="pain-why">
+          <summary>{t("Why it matters", "Por qué importa")}</summary>
+          <p className="muted">{p.why}</p>
+        </details>
       )}
     </article>
   );
@@ -149,15 +169,30 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
   );
 }
 
-function GameRow({ g, byId, lang }: { g: GameStats; byId: Map<string, Champion>; lang: Lang }) {
+function GameRow({
+  g,
+  byId,
+  lang,
+  gref,
+  highlighted,
+}: {
+  g: GameStats;
+  byId: Map<string, Champion>;
+  lang: Lang;
+  gref: string | null;
+  highlighted: boolean;
+}) {
   const name = byId.get(g.champion.toLowerCase())?.name ?? g.champion;
   const opp = g.opponent ? (byId.get(g.opponent.toLowerCase())?.name ?? g.opponent) : null;
   const date = gameDate(g, lang);
   return (
-    <li className={g.win ? "game-row win" : "game-row loss"}>
+    <li className={`game-row ${g.win ? "win" : "loss"}${highlighted ? " highlight" : ""}`}>
       <ChampIcon id={g.champion} byId={byId} />
       <div className="game-main">
-        <strong>{name}</strong>
+        <strong>
+          {gref && <span className="game-ref">{gref}</span>}
+          {name}
+        </strong>
         <span className="muted small">
           {roleName(g.role)}
           {opp && ` · vs ${opp}`}
@@ -335,6 +370,10 @@ function Progress({
   const tooFew = view.games.length < 3;
   const latest = view.latest;
   const newSince = latest ? view.games.findIndex((g) => g.id === latest.newest_game) : -1;
+  // G refs as the latest review numbered them (G1 = newest game it saw).
+  const refs = useMemo(() => new Map((latest?.game_refs ?? []).map((id, i) => [id, `G${i + 1}`])), [latest]);
+  const refOf = (id: string) => refs.get(id) ?? null;
+  const [highlight, setHighlight] = useState<string[] | null>(null);
 
   return (
     <section className="progress">
@@ -462,9 +501,19 @@ function Progress({
               </span>
             )}
           </div>
+          {latest.report.caveat && <p className="caveat">{latest.report.caveat}</p>}
           <div className="pain-grid">
             {latest.report.pain_points.map((p, i) => (
-              <PainCard key={i} n={i + 1} p={p} games={view.games} byId={byId} lang={lang} />
+              <PainCard
+                key={i}
+                n={i + 1}
+                p={p}
+                games={view.games}
+                byId={byId}
+                lang={lang}
+                refOf={refOf}
+                onHighlight={setHighlight}
+              />
             ))}
           </div>
           {latest.report.strength && (
@@ -490,7 +539,14 @@ function Progress({
           <h3 className="panel-title">{t("Recent games", "Partidas recientes")}</h3>
           <ul className="game-list">
             {view.games.slice(0, 20).map((g) => (
-              <GameRow key={g.id} g={g} byId={byId} lang={lang} />
+              <GameRow
+                key={g.id}
+                g={g}
+                byId={byId}
+                lang={lang}
+                gref={refOf(g.id)}
+                highlighted={!!highlight?.includes(g.id)}
+              />
             ))}
           </ul>
         </div>
