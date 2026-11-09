@@ -4,8 +4,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::ChatEvent;
 use super::process::{self, Parsed};
-use super::{ChatEvent, prompts};
+#[cfg(test)]
+use super::prompts;
 use crate::i18n::tr;
 
 pub async fn login_status(bin: &Path) -> (bool, Option<String>) {
@@ -135,9 +137,9 @@ pub fn args(session_id: Option<&str>) -> Vec<String> {
 
 /// Codex no tiene un flag de system prompt para `exec`, así que en el primer
 /// mensaje de la conversación anteponemos las instrucciones del coach.
-pub fn stdin_prompt(prompt: &str, first_turn: bool) -> String {
-    if first_turn {
-        format!("{}\n\n---\n\n{prompt}", prompts::coach(crate::i18n::lang()))
+pub fn stdin_prompt(prompt: &str, system: Option<&str>) -> String {
+    if let Some(system) = system {
+        format!("{system}\n\n---\n\n{prompt}")
     } else {
         prompt.to_string()
     }
@@ -243,8 +245,9 @@ mod tests {
 
     #[test]
     fn coach_prompt_only_on_first_turn() {
-        assert!(stdin_prompt("hola", true).starts_with(&prompts::coach(crate::i18n::lang())));
-        assert_eq!(stdin_prompt("hola", false), "hola");
+        let system = prompts::coach(crate::i18n::Lang::En, None);
+        assert!(stdin_prompt("hola", Some(&system)).starts_with(&system));
+        assert_eq!(stdin_prompt("hola", None), "hola");
     }
 
     #[test]

@@ -19,7 +19,47 @@ say it in a single line at the end, not scattered through the answer.
 - During a game, keep answers short: what to buy, what to do now and why, in a few lines.
 - Adapt the advice to the player's role, champion and level when you know them.";
 
-/// Coach system prompt, with the answer-language line for `lang`.
-pub fn coach(lang: Lang) -> String {
-    format!("{COACH}\n- {}", lang.answer_instruction())
+/// The live patch, as the app read it from Data Dragon.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LivePatch {
+    /// Patch name players use, e.g. "26.22".
+    pub patch: String,
+    /// Data Dragon version, e.g. "16.22.1".
+    pub version: String,
+}
+
+/// Coach system prompt: the live patch (when known) and the answer-language
+/// line for `lang`.
+pub fn coach(lang: Lang, live: Option<&LivePatch>) -> String {
+    let patch = match live {
+        Some(l) => format!(
+            "- The current live patch is {} (Data Dragon version {}; some sites show it by the client \
+             version, {}). Everything you recommend must be valid on this patch. Never say you don't \
+             know the current patch.",
+            l.patch,
+            l.version,
+            l.version.rsplitn(2, '.').last().unwrap_or(&l.version)
+        ),
+        None => "- If you can't tell the current patch, say which patch your information is from."
+            .to_string(),
+    };
+    format!("{COACH}\n{patch}\n- {}", lang.answer_instruction())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coach_states_the_live_patch() {
+        let live = LivePatch {
+            patch: "26.22".into(),
+            version: "16.22.1".into(),
+        };
+        let p = coach(Lang::En, Some(&live));
+        assert!(p.contains("The current live patch is 26.22 (Data Dragon version 16.22.1"));
+        assert!(p.contains("client version, 16.22)"));
+        assert!(p.ends_with("Always answer in English."));
+        assert!(!coach(Lang::En, None).contains("live patch is"));
+    }
 }
