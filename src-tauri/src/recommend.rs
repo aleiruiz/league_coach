@@ -172,6 +172,9 @@ pub struct Recommendation {
     pub session_id: Option<String>,
     pub patch: String,
     pub version: String,
+    /// Hubo una ronda de corrección automática (los avisos que queden son
+    /// los que el modelo no supo arreglar).
+    pub retried: bool,
 }
 
 // ---------- prompt ----------
@@ -632,9 +635,11 @@ pub async fn recommend_build(
         Err(e) => Some(format!("Tu respuesta no se pudo leer ({e}).")),
     };
 
+    let mut retried = false;
     let raw = match (retry_reason, session_id.clone()) {
         (Some(reason), Some(sid)) => {
             status("Corrigiendo la build…");
+            retried = true;
             let fix_prompt = format!(
                 "{reason} Responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
             );
@@ -675,6 +680,7 @@ pub async fn recommend_build(
         session_id,
         patch: data.patch.clone(),
         version: data.version.clone(),
+        retried,
     })
 }
 

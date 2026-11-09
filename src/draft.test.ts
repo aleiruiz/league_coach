@@ -34,7 +34,7 @@ describe("draft", () => {
   it("reemplazar al rival de línea quita la estrella", () => {
     let s = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
     s = setSlot(s, enemy(0), "Darius");
-    s = toggleLane(s, "Darius");
+    // El primer rival queda marcado solo.
     expect(toDraft(s)?.lane_opponent).toBe("Darius");
     s = setSlot(s, enemy(0), "Garen");
     expect(s.lane).toBeNull();
@@ -44,9 +44,15 @@ describe("draft", () => {
   it("quitar otro rival no toca la estrella", () => {
     let s = setSlot(EMPTY_DRAFT, enemy(0), "Darius");
     s = setSlot(s, enemy(1), "Ahri");
-    s = toggleLane(s, "Darius");
-    s = setSlot(s, enemy(1), null);
-    expect(s.lane).toBe("Darius");
+    s = toggleLane(s, "Ahri");
+    expect(s.lane).toBe("Ahri");
+    s = setSlot(s, enemy(0), null);
+    expect(s.lane).toBe("Ahri");
+    s = toggleLane(s, "Ahri");
+    expect(s.lane).toBeNull();
+    // Con otros rivales ya elegidos, uno nuevo no se marca solo.
+    s = setSlot(s, enemy(2), "Garen");
+    expect(s.lane).toBeNull();
   });
 
   it("solo se marca como rival de línea a un rival", () => {
@@ -61,7 +67,7 @@ describe("draft", () => {
     let a = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
     a = setSlot(setSlot(a, enemy(0), "Darius"), enemy(1), "Ahri");
     const b = setSlot(setSlot(setSlot(a, enemy(0), null), enemy(1), null), enemy(3), "Ahri");
-    const c = setSlot(b, enemy(4), "Darius");
+    const c = toggleLane(setSlot(b, enemy(4), "Darius"), "Darius");
     expect(sameDraft(toDraft(a), toDraft(c))).toBe(true);
     expect(sameDraft(toDraft(a), toDraft(b))).toBe(false);
     expect(sameDraft(toDraft(a), toDraft({ ...a, role: "mid" }))).toBe(false);

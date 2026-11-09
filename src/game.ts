@@ -68,6 +68,8 @@ export type Recommendation = {
   session_id: string | null;
   patch: string;
   version: string;
+  /** Hubo una ronda de corrección automática. */
+  retried: boolean;
 };
 
 export function gameData() {

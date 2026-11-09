@@ -734,3 +734,48 @@ button.primary {
   margin: 12px 0 8px;
   font-size: 0.9rem;
 }
+
+.slot-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.slot-tag {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.slot-tag.lane {
+  background: #e86b5f;
+}
+
+.ally-team .slot.me.filled .slot-main,
+.ally-team .slot.me .slot-main {
+  border: 2px solid var(--accent);
+  border-left-width: 4px;
+}
+
+.slot.me .slot-main img,
+.slot.me .slot-main .plus {
+  width: 60px;
+  height: 60px;
+}
+
+.enemy-team .slot.lane .slot-main {
+  border-color: #e86b5f;
+}
+
+.card-warnings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

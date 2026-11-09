@@ -36,7 +36,13 @@ export function BuildCardSkeleton() {
   );
 }
 
-function BuildCard({ card, patch, warnings }: { card: Card; patch: string; warnings: string[] }) {
+function BuildCard({ card, patch, warnings, retried, onRetry }: {
+  card: Card;
+  patch: string;
+  warnings: string[];
+  retried: boolean;
+  onRetry?: () => void;
+}) {
   return (
     <article className="build-card">
       <header>
@@ -89,8 +95,9 @@ function BuildCard({ card, patch, warnings }: { card: Card; patch: string; warni
           {card.skill_order.max.length > 0 && (
             <p className="skills">
               {card.skill_order.max.map((k, i) => (
-                <span key={i} className="key">
-                  {k}
+                <span key={i}>
+                  {i > 0 && <span className="muted"> › </span>}
+                  <span className="key">{k}</span>
                 </span>
               ))}
               <span className="muted small"> orden de maximización</span>
@@ -162,9 +169,17 @@ function BuildCard({ card, patch, warnings }: { card: Card; patch: string; warni
 
       {card.caveat && <p className="muted small">Nota: {card.caveat}</p>}
       {warnings.length > 0 && (
-        <p className="error small">
-          Revisa lo marcado: {warnings.join(". ")}.
-        </p>
+        <div className="card-warnings">
+          <p className="error small">
+            {retried ? "Le pedí al modelo que lo corrigiera y no lo logró del todo. " : ""}
+            Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}.
+          </p>
+          {onRetry && (
+            <button className="secondary" onClick={onRetry}>
+              Pedir otra build
+            </button>
+          )}
+        </div>
       )}
     </article>
   );

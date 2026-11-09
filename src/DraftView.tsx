@@ -25,18 +25,24 @@ const mdLinks = {
   ),
 };
 
-function Portrait({ champ, label, onClick, onClear, star }: {
+function Portrait({ champ, label, onClick, onClear, star, me }: {
   champ: Champion | undefined;
   label: string;
   onClick: () => void;
   onClear?: () => void;
   star?: { on: boolean; toggle: () => void };
+  me?: boolean;
 }) {
+  const cls = ["slot", champ && "filled", me && "me", star?.on && "lane"].filter(Boolean).join(" ");
   return (
-    <div className={champ ? "slot filled" : "slot"}>
+    <div className={cls}>
       <button className="slot-main" onClick={onClick} aria-label={champ ? `${label}: ${champ.name}. Cambiar` : `Elegir ${label}`}>
         {champ ? <img src={champ.image} alt="" /> : <span className="plus">+</span>}
-        <span className="slot-name">{champ?.name ?? label}</span>
+        <span className="slot-text">
+          {me && <span className="slot-tag">Tú</span>}
+          {star?.on && <span className="slot-tag lane">Rival de línea</span>}
+          <span className="slot-name">{champ?.name ?? label}</span>
+        </span>
       </button>
       {champ && onClear && (
         <button className="slot-x" onClick={onClear} aria-label={`Quitar ${champ.name}`}>
@@ -227,6 +233,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
               <Portrait
                 champ={d.me ? byId.get(d.me) : undefined}
                 label="Tu campeón"
+                me
                 onClick={() => openPicker({ team: "me", index: 0 })}
                 onClear={() => setD((s) => setSlot(s, { team: "me", index: 0 }, null))}
               />
@@ -293,7 +300,13 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       )}
       {rec && (
         <div className={stale ? "stale" : undefined}>
-          <BuildCard card={rec.card} patch={rec.patch} warnings={rec.warnings} />
+          <BuildCard
+            card={rec.card}
+            patch={rec.patch}
+            warnings={rec.warnings}
+            retried={rec.retried}
+            onRetry={stale || busy ? undefined : recommend}
+          />
         </div>
       )}
 

@@ -29,8 +29,12 @@ export function setSlot(s: DraftState, slot: Slot, id: string | null): DraftStat
   if (slot.team === "me") return { ...s, me: id };
   if (slot.team === "ally") return { ...s, allies: put(s.allies, slot.index, id) };
   const old = s.enemies[slot.index];
+  const enemies = put(s.enemies, slot.index, id);
   // Si se reemplaza o quita al rival de línea, la estrella se va con él.
-  return { ...s, enemies: put(s.enemies, slot.index, id), lane: old === s.lane ? null : s.lane };
+  let lane = old === s.lane ? null : s.lane;
+  // El primer rival que se elige queda como rival de línea (se puede cambiar).
+  if (id && !lane && s.enemies.every((e) => !e)) lane = id;
+  return { ...s, enemies, lane };
 }
 
 export function toggleLane(s: DraftState, id: string): DraftState {
