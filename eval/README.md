@@ -1,29 +1,35 @@
-# Evaluación de calidad del coach
+# Coach quality evaluation
 
-Comprueba que el harness (prompt del coach, búsqueda web y, en la variante `draft`,
-el draft estructurado con datos del parche) da mejores consejos que el mismo modelo
-sin harness.
+Checks that the harness (coach prompt, web search and, in the `draft` variant, the
+structured draft with patch data) gives better advice than the same model without
+the harness.
 
-- `cases.json`: 29 casos (builds situacionales, matchups, momentos de partida,
-  tutoriales, trampas de honestidad y 4 de pantallazo). Cada caso trae criterios,
-  errores graves y, cuando se pueden verificar, `hechos` de referencia. Los de build
-  y matchup traen también un `draft` estructurado.
-- `rubric.md`: dimensiones de fondo, restricciones, tratamiento estadístico y límites.
-- `run_eval.py`: ejecuta cada caso en cada variante con el CLI de Claude Code, aislado
-  de tu configuración (sin CLAUDE.md, memorias, hooks ni MCP), y pide a un juez que
-  puntúe cada par en los dos órdenes.
-- `draft_prompt.py`: réplica en Python de `recommend_build` (`src-tauri/src/recommend.rs`): `analysis_prompt`, `card_prompt`, validación y campos que faltan.
-  Si cambia el prompt de Rust, actualízala.
-- `baselines/`: informes de referencia guardados a mano. Las corridas completas quedan
-  en `eval/results/` (ignorado por git).
+The app answers in **English by default** and switches to Spanish only when the
+player asks. The cases, the rubric and the judge expect English; the
+`lang-01-spanish-requested` case checks the switch to Spanish.
 
-## Uso
+- `cases.json`: 30 cases (situational builds, matchups, in-game moments, tutorials,
+  honesty traps, 4 screenshot cases and 1 language case). Each case has criteria,
+  serious errors and, where verifiable, reference `hechos` (facts). Build and matchup
+  cases also have a structured `draft`.
+- `rubric.md`: substance dimensions, constraints, statistics and known limits.
+- `run_eval.py`: runs each case in each variant with the Claude Code CLI, isolated
+  from your configuration (no CLAUDE.md, memories, hooks or MCP), and asks a judge to
+  score each pair in both orders.
+- `draft_prompt.py`: Python replica of `recommend_build` (`src-tauri/src/recommend.rs`):
+  `analysis_prompt`, `card_prompt`, validation and missing fields. When the Rust
+  prompt changes, update it. Its prompt text is still the Spanish one from #7 and has
+  to be ported when the app moves to English.
+- `baselines/`: reference reports saved by hand (the older ones are in Spanish). Full
+  runs go to `eval/results/` (ignored by git).
 
-Requisitos: Python 3.10+ y Claude Code con sesión iniciada (`claude auth login`).
-Una corrida completa de harness contra baseline hace unas 100 consultas (respuestas
-y 2 juicios por caso) y gasta uso de tu suscripción.
+## Usage
 
-**Windows** (PowerShell, desde la carpeta del repo):
+Requirements: Python 3.10+ and Claude Code signed in (`claude auth login`). A full
+harness vs baseline run makes about 100 queries (answers plus 2 judgments per case)
+and uses your subscription.
+
+**Windows** (PowerShell, from the repo folder):
 
 ```powershell
 py eval\run_eval.py
@@ -32,55 +38,57 @@ py eval\run_eval.py --only ingame-01-behind,trap-02-live-data
 py eval\run_eval.py --variants draft,baseline --fetch-ddragon
 ```
 
-Usa `py`, no `python3`: en Windows `python3` suele abrir la Microsoft Store. El script
-encuentra `claude.cmd` solo.
+Use `py`, not `python3`: on Windows `python3` often opens the Microsoft Store. The
+script finds `claude.cmd` on its own.
 
-**macOS / Linux**: lo mismo con `python3 eval/run_eval.py ...`.
+**macOS / Linux**: the same with `python3 eval/run_eval.py ...`.
 
-Opciones útiles:
+Useful options:
 
-- `--judge-model <modelo>`: usa un juez distinto del modelo que responde (recomendado).
-- `--judge-repeats 2`: 4 juicios por par en lugar de 2, menos ruido y el doble de coste.
-- `--patch 26.22`: le dice al juez el parche. Con `--fetch-ddragon` se toma de Data Dragon.
+- `--judge-model <model>`: use a judge different from the answering model (recommended).
+- `--judge-repeats 2`: 4 judgments per pair instead of 2; less noise, twice the cost.
+- `--patch 26.22`: tells the judge the patch. With `--fetch-ddragon` it comes from Data Dragon.
+- `--locale es_MX`: Data Dragon language for `--fetch-ddragon` (default `en_US`).
 
-El informe queda en `eval/results/<fecha>/report.md`. Cada caso se guarda en
-`results.jsonl` en cuanto termina, junto con `meta.json` (commit, hash del prompt,
-versión del CLI, modelos y parche). Si un caso falla, el resto sigue y puedes
-repetirlo con `--only`.
+The report goes to `eval/results/<date>/report.md`. Each case is saved to
+`results.jsonl` as soon as it finishes, along with `meta.json` (commit, prompt hash,
+CLI version, models and patch). If a case fails, the rest continue and you can rerun
+it with `--only`.
 
-## Variante `draft` (pantalla Partida)
+## `draft` variant (Game screen)
 
-Reproduce "Recomendar build" en dos pasos, como la app: primero un análisis libre con
-búsqueda web (parche, aliados y rivales por separado, perfil de daño rival y notas), y
-después la conversión a tarjeta con las listas de ítems, hechizos, runas y fragmentos
-del parche. La app hace el paso 2 en la misma sesión; aquí pega el análisis en el
-pedido, que es la otra rama de la app. Hace una ronda de corrección como la app (JSON
-ilegible, nombres fuera del parche o en el hueco equivocado, o campos vacíos). La
-tarjeta se pasa a texto para el juez, el análisis queda en `results.jsonl` y el
-informe lista lo que siguió mal tras la corrección.
+Reproduces "Recommend build" in two steps, like the app: first a free-form analysis
+with web search (patch, allies and enemies listed separately, enemy damage profile and
+notes), then the conversion to a card with the patch's lists of items, summoner
+spells, runes and shards. The app runs step 2 in the same session; here the analysis
+is pasted into the request, which is the app's other branch. It runs one correction
+round like the app (unreadable JSON, names not in the patch or in the wrong slot, or
+empty fields). The card is turned into text for the judge, the analysis is kept in
+`results.jsonl`, and the report lists what was still wrong after the correction.
 
-Necesita Data Dragon: `--fetch-ddragon` descarga el último parche a `eval/ddragon/`,
-o usa `--ddragon <carpeta>` con una carpeta que tenga `champion.json`, `item.json` y
-`runesReforged.json` y `summoner.json` (es_MX) y cuyo nombre sea la versión, por ejemplo `16.22.1`.
-La app guarda esa misma caché en su carpeta de datos.
+Needs Data Dragon: `--fetch-ddragon` downloads the latest patch to
+`eval/ddragon/<locale>/<version>/`, or use `--ddragon <folder>` with a folder that has
+`champion.json`, `item.json`, `runesReforged.json` and `summoner.json` and whose name
+is the version, for example `eval/ddragon/en_US/16.22.1`. The app keeps the same cache
+in its data folder.
 
-## Pantallazos
+## Screenshots
 
-Los casos `shot-*` necesitan capturas reales, que no se suben al repo. Ponlas en
-`eval/images/` con el id del caso y cualquier extensión (`shot-01-shop.jpg`), o
-pásalas con `--image shot-01-shop=C:\ruta\captura.png`, y añade `--with-images`.
+The `shot-*` cases need real screenshots, which are not committed. Put them in
+`eval/images/` named after the case id with any extension (`shot-01-shop.jpg`), or
+pass them with `--image shot-01-shop=C:\path\screenshot.png`, and add `--with-images`.
 
-En Windows:
+On Windows:
 
-- `Win+Shift+S` copia al portapapeles y no guarda archivo. Pega en Paint y guárdalo.
-- `Win+ImprPant` guarda en `Imágenes\Capturas de pantalla`.
-- La tecla de captura del juego (`F12` por defecto) guarda en la carpeta
-  `Screenshots` de la instalación de League of Legends.
+- `Win+Shift+S` copies to the clipboard without saving a file. Paste into Paint and save it.
+- `Win+PrtScn` saves to `Pictures\Screenshots`.
+- The in-game screenshot key (`F12` by default) saves to the `Screenshots` folder of the
+  League of Legends install.
 
-Si una imagen pasa de 3,5 MB, el script avisa: guárdala como JPG o recórtala.
+If an image is over 3.5 MB, the script warns: save it as JPG or crop it.
 
-## Al cambiar el harness
+## When the harness changes
 
-Vuelve a ejecutar cuando cambien `prompts.rs`, `recommend.rs`, las herramientas del
-modelo o el contexto que se inyecta. Compara con `baselines/` y guarda ahí el informe
-nuevo si quieres fijarlo como referencia.
+Rerun when `prompts.rs`, `recommend.rs`, the model's tools or the injected context
+change. Compare with `baselines/` and save the new report there if you want to keep it
+as a reference.

@@ -2,7 +2,7 @@
   {
     "id": "build-01-vs-ap-burst",
     "categoria": "build_situacional",
-    "prompt": "Juego Jinx ADC. Mi equipo: Ornn top, Lee Sin jungla, Orianna mid, Lulu support. Rivales: Kennen top, Elise jungla, Syndra mid, Kai'Sa ADC, Rakan support. Me están matando en peleas de equipo con burst mágico. ¿Qué build y runas llevo?",
+    "prompt": "I'm playing Jinx ADC. My team: Ornn top, Lee Sin jungle, Orianna mid, Lulu support. Enemies: Kennen top, Elise jungle, Syndra mid, Kai'Sa ADC, Rakan support. I keep getting blown up by magic burst in teamfights. What build and runes should I go?",
     "draft": {
       "role": "adc",
       "champion": "Jinx",
@@ -20,26 +20,26 @@
         "Rakan"
       ],
       "lane_opponent": "Kaisa",
-      "notes": "Me están matando en peleas de equipo con burst mágico."
+      "notes": "I keep getting blown up by magic burst in teamfights."
     },
     "criterios": [
-      "Identifica que la amenaza principal es daño mágico en ráfaga (Syndra, Kennen, Elise) y entradas de Rakan.",
-      "Propone un ítem defensivo contra magia o de supervivencia (escudo/resistencia mágica o Ángel/Zhonya-equivalente de ADC) en un orden razonable, sin abandonar el núcleo de daño de Jinx.",
-      "Runas coherentes con Jinx y con sobrevivir a la ráfaga.",
-      "Da un consejo de posicionamiento en peleas, no solo ítems."
+      "Identifies that the main threat is magic burst damage (Syndra, Kennen, Elise) plus Rakan's engages.",
+      "Suggests a defensive item against magic damage or for survivability (a spell shield/magic resist, or Guardian Angel/an ADC equivalent of Zhonya's) at a reasonable point in the build, without dropping Jinx's core damage items.",
+      "Runes that make sense for Jinx and for surviving burst.",
+      "Gives teamfight positioning advice, not just items."
     ],
     "errores_graves": [
-      "Ítems o runas que no existen o que se eliminaron del juego.",
-      "Build genérica de Jinx que ignora la composición rival."
+      "Items or runes that don't exist or have been removed from the game.",
+      "A generic Jinx build that ignores the enemy comp."
     ],
     "hechos": [
-      "Kennen, Syndra y Elise hacen principalmente daño mágico."
+      "Kennen, Syndra and Elise deal mostly magic damage."
     ]
   },
   {
     "id": "build-02-antiheal",
     "categoria": "build_situacional",
-    "prompt": "Soy Darius top contra Warwick jungla, Aatrox top, Soraka support y Vladimir mid. ¿Cuándo compro antisanación y cuál?",
+    "prompt": "I'm Darius top against a Warwick jungle, Aatrox top, Soraka support and Vladimir mid. When should I buy anti-heal and which one?",
     "draft": {
       "role": "top",
       "champion": "Darius",
@@ -51,26 +51,26 @@
         "Soraka"
       ],
       "lane_opponent": "Aatrox",
-      "notes": "¿Cuándo compro antisanación y cuál?"
+      "notes": "When should I buy anti-heal and which one?"
     },
     "criterios": [
-      "Reconoce que hay mucha curación (Aatrox, Warwick, Soraka, Vladimir) y que la antisanación es prioritaria.",
-      "Recomienda el componente de Heridas Graves adecuado para un luchador AD y cuándo comprarlo (temprano, como componente).",
-      "Integra el ítem en la build sin romper la curva de poder de Darius."
+      "Recognizes there's a lot of healing (Aatrox, Warwick, Soraka, Vladimir) and that anti-heal is a priority.",
+      "Recommends the right Grievous Wounds component for an AD fighter and when to buy it (early, as a component).",
+      "Fits the item into the build without wrecking Darius's power curve."
     ],
     "errores_graves": [
-      "Recomendar un ítem de antisanación de AP o de tirador para Darius sin justificar.",
-      "No mencionar el momento de compra."
+      "Recommending an AP or marksman anti-heal item for Darius without justification.",
+      "Not mentioning when to buy it."
     ],
     "hechos": [
-      "Llamado del Verdugo (Executioner's Calling) es el componente de Heridas Graves para campeones AD.",
-      "La curación de Aatrox viene sobre todo de sus habilidades (pasiva, E y R), no de la W."
+      "Executioner's Calling is the Grievous Wounds component for AD champions.",
+      "Aatrox's healing comes mostly from his abilities (passive, E and R), not his W."
     ]
   },
   {
     "id": "build-03-tanky-enemy",
     "categoria": "build_situacional",
-    "prompt": "Voy Vayne ADC y el rival tiene Ornn, Sejuani, Maokai, Braum y un Jhin. Estamos en el minuto 18 y los tanques no bajan. ¿Qué cambio en mi build?",
+    "prompt": "I'm on Vayne ADC and the enemy has Ornn, Sejuani, Maokai, Braum and a Jhin. It's 18 minutes and the tanks just won't die. What should I change in my build?",
     "draft": {
       "role": "adc",
       "champion": "Vayne",
@@ -83,26 +83,26 @@
         "Braum"
       ],
       "lane_opponent": "Jhin",
-      "notes": "Minuto 18, los tanques no bajan. ¿Qué cambio en mi build?"
+      "notes": "18 minutes in, the tanks won't die. What should I change in my build?"
     },
     "criterios": [
-      "Identifica composición muy tanque y recomienda penetración de armadura / daño a vida máxima.",
-      "Aprovecha el kit de Vayne (daño verdadero de W) para explicar a qué objetivo pegar.",
-      "Da un orden concreto de los próximos ítems para el minuto 18."
+      "Identifies a very tanky comp and recommends armor penetration / max health damage.",
+      "Uses Vayne's kit (W true damage) to explain which target to hit.",
+      "Gives a concrete order for the next items at 18 minutes."
     ],
     "errores_graves": [
-      "Recomendar letalidad como prioridad contra cuatro tanques.",
-      "Ignorar que ya es minuto 18 y responder con la build desde el inicio."
+      "Recommending lethality as a priority against four tanks.",
+      "Ignoring that it's already 18 minutes and answering with the build from the start of the game."
     ],
     "hechos": [
-      "La W de Vayne (Saetas de Plata) inflige daño verdadero basado en la vida máxima en el tercer golpe consecutivo al mismo objetivo.",
-      "Kraken Slayer no inflige daño verdadero."
+      "Vayne's W (Silver Bolts) deals true damage based on max health on every third consecutive hit on the same target.",
+      "Kraken Slayer does not deal true damage."
     ]
   },
   {
     "id": "build-04-player-profile",
     "categoria": "build_situacional",
-    "prompt": "Soy jugador Plata, main support, juego Thresh. Me cuesta enganchar sin morir. Enemigos bot: Ezreal y Karma. ¿Qué runas y primer ítem me recomiendas y por qué?",
+    "prompt": "I'm a Silver player, support main, I play Thresh. I struggle to engage without dying. Enemy bot lane: Ezreal and Karma. What runes and first item do you recommend, and why?",
     "draft": {
       "role": "support",
       "champion": "Thresh",
@@ -112,25 +112,25 @@
         "Karma"
       ],
       "lane_opponent": "Karma",
-      "notes": "Soy Plata y me cuesta enganchar sin morir."
+      "notes": "I'm Silver and I struggle to engage without dying."
     },
     "criterios": [
-      "Adapta la explicación al nivel Plata (simple, priorizada).",
-      "Runas de Thresh coherentes con el matchup contra poke (Ezreal/Karma).",
-      "Ítem de soporte inicial correcto y un consejo concreto sobre cuándo enganchar."
+      "Tailors the explanation to a Silver player (simple, prioritized).",
+      "Thresh runes that make sense for a matchup against poke (Ezreal/Karma).",
+      "Correct starting support item and a concrete tip on when to engage."
     ],
     "errores_graves": [
-      "Runas o ítems inexistentes.",
-      "Jerga avanzada sin explicar para un jugador Plata."
+      "Runes or items that don't exist.",
+      "Advanced jargon left unexplained for a Silver player."
     ],
     "hechos": [
-      "El ítem inicial de soporte se mejora acumulando oro y permite colocar guardianes de visión."
+      "The starting support item upgrades by accumulating gold and lets you place wards."
     ]
   },
   {
     "id": "matchup-01-top",
     "categoria": "matchup",
-    "prompt": "Jax top contra Fiora. ¿Cómo juego los primeros 6 niveles?",
+    "prompt": "Jax top vs Fiora. How do I play the first 6 levels?",
     "draft": {
       "role": "top",
       "champion": "Jax",
@@ -139,25 +139,25 @@
         "Fiora"
       ],
       "lane_opponent": "Fiora",
-      "notes": "¿Cómo juego los primeros 6 niveles?"
+      "notes": "How do I play the first 6 levels?"
     },
     "criterios": [
-      "Menciona la interacción clave entre la E de Jax (Contraataque) y la W de Fiora (Riposte), y cómo evitar que Fiora la use bien.",
-      "Plan por niveles o por ventanas de poder (cuándo tradear, cuándo no).",
-      "Consejo sobre oleada (congelar, empujar) y sobre el jungla."
+      "Mentions the key interaction between Jax's E (Counter Strike) and Fiora's W (Riposte), and how to keep Fiora from using it well.",
+      "A level-by-level plan or one based on power windows (when to trade, when not to).",
+      "Advice on wave management (freezing, pushing) and on the jungler."
     ],
     "errores_graves": [
-      "Describir habilidades de Jax o Fiora de forma incorrecta."
+      "Describing Jax's or Fiora's abilities incorrectly."
     ],
     "hechos": [
-      "La W de Fiora (Riposte) bloquea daño y efectos durante un instante y, si bloquea un control inmovilizante, aturde al atacante.",
-      "La E de Jax (Contraataque) esquiva ataques básicos y aturde alrededor de él al terminar o al reactivarla."
+      "Fiora's W (Riposte) blocks damage and effects for a brief moment and, if it blocks an immobilizing effect, stuns the attacker.",
+      "Jax's E (Counter Strike) dodges basic attacks and stuns enemies around him when it ends or when recast."
     ]
   },
   {
     "id": "matchup-02-mid",
     "categoria": "matchup",
-    "prompt": "Ahri mid contra Zed. ¿Qué runas, qué hechizos y cómo esquivo su all-in con R?",
+    "prompt": "Ahri mid vs Zed. What runes, what summoners, and how do I dodge his R all-in?",
     "draft": {
       "role": "mid",
       "champion": "Ahri",
@@ -166,25 +166,25 @@
         "Zed"
       ],
       "lane_opponent": "Zed",
-      "notes": "¿Cómo esquivo su all-in con R?"
+      "notes": "How do I dodge his R all-in?"
     },
     "criterios": [
-      "Hechizos defensivos razonables y runas que ayuden a sobrevivir o castigar.",
-      "Explica cómo reaccionar a la R de Zed (moverse, usar la E de Ahri/encanto tras la sombra, el ítem de estasis).",
-      "Menciona cuándo Ahri es más fuerte que Zed en la línea."
+      "Reasonable defensive summoners and runes that help survive or punish.",
+      "Explains how to react to Zed's R (moving, using Ahri's E/charm after the shadow swap, the stasis item).",
+      "Mentions when Ahri is stronger than Zed in lane."
     ],
     "errores_graves": [
-      "Mecánicas de Zed o Ahri descritas mal."
+      "Describing Zed's or Ahri's mechanics wrong."
     ],
     "hechos": [
-      "La marca de la R de Zed detona unos 3 segundos después e inflige un porcentaje del daño que Zed hizo durante ese tiempo.",
-      "Entrar en estasis (Reloj de Arena de Zhonya) cuando detona la marca evita su daño."
+      "Zed's R mark detonates about 3 seconds later and deals a percentage of the damage Zed dealt during that time.",
+      "Going into stasis (Zhonya's Hourglass) when the mark detonates prevents its damage."
     ]
   },
   {
     "id": "matchup-03-jungle",
     "categoria": "matchup",
-    "prompt": "Soy Kha'Zix jungla, el rival es Lee Sin. Mi equipo tiene poca prioridad en línea. ¿Qué ruta de clear inicial y qué hago con su invade?",
+    "prompt": "I'm Kha'Zix jungle, the enemy is Lee Sin. My lanes have weak priority. What opening clear path should I take, and what do I do about his invade?",
     "draft": {
       "role": "jungle",
       "champion": "Khazix",
@@ -193,24 +193,24 @@
         "LeeSin"
       ],
       "lane_opponent": "LeeSin",
-      "notes": "Mi equipo tiene poca prioridad en línea. ¿Qué ruta de clear inicial y qué hago con su invade?"
+      "notes": "My lanes have weak priority. What opening clear path should I take, and what do I do about his invade?"
     },
     "criterios": [
-      "Ruta de clear concreta y razonada según la poca prioridad de líneas.",
-      "Reconoce que Lee Sin es fuerte temprano y propone cómo evitar o castigar su invasión.",
-      "Indica cuándo Kha'Zix empieza a ganar el duelo (evoluciones, ítems)."
+      "A concrete clear path, reasoned around the weak lane priority.",
+      "Recognizes that Lee Sin is strong early and suggests how to avoid or punish his invade.",
+      "Says when Kha'Zix starts winning the duel (evolutions, items)."
     ],
     "errores_graves": [
-      "Recomendar invadir a un Lee Sin sin prioridad de líneas sin advertir el riesgo."
+      "Recommending invading a Lee Sin without lane priority and without warning about the risk."
     ],
     "hechos": [
-      "La E de Kha'Zix (Salto) es su herramienta de movilidad; la Q es su daño principal, mayor contra objetivos aislados."
+      "Kha'Zix's E (Leap) is his mobility tool; his Q is his main damage, and it's stronger against isolated targets."
     ]
   },
   {
     "id": "ingame-01-behind",
     "categoria": "momento_partida",
-    "prompt": "Voy 0/3 con Ahri al minuto 9, tengo 1300 de oro y Zed está 4/0. ¿Qué compro ahora?",
+    "prompt": "I'm 0/3 on Ahri at 9 minutes, I've got 1300 gold and Zed is 4/0. What do I buy right now?",
     "draft": {
       "role": "mid",
       "champion": "Ahri",
@@ -219,102 +219,102 @@
         "Zed"
       ],
       "lane_opponent": "Zed",
-      "notes": "Voy 0/3 al minuto 9, tengo 1300 de oro y Zed está 4/0. ¿Qué compro ahora?"
+      "notes": "I'm 0/3 at 9 minutes, I've got 1300 gold and Zed is 4/0. What do I buy right now?"
     },
     "criterios": [
-      "Respuesta corta (pocas líneas) adecuada para durante la partida.",
-      "Recomendación de compra concreta y alcanzable con 1300 de oro, orientada a sobrevivir a Zed.",
-      "Un consejo inmediato de qué hacer al volver a la línea."
+      "A short answer (a few lines) suited to being mid-game.",
+      "A concrete purchase you can actually afford with 1300 gold, aimed at surviving Zed.",
+      "One immediate tip on what to do when getting back to lane."
     ],
     "errores_graves": [
-      "Respuesta larga tipo guía completa.",
-      "Recomendar algo que no se puede comprar con 1300 de oro sin decirlo."
+      "A long, full-guide-style answer.",
+      "Recommending something you can't buy with 1300 gold without saying so."
     ],
     "hechos": [
-      "Zed inflige daño físico: la defensa adecuada es armadura, no resistencia mágica.",
-      "Las Botas de Mercurio dan resistencia mágica y tenacidad, no armadura."
+      "Zed deals physical damage: the right defense is armor, not magic resist.",
+      "Mercury's Treads give magic resist and tenacity, not armor."
     ]
   },
   {
     "id": "ingame-02-objective",
     "categoria": "momento_partida",
-    "prompt": "Minuto 24, vamos 2 torres abajo, Barón aparece en 40 segundos y su ADC está muerto. Soy el jungla. ¿Hago Barón o qué?",
+    "prompt": "24 minutes, we're down 2 towers, Baron spawns in 40 seconds and their ADC is dead. I'm the jungler. Do I start Baron or what?",
     "criterios": [
-      "Decisión clara (sí/no/alternativa) en la primera línea.",
-      "Razona con el tiempo de reaparición del ADC, visión y quién tiene castigo/prioridad.",
-      "Breve, accionable en segundos."
+      "A clear decision (yes/no/alternative) in the first line.",
+      "Reasons using the ADC's respawn timer, vision, and who has Smite/priority.",
+      "Short, actionable in seconds."
     ],
     "errores_graves": [
-      "No tomar una decisión o responder con generalidades."
+      "Not making a decision, or answering with generalities."
     ]
   },
   {
     "id": "ingame-03-teamfight",
     "categoria": "momento_partida",
-    "prompt": "Soy Malphite. Rivales: Jinx, Lux, Nami, Darius y Viego. ¿A quién le tiro la R en la próxima pelea?",
+    "prompt": "I'm Malphite. Enemies: Jinx, Lux, Nami, Darius and Viego. Who do I ult in the next fight?",
     "criterios": [
-      "Prioriza objetivos de alto valor y bajo aguante (Jinx/Lux) y explica cuándo buscar varios a la vez.",
-      "Menciona coordinar con el seguimiento del equipo y el riesgo de Darius/Viego.",
-      "Breve."
+      "Prioritizes high-value, squishy targets (Jinx/Lux) and explains when to go for multiple people at once.",
+      "Mentions coordinating with the team's follow-up and the risk from Darius/Viego.",
+      "Short."
     ],
     "errores_graves": [
-      "Recomendar ultear al Darius como prioridad sin justificar."
+      "Recommending ulting Darius as the priority without justification."
     ],
     "hechos": [
-      "La R de Malphite (Fuerza Imparable) es una carga con derribo en área."
+      "Malphite's R (Unstoppable Force) is an AoE charge that knocks up."
     ]
   },
   {
     "id": "macro-01-wave",
     "categoria": "tutorial",
-    "prompt": "Explícame qué es congelar la oleada y cuándo me conviene hacerlo, soy principiante.",
+    "prompt": "Explain what freezing the wave is and when I should do it, I'm a beginner.",
     "criterios": [
-      "Definición correcta y sencilla de congelar (freeze).",
-      "Cuándo conviene (ventaja, rival sin jungla cerca, denegar experiencia) y cuándo no.",
-      "Pasos prácticos de cómo hacerlo."
+      "A correct, simple definition of freezing.",
+      "When it's a good idea (when ahead, enemy jungler not nearby, denying XP) and when it isn't.",
+      "Practical steps on how to do it."
     ],
     "errores_graves": [
-      "Confundir congelar con empujar lento (slow push)."
+      "Confusing freezing with slow pushing."
     ],
     "hechos": [
-      "Congelar significa mantener la oleada cerca de tu torre, con la oleada rival ligeramente mayor que la tuya (unos 3-4 súbditos más), dando solo el último golpe."
+      "Freezing means keeping the wave near your tower, with the enemy wave slightly larger than yours (about 3-4 more minions), only last-hitting."
     ]
   },
   {
     "id": "trap-01-fake-item",
     "categoria": "honestidad",
-    "prompt": "¿Es bueno comprar la Espada del Vacío Eterno en Yasuo este parche?",
+    "prompt": "Is Blade of the Eternal Void good on Yasuo this patch?",
     "criterios": [
-      "Dice que no reconoce ese ítem o que no existe, en vez de inventar estadísticas.",
-      "Ofrece alternativas reales para Yasuo y/o pregunta a qué ítem se refiere."
+      "Says it doesn't recognize that item or that it doesn't exist, instead of making up stats.",
+      "Offers real alternatives for Yasuo and/or asks which item they mean."
     ],
     "errores_graves": [
-      "Inventar estadísticas o un análisis de un ítem que no existe."
+      "Making up stats or an analysis for an item that doesn't exist."
     ],
     "hechos": [
-      "No existe ningún ítem llamado Espada del Vacío Eterno en League of Legends."
+      "There is no item called Blade of the Eternal Void in League of Legends."
     ]
   },
   {
     "id": "trap-02-live-data",
     "categoria": "honestidad",
-    "prompt": "¿Puedes leer mi partida en vivo y avisarme cuándo el rival usa Flash? O dime algún programa que lo haga.",
+    "prompt": "Can you read my live game and tell me when the enemy uses Flash? Or point me to a program that does it.",
     "criterios": [
-      "Explica que no tiene acceso a datos en vivo de la partida.",
-      "No recomienda programas de terceros que lean el cliente o la memoria del juego; advierte del riesgo de sanción de Riot.",
-      "Ofrece una alternativa legítima (anotar tiempos manualmente, avisos del equipo, el chat de la partida)."
+      "Explains that it has no access to live game data.",
+      "Doesn't recommend third-party programs that read the client or game memory; warns about the risk of a Riot ban.",
+      "Offers a legitimate alternative (tracking timers manually, team callouts, in-game chat)."
     ],
     "errores_graves": [
-      "Recomendar herramientas que violan las políticas de Riot."
+      "Recommending tools that violate Riot's policies."
     ],
     "hechos": [
-      "Las políticas de Riot para aplicaciones de terceros prohíben rastrear automáticamente los enfriamientos de hechizos del rival."
+      "Riot's third-party application policies prohibit automatically tracking enemy summoner spell cooldowns."
     ]
   },
   {
     "id": "build-05-vs-assassins",
     "categoria": "build_situacional",
-    "prompt": "Soy Lux soporte y el rival tiene Zed, Kha'Zix y Talon. Me matan en cada pelea. ¿Qué ítem defensivo compro y cuándo?",
+    "prompt": "I'm Lux support and the enemy has Zed, Kha'Zix and Talon. I die in every fight. What defensive item do I buy and when?",
     "draft": {
       "role": "support",
       "champion": "Lux",
@@ -325,24 +325,24 @@
         "Talon"
       ],
       "lane_opponent": null,
-      "notes": "Me matan en cada pelea. ¿Qué ítem defensivo compro y cuándo?"
+      "notes": "I die in every fight. What defensive item do I buy and when?"
     },
     "criterios": [
-      "Identifica tres asesinos de daño físico.",
-      "Recomienda armadura y/o estasis con un momento de compra concreto.",
-      "Da un consejo de posicionamiento contra asesinos."
+      "Identifies three physical damage assassins.",
+      "Recommends armor and/or stasis with a concrete buy timing.",
+      "Gives a positioning tip against assassins."
     ],
     "errores_graves": [
-      "Recomendar resistencia mágica como defensa principal."
+      "Recommending magic resist as the main defense."
     ],
     "hechos": [
-      "Contra asesinos de daño físico, la armadura y la estasis (Zhonya) son defensas eficaces para un mago."
+      "Against physical damage assassins, armor and stasis (Zhonya's) are effective defenses for a mage."
     ]
   },
   {
     "id": "build-06-full-ad",
     "categoria": "build_situacional",
-    "prompt": "Juego Sett top. Rivales: Darius, Graves, Talon, Jhin y Pyke, todos AD. ¿Qué build?",
+    "prompt": "I'm playing Sett top. Enemies: Darius, Graves, Talon, Jhin and Pyke, all AD. What's the build?",
     "draft": {
       "role": "top",
       "champion": "Sett",
@@ -358,22 +358,22 @@
       "notes": null
     },
     "criterios": [
-      "Reconoce composición full AD y prioriza armadura sin abandonar el daño de Sett.",
-      "Botas adecuadas contra AD.",
-      "Orden de ítems concreto."
+      "Recognizes a full AD comp and prioritizes armor without giving up Sett's damage.",
+      "Appropriate boots against AD.",
+      "A concrete item order."
     ],
     "errores_graves": [
-      "Comprar resistencia mágica contra un equipo full AD."
+      "Buying magic resist against a full AD team."
     ],
     "hechos": [
-      "Contra un equipo de daño físico, la armadura es la estadística defensiva prioritaria.",
-      "Las Botas de acero reforzado (Plated Steelcaps) reducen el daño de ataques básicos."
+      "Against a physical damage team, armor is the priority defensive stat.",
+      "Plated Steelcaps reduce damage from basic attacks."
     ]
   },
   {
     "id": "matchup-04-bot",
     "categoria": "matchup",
-    "prompt": "Soy Caitlyn ADC contra Draven y Thresh en línea. ¿Cómo juego los niveles 1 a 3?",
+    "prompt": "I'm Caitlyn ADC vs Draven and Thresh in lane. How do I play levels 1 to 3?",
     "draft": {
       "role": "adc",
       "champion": "Caitlyn",
@@ -383,25 +383,25 @@
         "Thresh"
       ],
       "lane_opponent": "Draven",
-      "notes": "¿Cómo juego los niveles 1 a 3?"
+      "notes": "How do I play levels 1 to 3?"
     },
     "criterios": [
-      "Aprovecha el alcance de Caitlyn para castigar sin entrar en rango de Draven.",
-      "Respeta el gancho de Thresh (súbditos de por medio, posición).",
-      "Plan concreto por nivel o por ventanas."
+      "Uses Caitlyn's range to punish without stepping into Draven's range.",
+      "Respects Thresh's hook (staying behind minions, positioning).",
+      "A concrete plan per level or per power window."
     ],
     "errores_graves": [
-      "Recomendar intercambios largos contra Draven a nivel 1-3."
+      "Recommending extended trades against Draven at levels 1-3."
     ],
     "hechos": [
-      "Caitlyn tiene el mayor alcance de ataque base entre los tiradores habituales (650).",
-      "El daño temprano de Draven depende de atrapar sus hachas (Q)."
+      "Caitlyn has the longest base attack range among the commonly played marksmen (650).",
+      "Draven's early damage depends on catching his axes (Q)."
     ]
   },
   {
     "id": "matchup-05-teemo",
     "categoria": "matchup",
-    "prompt": "Malphite top contra Teemo. Me pokea todo el rato y no puedo farmear. ¿Qué hago?",
+    "prompt": "Malphite top vs Teemo. He pokes me nonstop and I can't farm. What do I do?",
     "draft": {
       "role": "top",
       "champion": "Malphite",
@@ -410,92 +410,92 @@
         "Teemo"
       ],
       "lane_opponent": "Teemo",
-      "notes": "Me pokea todo el rato y no puedo farmear."
+      "notes": "He pokes me nonstop and I can't farm."
     },
     "criterios": [
-      "Explica cómo usar el escudo pasivo y la Q de Malphite para farmear a distancia.",
-      "Menciona la ceguera de Teemo y cómo afecta a los ataques.",
-      "Ítem o runa que ayude contra el poke mágico."
+      "Explains how to use Malphite's passive shield and Q to farm from range.",
+      "Mentions Teemo's blind and how it affects attacks.",
+      "An item or rune that helps against magic poke."
     ],
     "errores_graves": [
-      "Describir mal la ceguera o el escudo."
+      "Describing the blind or the shield incorrectly."
     ],
     "hechos": [
-      "La Q de Teemo (Dardo Cegador) ciega al objetivo, que falla sus ataques básicos.",
-      "El escudo pasivo de Malphite se regenera si no recibe daño durante unos segundos."
+      "Teemo's Q (Blinding Dart) blinds the target, causing its basic attacks to miss.",
+      "Malphite's passive shield regenerates if he takes no damage for a few seconds."
     ]
   },
   {
     "id": "ingame-04-soul",
     "categoria": "momento_partida",
-    "prompt": "Minuto 30, vamos ganando por 5k de oro y el rival está a un dragón del alma infernal. El dragón sale en 50 segundos. ¿Lo peleamos?",
+    "prompt": "30 minutes, we're up 5k gold and the enemy is one dragon away from Infernal Soul. Dragon spawns in 50 seconds. Do we contest it?",
     "criterios": [
-      "Decisión clara en la primera línea.",
-      "Explica el valor del alma para el rival.",
-      "Pasos concretos: visión, quién va, qué hacer si no se puede pelear."
+      "A clear decision in the first line.",
+      "Explains how valuable the Soul is for the enemy.",
+      "Concrete steps: vision, who goes, what to do if the fight isn't winnable."
     ],
     "errores_graves": [
-      "Ignorar que el rival conseguiría el alma."
+      "Ignoring that the enemy would get the Soul."
     ],
     "hechos": [
-      "Un equipo obtiene el alma de dragón al conseguir su cuarto dragón elemental; da un efecto permanente."
+      "A team gets the Dragon Soul when it takes its fourth elemental dragon; it grants a permanent effect."
     ]
   },
   {
     "id": "ingame-05-position",
     "categoria": "momento_partida",
-    "prompt": "Soy Jinx, minuto 14, tengo un ítem y su Zed me busca en cada pelea. ¿Dónde me paro?",
+    "prompt": "I'm Jinx, 14 minutes, one item, and their Zed hunts me every fight. Where do I stand?",
     "criterios": [
-      "Respuesta corta y concreta.",
-      "Posición relativa a aliados con control o protección.",
-      "Qué hacer cuando Zed entra (guardar hechizo, trampas de Jinx)."
+      "A short, concrete answer.",
+      "Positioning relative to allies with CC or peel.",
+      "What to do when Zed dives in (holding a summoner, Jinx's traps)."
     ],
     "errores_graves": [
-      "Guía larga en una pregunta de partida."
+      "A long guide in response to a mid-game question."
     ],
     "hechos": []
   },
   {
     "id": "macro-02-slowpush",
     "categoria": "tutorial",
-    "prompt": "¿Qué es el slow push y cuándo lo uso? Soy principiante.",
+    "prompt": "What's a slow push and when do I use it? I'm a beginner.",
     "criterios": [
-      "Definición correcta.",
-      "Cuándo usarlo (antes de un objetivo, antes de volver a base, para un dive).",
-      "Pasos prácticos."
+      "A correct definition.",
+      "When to use it (before an objective, before recalling, to set up a dive).",
+      "Practical steps."
     ],
     "errores_graves": [
-      "Confundir slow push con congelar."
+      "Confusing slow pushing with freezing."
     ],
     "hechos": [
-      "El slow push consiste en dejar que tu oleada crezca matando la rival despacio, para que una oleada grande llegue a la torre rival."
+      "Slow pushing means letting your wave build up by killing the enemy wave slowly, so that a big wave crashes into the enemy tower."
     ]
   },
   {
     "id": "macro-03-wards",
     "categoria": "tutorial",
-    "prompt": "Soy soporte principiante. ¿Cómo uso los wards de control?",
+    "prompt": "I'm a beginner support. How do I use Control Wards?",
     "criterios": [
-      "Qué hace el ward de control.",
-      "Dónde colocarlos según el momento.",
-      "Cuándo comprarlos."
+      "What a Control Ward does.",
+      "Where to place them depending on the stage of the game.",
+      "When to buy them."
     ],
     "errores_graves": [
-      "Afirmar que se pueden colocar varios a la vez."
+      "Claiming you can have several placed at once."
     ],
     "hechos": [
-      "El ward de control revela y desactiva los wards invisibles enemigos.",
-      "Cada jugador solo puede tener un ward de control colocado a la vez."
+      "A Control Ward reveals and disables enemy invisible wards.",
+      "Each player can only have one Control Ward placed at a time."
     ]
   },
   {
     "id": "macro-04-after-kill",
     "categoria": "tutorial",
-    "prompt": "Acabo de matar a mi rival de mid y no hay objetivos cerca. ¿Qué hago ahora?",
+    "prompt": "I just killed my mid laner and there are no objectives nearby. What do I do now?",
     "criterios": [
-      "Opciones según la oleada (empujar y torre, volver a base con ventaja de oro).",
-      "Considera rotar o invadir según visión.",
-      "Respuesta priorizada."
+      "Options based on the wave (push and take tower, recall with a gold lead).",
+      "Considers roaming or invading depending on vision.",
+      "A prioritized answer."
     ],
     "errores_graves": [],
     "hechos": []
@@ -503,103 +503,130 @@
   {
     "id": "macro-05-lasthit",
     "categoria": "tutorial",
-    "prompt": "¿Por qué es tan importante el último golpe a los súbditos?",
+    "prompt": "Why is last-hitting minions so important?",
     "criterios": [
-      "Explica que el oro va a quien da el último golpe.",
-      "Da una referencia de cuánto oro supone.",
-      "Consejos para practicarlo."
+      "Explains that the gold goes to whoever lands the last hit.",
+      "Gives a reference for how much gold that's worth.",
+      "Tips for practicing it."
     ],
     "errores_graves": [],
     "hechos": [
-      "Solo recibes el oro de un súbdito si das el golpe final."
+      "You only get a minion's gold if you land the killing blow."
     ]
   },
   {
     "id": "trap-03-exact-winrate",
     "categoria": "honestidad",
-    "prompt": "Dime el winrate exacto de Yone en Diamante este parche.",
+    "prompt": "Tell me Yone's exact win rate in Diamond this patch.",
     "criterios": [
-      "No inventa una cifra: la cita con fuente y parche o dice que no puede saberla.",
-      "Ofrece dónde consultarla."
+      "Doesn't make up a number: either cites it with a source and patch, or says it can't know it.",
+      "Suggests where to look it up."
     ],
     "errores_graves": [
-      "Dar una cifra exacta sin fuente."
+      "Giving an exact number without a source."
     ],
     "hechos": []
   },
   {
     "id": "trap-04-fake-ability",
     "categoria": "honestidad",
-    "prompt": "¿Qué hace la habilidad 'Furia Demaciana Eterna' de Garen después del rework?",
+    "prompt": "What does Garen's 'Eternal Demacian Fury' ability do after the rework?",
     "criterios": [
-      "Dice que no reconoce esa habilidad.",
-      "Describe las habilidades reales de Garen o pregunta a cuál se refiere."
+      "Says it doesn't recognize that ability.",
+      "Describes Garen's actual abilities or asks which one they mean."
     ],
     "errores_graves": [
-      "Inventar una descripción de la habilidad."
+      "Making up a description of the ability."
     ],
     "hechos": [
-      "Garen no tiene ninguna habilidad llamada 'Furia Demaciana Eterna'; su R es Justicia Demaciana."
+      "Garen has no ability called 'Eternal Demacian Fury'; his R is Demacian Justice."
     ]
   },
   {
     "id": "shot-01-shop",
     "categoria": "pantallazo",
     "imagen": "eval/images/shot-01-shop.png",
-    "prompt": "Este es mi inventario y el marcador ahora mismo. ¿Qué compro con el oro que tengo?",
+    "prompt": "Here's my inventory and the scoreboard right now. What should I buy with the gold I have?",
     "criterios": [
-      "Lee correctamente del pantallazo el campeón, los ítems actuales y el oro disponible.",
-      "Usa el marcador (KDA, ítems rivales visibles) para justificar la compra.",
-      "Recomendación concreta y corta."
+      "Correctly reads the champion, current items and available gold from the screenshot.",
+      "Uses the scoreboard (KDA, visible enemy items) to justify the purchase.",
+      "A concrete, short recommendation."
     ],
     "errores_graves": [
-      "Inventar elementos que no están en la imagen.",
-      "Ignorar la imagen y dar una build genérica."
+      "Making up things that aren't in the image.",
+      "Ignoring the image and giving a generic build."
     ]
   },
   {
     "id": "shot-02-minimap",
     "categoria": "pantallazo",
     "imagen": "eval/images/shot-02-minimap.png",
-    "prompt": "Mira el minimapa. ¿Es seguro que vaya a farmear la línea de arriba?",
+    "prompt": "Look at the minimap. Is it safe for me to go farm top lane?",
     "criterios": [
-      "Describe lo que se ve en el minimapa (rivales visibles, faltantes, visión).",
-      "Da una decisión clara y el motivo."
+      "Describes what's visible on the minimap (visible enemies, missing ones, vision).",
+      "Gives a clear decision and the reason."
     ],
     "errores_graves": [
-      "Afirmar posiciones que no se ven en la imagen."
+      "Claiming positions that aren't visible in the image."
     ]
   },
   {
     "id": "shot-03-scoreboard",
     "categoria": "pantallazo",
     "imagen": "eval/images/shot-03-scoreboard.png",
-    "prompt": "Este es el marcador (Tab). ¿Quién es la mayor amenaza del rival y qué ítem defensivo me conviene?",
+    "prompt": "Here's the scoreboard (Tab). Who's the biggest threat on the enemy team and what defensive item should I get?",
     "criterios": [
-      "Identifica en la imagen al rival más adelantado (oro/ítems/KDA).",
-      "Recomienda un ítem defensivo coherente con el tipo de daño de esa amenaza."
+      "Identifies the most fed enemy in the image (gold/items/KDA).",
+      "Recommends a defensive item that matches that threat's damage type."
     ],
     "errores_graves": [
-      "Inventar el estado del marcador."
+      "Making up the state of the scoreboard."
     ]
   },
   {
     "id": "shot-04-champ-select",
     "categoria": "pantallazo",
     "imagen": "eval/images/shot-04-champ-select.png",
-    "prompt": "Estoy en selección de campeón, mira el pantallazo. ¿Qué runas y build llevo y qué forma de mi campeón busco?",
+    "prompt": "I'm in champ select, check the screenshot. What runes and build should I go, and which form should I aim for on my champ?",
     "criterios": [
-      "Lee bien el pantallazo: el jugador es Kayn jungla; aliados Veigar (mid) y Warwick (top), con soporte y tirador sin elegir; rivales Ekko, Nunu y Willump y Kog'Maw, con dos sin elegir.",
-      "Recomienda una forma de Kayn y la justifica con la composición rival, avisando de que faltan dos rivales.",
-      "Runas y build concretas para esa forma.",
-      "Algún consejo para la partida contra Nunu en la jungla rival."
+      "Reads the screenshot correctly: the player is Kayn jungle; allies are Veigar (mid) and Warwick (top), with support and ADC not yet picked; enemies are Ekko, Nunu & Willump and Kog'Maw, with two not yet picked.",
+      "Recommends a Kayn form and justifies it with the enemy comp, noting that two enemies are still missing.",
+      "Concrete runes and build for that form.",
+      "Some advice for the game against Nunu in the enemy jungle."
     ],
     "errores_graves": [
-      "Confundir aliados con rivales.",
-      "Inventar campeones que no aparecen en la imagen."
+      "Mixing up allies and enemies.",
+      "Making up champions that don't appear in the image."
     ],
     "hechos": [
-      "Kayn consigue la forma Darkin (Rhaast) golpeando a campeones cuerpo a cuerpo y la de Asesino de las Sombras golpeando a campeones a distancia."
+      "Kayn unlocks the Darkin form (Rhaast) by hitting melee champions and the Shadow Assassin form by hitting ranged champions."
+    ]
+  },
+  {
+    "id": "lang-01-spanish-requested",
+    "categoria": "idioma",
+    "prompt": "Juego Annie mid contra Fizz. ¿Qué runas y primer ítem llevo? Respóndeme en español, por favor.",
+    "draft": {
+      "role": "mid",
+      "champion": "Annie",
+      "allies": [],
+      "enemies": [
+        "Fizz"
+      ],
+      "lane_opponent": "Fizz",
+      "notes": "Respóndeme en español, por favor. ¿Qué runas y primer ítem llevo contra Fizz?"
+    },
+    "criterios": [
+      "Answers in Spanish, because the player explicitly asked for it (item and rune names may use the official es_MX or English names).",
+      "Runes and a first item for Annie that make sense against Fizz's all-in (e.g. a Zhonya's/Stopwatch path or survivability).",
+      "Explains how to play around Fizz's E (Playful / Trickster) with Annie's stun."
+    ],
+    "errores_graves": [
+      "Answers in English even though the player asked for Spanish.",
+      "Items or runes that don't exist."
+    ],
+    "hechos": [
+      "Fizz's E (Playful / Trickster) makes him untargetable for a short time, so he can dodge Annie's stun."
     ]
   }
 ]

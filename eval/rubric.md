@@ -1,63 +1,71 @@
-# Rubric de calidad del coach
+# Coach quality rubric
 
-El juez ve dos respuestas a ciegas (A y B), los criterios del caso, los errores
-graves y, si los hay, hechos de referencia verificados. Cada par se juzga **en los
-dos órdenes** (A/B y B/A) y se promedia, para cancelar el sesgo de posición.
-Puntúa el contenido del consejo, no el estilo.
+The judge sees two answers blind (A and B), the case criteria, the serious errors
+and, when available, verified reference facts. Each pair is judged **in both
+orders** (A/B and B/A) and averaged, to cancel position bias. It scores the
+content of the advice, not the style.
 
-## Dimensiones de fondo (deciden el resultado)
+## Substance dimensions (decide the result)
 
-| Dimensión | Peso | 1 | 3 | 5 |
+| Dimension | Weight | 1 | 3 | 5 |
 |---|---|---|---|---|
-| **Precisión** | 3 | Inventa ítems, runas o habilidades, o describe mecánicas mal. | Correcta en lo general, con algún dato dudoso o de otro parche. | Todo lo que afirma existe y es correcto para el parche indicado. |
-| **Adaptación al contexto** | 3 | Respuesta genérica que ignora el draft, el minuto o el oro. | Usa parte del contexto. | Cada recomendación se justifica con una amenaza o un dato concreto del caso. |
-| **Accionabilidad** | 2 | Teoría sin pasos, o "la que prefieras" / "mira u.gg". | Pasos, pero vagos ("compra algo defensivo"). | Qué comprar o hacer, en qué orden y cuándo. |
+| **Accuracy** (`precision`) | 3 | Invents items, runes or abilities, or gets mechanics wrong. | Generally right, with a doubtful or outdated detail. | Everything it states exists and is correct for the given patch. |
+| **Context fit** (`contexto`) | 3 | Generic answer that ignores the draft, the minute or the gold. | Uses part of the context. | Every recommendation is justified by a concrete threat or fact from the case. |
+| **Actionability** (`accionabilidad`) | 2 | Theory with no steps, or "whatever you prefer" / "check u.gg". | Steps, but vague ("buy something defensive"). | What to buy or do, in what order and when. |
 
-**Fondo** = (3·Precisión + 3·Contexto + 2·Accionabilidad) / 8, de 1 a 5.
+**Substance** = (3·Accuracy + 3·Context + 2·Actionability) / 8, from 1 to 5.
 
-Un **error grave** de la lista del caso limita Precisión y Contexto a 2. El script
-lo aplica en código a partir de lo que marca el juez.
+A **serious error** from the case list caps Accuracy and Context at 2. The script
+applies this in code from what the judge flags.
 
-## Restricciones (no pueden empeorar)
+## Constraints (must not get worse)
 
-| Dimensión | 1 | 3 | 5 |
+| Dimension | 1 | 3 | 5 |
 |---|---|---|---|
-| **Formato según el momento** | Una guía larga para una pregunta en partida, o tan escueta que no sirve. | Longitud aceptable. | En partida: la decisión en la primera línea y pocas líneas. Antes de la partida: estructura clara y fácil de escanear. |
-| **Honestidad** | Afirma con seguridad lo que no sabe, **o** se escuda en la duda en vez de recomendar. | Sin inventar, pero con cautela que resta utilidad. | Recomienda con decisión y marca en una línea lo que no puede verificar. |
-| **Cumplimiento** | No responde en español o recomienda algo contra las políticas de Riot. | — | En español, sin herramientas prohibidas, sin pedir datos en vivo. |
+| **Format for the moment** (`formato`) | A long guide for an in-game question, or so terse it is useless. | Acceptable length. | In game: the decision in the first line and few lines. Before the game: clear, easy-to-scan structure. |
+| **Honesty** (`honestidad`) | States confidently what it doesn't know, **or** hides behind doubt instead of recommending. | Doesn't invent, but caution reduces usefulness. | Recommends decisively and flags in one line what it can't verify. |
+| **Compliance** (`cumplimiento`) | Wrong language, or recommends something against Riot's policies. | — | In English by default, or in the language the player explicitly asked for; no forbidden tools; never asks for live game data. |
 
-Citar el parche o una web no sube la nota por sí solo: cuenta solo si el dato es
-correcto y útil.
+Citing the patch or a website doesn't raise the score by itself: it only counts if
+the fact is correct and useful.
 
-## Hechos de referencia
+## Language
 
-Algunos casos traen `hechos`: datos verificables que no dependen del parche (o que
-indican a qué parche corresponden). El juez marca cada uno como acertado, fallado o
-no mencionado. Es una medida de precisión más estable que la nota de 1 a 5.
+The coach answers in **English by default** and switches to another language only
+when the player asks for it. Item, rune and ability names follow the language of the
+answer (official en_US names in English; official es_MX or English names in
+Spanish). The case `lang-01-spanish-requested` checks the switch.
 
-## Resultado por caso
+## Reference facts
 
-- Diferencia = fondo(principal) − fondo(rival), promedio de todos los juicios del par.
-- **Empate** si |diferencia| < max(0,25; desviación típica entre juicios del par),
-  o si el ganador cambia al invertir el orden A/B.
+Some cases include `hechos` (facts): verifiable data that doesn't depend on the
+patch (or that states which patch it belongs to). The judge marks each one as
+correct, wrong or not mentioned. It is a more stable accuracy measure than the
+1-5 score.
 
-## Criterio de éxito del harness
+## Per-case result
 
-El harness es **superior** a una variante si:
+- Difference = substance(main) − substance(rival), averaged over all judgments of the pair.
+- **Tie** if |difference| < max(0.25, standard deviation across the pair's judgments),
+  or if the winner flips when the A/B order is reversed.
 
-1. el intervalo de confianza del 95 % (bootstrap por casos) de la diferencia media
-   de fondo queda por encima de 0, y
-2. en cada restricción no queda por debajo del rival por más de 0,25.
+## Success criterion for the harness
 
-El informe también da el test de signos sobre victorias y derrotas, la
-consistencia al invertir el orden y el ruido medido del juez. Las categorías con
-menos de 4 casos se muestran como aviso, no como condición.
+The harness is **superior** to a variant if:
 
-## Límites conocidos
+1. the 95 % confidence interval (bootstrap over cases) of the mean substance
+   difference is above 0, and
+2. on each constraint it is not below the rival by more than 0.25.
 
-- Si el juez es el mismo modelo que responde, puede preferir su propio estilo y
-  compartir sus huecos de conocimiento. Usa `--judge-model` con otro modelo cuando
-  puedas.
-- Con unos 25 casos y 2 juicios por par, solo se detectan diferencias de fondo de
-  unos 0,4 o más. Diferencias menores son ruido.
-- Los casos los escribió el auditor. Conviene que Alei añada algunos propios.
+The report also gives the sign test on wins and losses, consistency when the order
+is reversed, and the measured judge noise. Categories with fewer than 4 cases are
+shown as a warning, not as a condition.
+
+## Known limits
+
+- If the judge is the same model that answers, it may prefer its own style and share
+  its knowledge gaps. Use `--judge-model` with another model when you can.
+- With about 25 cases and 2 judgments per pair, only substance differences of about
+  0.4 or more are detectable. Smaller differences are noise.
+- The cases were written by the auditor and translated from Spanish. Alei should add
+  some of their own.

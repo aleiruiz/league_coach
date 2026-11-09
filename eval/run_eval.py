@@ -210,47 +210,50 @@ def parse_json(text: str) -> dict | None:
 
 # ---------------------------------------------------------------- juez
 
-JUDGE_TEMPLATE = """Eres un juez experto en League of Legends. Vas a evaluar dos respuestas de un
-coach a la misma pregunta de un jugador. No sabes qué sistema generó cada una.
+JUDGE_TEMPLATE = """You are an expert League of Legends judge. You will evaluate two answers from a
+coach to the same player question. You don't know which system produced each one.
 
-Parche del juego en esta evaluación: {patch}. Tu conocimiento puede estar desactualizado:
-si dudas de un dato del parche, verifícalo con la búsqueda web; si no puedes verificarlo,
-no lo des por bueno ni por malo, y dilo en "datos_incorrectos" como "no verificado".
-Los nombres de ítems, runas y habilidades pueden venir en español de la localización
-oficial es_MX de Riot (por ejemplo "Hacha Hogareña" o "Hábito del Espectro"): no los des
-por inventados solo porque no los reconozcas; verifícalos o márcalos como "no verificado".
-Puntúa el CONTENIDO del consejo, no el estilo: citar fuentes o el parche no compensa
-recomendar algo flojo o incorrecto.
+Game patch for this evaluation: {patch}. Your knowledge may be outdated: if you doubt
+a patch fact, verify it with web search; if you can't verify it, don't count it as
+right or wrong, and list it in "datos_incorrectos" as "not verified".
+The coach must answer in English unless the player explicitly asked for another
+language; then it must answer in that language. Item, rune and ability names follow
+the answer's language: official en_US names in English, official es_MX or English
+names in Spanish (e.g. "Hacha Hogareña"). Don't treat a name as invented just because
+you don't recognize it; verify it or mark it "not verified".
+Score the CONTENT of the advice, not the style: citing sources or the patch doesn't
+make up for recommending something weak or wrong.
 
 ## Rubric
 {rubric}
 
-## Pregunta del jugador
+## Player question
 {prompt}
 {image_note}
-## Criterios esperados para este caso
+## Expected criteria for this case
 {criterios}
 
-## Errores graves para este caso
+## Serious errors for this case
 {errores}
 
-## Hechos de referencia (verificados, para medir precisión)
+## Reference facts (verified, to measure accuracy)
 {hechos}
 
-## Respuesta A
+## Answer A
 {a}
 
-## Respuesta B
+## Answer B
 {b}
 
-Devuelve SOLO un objeto JSON, sin texto alrededor, con esta forma (notas enteras de 1 a 5):
+Return ONLY a JSON object, with no surrounding text, in this shape (integer scores from 1 to 5).
+Keep the keys exactly as written; write the text values in English:
 {{"A": {{"precision": n, "contexto": n, "accionabilidad": n, "formato": n, "honestidad": n,
-"cumplimiento": n, "errores_graves": ["error grave de la lista que comete, si alguno"],
-"hechos": ["acertado|fallado|no_mencionado", "... uno por hecho de referencia, en orden"],
-"comentario": "una frase"}},
- "B": {{...igual...}},
- "datos_incorrectos": ["dato inventado, erróneo o no verificado y en qué respuesta"],
- "veredicto": "una o dos frases comparando A y B"}}
+"cumplimiento": n, "errores_graves": ["serious error from the list that it commits, if any"],
+"hechos": ["acertado|fallado|no_mencionado", "... one per reference fact, in order"],
+"comentario": "one sentence"}},
+ "B": {{...same...}},
+ "datos_incorrectos": ["invented, wrong or unverified fact and which answer"],
+ "veredicto": "one or two sentences comparing A and B"}}
 """
 
 
@@ -282,10 +285,10 @@ def judge_once(case: dict, first: str, second: str, rubric: str, model: str | No
         patch=patch,
         rubric=rubric,
         prompt=case["prompt"],
-        image_note="\n(El jugador adjuntó el pantallazo que ves en este mensaje.)\n" if image else "",
+        image_note="\n(The player attached the screenshot you see in this message.)\n" if image else "",
         criterios="\n".join(f"- {c}" for c in case.get("criterios", [])),
-        errores="\n".join(f"- {c}" for c in case.get("errores_graves", [])) or "- (ninguno)",
-        hechos="\n".join(f"{i + 1}. {h}" for i, h in enumerate(hechos)) or "(ninguno para este caso)",
+        errores="\n".join(f"- {c}" for c in case.get("errores_graves", [])) or "- (none)",
+        hechos="\n".join(f"{i + 1}. {h}" for i, h in enumerate(hechos)) or "(none for this case)",
         a=first or "(sin respuesta)",
         b=second or "(sin respuesta)",
     )
@@ -513,7 +516,8 @@ def main() -> None:
     ap.add_argument("--with-images", action="store_true", help="incluir casos con pantallazo")
     ap.add_argument("--image", action="append", default=[], metavar="ID=RUTA", help="imagen para un caso de pantallazo")
     ap.add_argument("--patch", help="parche que se le dice al juez (por defecto el de Data Dragon si se usa)")
-    ap.add_argument("--ddragon", help="carpeta con champion.json, item.json y runesReforged.json (es_MX); su nombre es la versión")
+    ap.add_argument("--ddragon", help="carpeta con los JSON de Data Dragon de un idioma; su nombre es la versión")
+    ap.add_argument("--locale", default=draft_prompt.LOCALE, help="idioma de Data Dragon para --fetch-ddragon (en_US; es_MX para probar español)")
     ap.add_argument("--fetch-ddragon", action="store_true", help="descargar el último Data Dragon a eval/ddragon/")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--out", default=str(ROOT / "eval" / "results"))
@@ -547,7 +551,7 @@ def main() -> None:
     data = None
     folder = Path(args.ddragon) if args.ddragon else None
     if args.fetch_ddragon:
-        folder = draft_prompt.fetch(ROOT / "eval" / "ddragon")
+        folder = draft_prompt.fetch(ROOT / "eval" / "ddragon", locale=args.locale)
     if folder:
         data = draft_prompt.GameData(folder)
         print(f"Data Dragon {data.version} (parche {data.patch})", file=sys.stderr)

@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 BASE = "https://ddragon.leagueoflegends.com"
-LOCALE = "es_MX"
+LOCALE = "en_US"  # la app pasa a inglés por defecto (2026-11-09)
 FILES = ("champion.json", "item.json", "runesReforged.json", "summoner.json")
 SHARDS = [
     ["Fuerza adaptable", "Velocidad de ataque", "Velocidad de habilidades"],
@@ -62,15 +62,15 @@ def patch_name(version: str) -> str:
     return f"{major + 10 if major >= 15 else major}.{parts[1]}"
 
 
-def fetch(dest: Path, version: str | None = None) -> Path:
-    """Descarga un snapshot de Data Dragon (es_MX) a dest/<versión>/."""
+def fetch(dest: Path, version: str | None = None, locale: str = LOCALE) -> Path:
+    """Descarga un snapshot de Data Dragon (`locale`) a dest/<locale>/<versión>/."""
     if not version:
         with urllib.request.urlopen(f"{BASE}/api/versions.json", timeout=20) as r:
             version = json.load(r)[0]
-    out = dest / version
+    out = dest / locale / version
     out.mkdir(parents=True, exist_ok=True)
     for f in FILES:
-        with urllib.request.urlopen(f"{BASE}/cdn/{version}/data/{LOCALE}/{f}", timeout=30) as r:
+        with urllib.request.urlopen(f"{BASE}/cdn/{version}/data/{locale}/{f}", timeout=30) as r:
             (out / f).write_bytes(r.read())
     return out
 
