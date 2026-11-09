@@ -30,8 +30,11 @@ const INITIAL: KeyStatus[] = Object.keys(LABELS).map((provider) => ({
   error: null,
 }));
 
-/** Riot ID + region (server) for the post-game review in "My progress". */
-function RiotAccount({ onSaved }: { onSaved: () => void }) {
+/**
+ * Riot ID + region (server). In Settings it also explains the API key and the
+ * automatic review; the first-run setup shows just the form (`compact`).
+ */
+export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void; compact?: boolean }) {
   const [regions, setRegions] = useState<Region[]>([]);
   const [riotId, setRiotId] = useState("");
   const [region, setRegion] = useState("");
@@ -80,7 +83,8 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
 
   return (
     <>
-      <h3>{t("Riot account", "Cuenta de Riot")}</h3>
+      {!compact && <h3>{t("Riot account", "Cuenta de Riot")}</h3>}
+      {!compact && (
       <p className="muted">
         {t(
           "Used only to read your finished games for \"My progress\". It also needs a Riot API key (below): get one at ",
@@ -94,6 +98,7 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
           ". Las development keys caducan cada 24 horas; una Personal API key no.",
         )}
       </p>
+      )}
       <form
         className="key-form riot-form"
         onSubmit={(e) => {
@@ -123,6 +128,7 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
           {t("Save", "Guardar")}
         </button>
       </form>
+      {!compact && (
       <label className="check">
         <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
         {t(
@@ -130,6 +136,7 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
           "Revisar las partidas nuevas automáticamente mientras la app está abierta. Cada revisión es una consulta a tu plan de Claude o ChatGPT (una por tanda de partidas nuevas, no por minuto).",
         )}
       </label>
+      )}
       <p className="message" role="status" aria-live="polite">
         {message}
       </p>

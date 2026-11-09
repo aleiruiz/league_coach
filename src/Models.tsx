@@ -6,7 +6,8 @@ import { t } from "./i18n";
 
 type Test = { state: "running" | "ok" | "error"; text: string };
 
-function Models({ providers }: { providers: ProvidersState }) {
+/** Status, sign-in and test for each AI CLI (used by Models and the first-run setup). */
+export function ProviderSetup({ providers }: { providers: ProvidersState }) {
   const { list, loading, error, refresh } = providers;
   const [message, setMessage] = useState<string | null>(null);
   const [tests, setTests] = useState<Partial<Record<ProviderKind, Test>>>({});
@@ -67,14 +68,7 @@ function Models({ providers }: { providers: ProvidersState }) {
   }, [list]);
 
   return (
-    <section>
-      <h2>{t("Models", "Modelos")}</h2>
-      <p className="muted">
-        {t(
-          "League Coach uses your subscriptions through the official programs (Claude Code and Codex CLI). Sign-in happens on each provider's page: the app never sees or stores your credentials.",
-          "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
-        )}
-      </p>
+    <>
       {loading && list.length === 0 && <p className="muted">{t("Checking models…", "Comprobando modelos…")}</p>}
       {error && (
         <p className="error">
@@ -124,6 +118,22 @@ function Models({ providers }: { providers: ProvidersState }) {
       <p className="message" role="status" aria-live="polite">
         {message}
       </p>
+    </>
+  );
+}
+
+export const modelsIntro = () =>
+  t(
+    "League Coach uses your subscriptions through the official programs (Claude Code and Codex CLI). Sign-in happens on each provider's page: the app never sees or stores your credentials.",
+    "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
+  );
+
+function Models({ providers }: { providers: ProvidersState }) {
+  return (
+    <section>
+      <h2>{t("Models", "Modelos")}</h2>
+      <p className="muted">{modelsIntro()}</p>
+      <ProviderSetup providers={providers} />
     </section>
   );
 }
