@@ -111,7 +111,7 @@ function Onboarding({
               ? t("Finish both steps to continue.", "Completa los dos pasos para continuar.")
               : !aiReady
                 ? t("Connect at least one model to continue.", "Conecta al menos un modelo para continuar.")
-                : t("Save your Riot ID and region to continue.", "Guarda tu Riot ID y tu región para continuar.")}
+                : t("Set your Riot ID and region (Use as my account) to continue.", "Elige tu Riot ID y tu región (Usar como mi cuenta) para continuar.")}
           </span>
         )}
       </div>

@@ -98,7 +98,11 @@ export function SummonerSearch({
   const cache = useRef(new Map<string, Lookup>());
   const listId = useId();
 
-  const list = suggestions(past, riotId).slice(0, 10);
+  // A row identical to what is already typed adds nothing (and would cover
+  // the preview card).
+  const list = suggestions(past, riotId)
+    .filter((s) => !same(s, { riotId: riotId.trim(), region }))
+    .slice(0, 10);
   const regionOf = (id: string) => regions.find((r) => r.id === id);
   const regionCode = (id: string) => shortRegion(regionOf(id)) || id.toUpperCase();
 

@@ -110,8 +110,16 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
           setRegion(reg);
         }}
         onSubmit={(id, reg) => save(id, reg, auto, t("Riot account saved.", "Cuenta de Riot guardada."))}
-        submitLabel={t("Save", "Guardar")}
+        submitLabel={t("Use as my account", "Usar como mi cuenta")}
       />
+      {saved && (
+        <p className="small">
+          {t("Your account:", "Tu cuenta:")} <strong>{saved.riotId}</strong>{" "}
+          <span className="muted">
+            ({regions.find((r) => r.id === saved.region)?.label ?? saved.region})
+          </span>
+        </p>
+      )}
       <p className="muted small">
         {t(
           "Riot only finds exact Riot IDs (Name#TAG, as in your client profile), so suggestions come from your own past searches. The preview needs your Riot API key.",
