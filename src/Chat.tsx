@@ -44,7 +44,12 @@ function Chat({ providers, onGoToModels }: Props) {
 
   // Si el modelo elegido deja de estar disponible, pasa al primero que sí lo esté.
   useEffect(() => {
-    if (!ready.some((p) => p.kind === kind)) setKind(ready[0]?.kind ?? null);
+    // La conversación del modelo anterior no sirve en otro: se empieza una nueva.
+    if (!ready.some((p) => p.kind === kind)) {
+      setKind(ready[0]?.kind ?? null);
+      setSessionId(null);
+      setMessages([]);
+    }
   }, [ready, kind]);
 
   useEffect(() => {

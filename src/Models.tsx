@@ -10,12 +10,15 @@ function Models({ providers }: { providers: ProvidersState }) {
   const [message, setMessage] = useState<string | null>(null);
   const [tests, setTests] = useState<Partial<Record<ProviderKind, Test>>>({});
   const poll = useRef<number | null>(null);
+  // Proveedor cuyo login estamos esperando.
+  const waitingFor = useRef<ProviderKind | null>(null);
 
   useEffect(() => () => stopPolling(), []);
 
   function stopPolling() {
     if (poll.current !== null) window.clearInterval(poll.current);
     poll.current = null;
+    waitingFor.current = null;
   }
 
   async function login(p: ProviderStatus) {
@@ -26,6 +29,7 @@ function Models({ providers }: { providers: ProvidersState }) {
       );
       // Revisa el estado cada 4 s durante un minuto.
       stopPolling();
+      waitingFor.current = p.kind;
       let ticks = 0;
       poll.current = window.setInterval(async () => {
         ticks += 1;
@@ -48,7 +52,7 @@ function Models({ providers }: { providers: ProvidersState }) {
   }
 
   useEffect(() => {
-    if (list.some((p) => p.logged_in)) stopPolling();
+    if (list.some((p) => p.kind === waitingFor.current && p.logged_in)) stopPolling();
   }, [list]);
 
   return (
