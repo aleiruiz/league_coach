@@ -489,7 +489,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     }
     let _ = writeln!(
         p,
-        "No cambies las decisiones del análisis: solo escríbelas con los nombres exactos de estas listas. Si un nombre no aparece, usa el equivalente de la lista que más se parezca."
+        "No vuelvas a buscar ni cambies las decisiones del análisis: solo escríbelas con los nombres exactos de estas listas. Si un nombre no aparece, usa el equivalente de la lista que más se parezca."
     );
     let names = |f: &dyn Fn(&ddragon::Item) -> bool| {
         data.items
@@ -1031,7 +1031,7 @@ pub async fn recommend_build(
             status("Corrigiendo la build…");
             retried = true;
             let fix_prompt = format!(
-                "{reason} Responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
+                "{reason} Sin volver a buscar, responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
             );
             let second = ask(
                 &app,
