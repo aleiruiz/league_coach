@@ -565,20 +565,28 @@ def main() -> None:
     def answer(c: dict, v: str, image: Path | None) -> dict:
         if v != "draft":
             return run_claude(c["prompt"], model=args.model, image=image, **cfg[v])
-        prompt = draft_prompt.build_prompt(c["draft"], data)
+        # Paso 1 (#6): análisis libre con búsqueda web, como una pregunta al coach.
+        first = run_claude(draft_prompt.analysis_prompt(c["draft"], data), model=args.model, image=image, **cfg[v])
+        if not first["ok"]:
+            return {**first, "invalid": []}
+        analysis = first["text"].strip()
+        # Paso 2: pasar el análisis a la tarjeta. La app lo hace en la misma sesión;
+        # sin sesión (aquí) pega el análisis en el pedido, que es su otra rama.
+        prompt = draft_prompt.card_prompt(data, analysis)
         out = run_claude(prompt, model=args.model, image=image, **cfg[v])
+        out = {**out, "cost_usd": (first.get("cost_usd") or 0) + (out.get("cost_usd") or 0),
+               "tool_calls": (first.get("tool_calls") or []) + (out.get("tool_calls") or [])}
         card = draft_prompt.parse_card(out["text"]) if out["ok"] else None
-        # Igual que recommend_build: una ronda de corrección si el JSON no se lee
-        # o hay nombres fuera del parche. La app reanuda la sesión; aquí se reenvía
-        # el prompt con la respuesta anterior, que es equivalente para el modelo.
+        # Igual que recommend_build: una ronda de corrección si el JSON no se lee,
+        # hay nombres fuera del parche o en el hueco equivocado, o faltan campos.
         reason = None
         if out["ok"] and card is None:
             reason = "Tu respuesta no se pudo leer como JSON."
         elif card is not None:
-            bad = draft_prompt.invalid_names(card, data)
+            bad = draft_prompt.invalid_names(card, data, c["draft"])
             if bad:
-                reason = (f"Estos nombres no existen en el parche {data.patch}: {'; '.join(bad)}. "
-                          "Reemplázalos por ítems o runas de la lista válida.")
+                reason = (f"Hay problemas con el parche {data.patch}: {'; '.join(bad)}. "
+                          "Corrígelos usando solo las listas válidas.")
         if reason:
             fix = run_claude(
                 f"{prompt}\n\nTU RESPUESTA ANTERIOR:\n{out['text']}\n\n{reason} "
@@ -590,9 +598,10 @@ def main() -> None:
                 card = fixed
                 out = {**fix, "cost_usd": (out.get("cost_usd") or 0) + (fix.get("cost_usd") or 0),
                        "tool_calls": (out.get("tool_calls") or []) + (fix.get("tool_calls") or []), "corrected": True}
+        out["analysis"] = analysis
         if card is None:
             return {**out, "ok": False, "error": out.get("error") or "JSON ilegible", "invalid": []}
-        return {**out, "raw": out["text"], "text": draft_prompt.render_card(card), "invalid": draft_prompt.invalid_names(card, data)}
+        return {**out, "raw": out["text"], "text": draft_prompt.render_card(card), "invalid": draft_prompt.invalid_names(card, data, c["draft"])}
 
     runnable, skipped = [], []
     for c in cases:

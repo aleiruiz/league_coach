@@ -4,15 +4,15 @@ Comprueba que el harness (prompt del coach, búsqueda web y, en la variante `dra
 el draft estructurado con datos del parche) da mejores consejos que el mismo modelo
 sin harness.
 
-- `cases.json`: 28 casos (builds situacionales, matchups, momentos de partida,
-  tutoriales, trampas de honestidad y 3 de pantallazo). Cada caso trae criterios,
+- `cases.json`: 29 casos (builds situacionales, matchups, momentos de partida,
+  tutoriales, trampas de honestidad y 4 de pantallazo). Cada caso trae criterios,
   errores graves y, cuando se pueden verificar, `hechos` de referencia. Los de build
   y matchup traen también un `draft` estructurado.
 - `rubric.md`: dimensiones de fondo, restricciones, tratamiento estadístico y límites.
 - `run_eval.py`: ejecuta cada caso en cada variante con el CLI de Claude Code, aislado
   de tu configuración (sin CLAUDE.md, memorias, hooks ni MCP), y pide a un juez que
   puntúe cada par en los dos órdenes.
-- `draft_prompt.py`: réplica en Python de `recommend_build` (`src-tauri/src/recommend.rs`).
+- `draft_prompt.py`: réplica en Python de `recommend_build` (`src-tauri/src/recommend.rs`): `analysis_prompt`, `card_prompt`, validación y campos que faltan.
   Si cambia el prompt de Rust, actualízala.
 - `baselines/`: informes de referencia guardados a mano. Las corridas completas quedan
   en `eval/results/` (ignorado por git).
@@ -50,14 +50,18 @@ repetirlo con `--only`.
 
 ## Variante `draft` (pantalla Partida)
 
-Reproduce "Recomendar build": parche actual, aliados y rivales por separado, perfil
-de daño rival, listas de ítems y runas válidos, y respuesta JSON. La tarjeta se pasa
-a texto para el juez, y el informe lista los nombres que no existen en el parche.
-Hace una ronda de corrección como la app (JSON ilegible o nombres fuera del parche).
+Reproduce "Recomendar build" en dos pasos, como la app: primero un análisis libre con
+búsqueda web (parche, aliados y rivales por separado, perfil de daño rival y notas), y
+después la conversión a tarjeta con las listas de ítems, hechizos, runas y fragmentos
+del parche. La app hace el paso 2 en la misma sesión; aquí pega el análisis en el
+pedido, que es la otra rama de la app. Hace una ronda de corrección como la app (JSON
+ilegible, nombres fuera del parche o en el hueco equivocado, o campos vacíos). La
+tarjeta se pasa a texto para el juez, el análisis queda en `results.jsonl` y el
+informe lista lo que siguió mal tras la corrección.
 
 Necesita Data Dragon: `--fetch-ddragon` descarga el último parche a `eval/ddragon/`,
 o usa `--ddragon <carpeta>` con una carpeta que tenga `champion.json`, `item.json` y
-`runesReforged.json` (es_MX) y cuyo nombre sea la versión, por ejemplo `16.22.1`.
+`runesReforged.json` y `summoner.json` (es_MX) y cuyo nombre sea la versión, por ejemplo `16.22.1`.
 La app guarda esa misma caché en su carpeta de datos.
 
 ## Pantallazos
