@@ -309,9 +309,20 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       )}
       {rec?.card_error && (
         <section className={stale ? "panel analysis-only stale" : "panel analysis-only"}>
-          <p className="error small">
-            No pude armar la tarjeta ({rec.card_error}). Este es el análisis del modelo; puedes pedir otra build.
-          </p>
+          <h4 className="panel-title">Análisis del modelo</h4>
+          <div className="card-warnings">
+            <p className="error small">
+              {rec.card_error.includes("tardó")
+                ? "El modelo tardó demasiado en armar la tarjeta."
+                : "No pude convertir la respuesta del modelo en una tarjeta."}{" "}
+              Aquí tienes su análisis mientras tanto.
+            </p>
+            {!stale && !busy && (
+              <button className="secondary" onClick={recommend}>
+                Pedir otra build
+              </button>
+            )}
+          </div>
           <p className="muted small">Texto del modelo sin verificar: las cifras que mencione no están comprobadas.</p>
           <SafeMarkdown>{rec.analysis}</SafeMarkdown>
         </section>
