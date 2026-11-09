@@ -16,6 +16,9 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
 
   useEffect(() => {
     input.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -33,8 +36,10 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
             onKeyDown={(e) => {
+              if (e.key !== "Enter" || !query.trim()) return;
+              // Enter elige el primer libre solo si ya se escribió algo.
               const first = results.find((c) => !taken.has(c.id));
-              if (e.key === "Enter" && first) onPick(first.id);
+              if (first) onPick(first.id);
             }}
           />
           <button className="secondary" onClick={onClose}>

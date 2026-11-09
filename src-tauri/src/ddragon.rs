@@ -15,7 +15,12 @@ use tokio::sync::Mutex;
 
 const BASE: &str = "https://ddragon.leagueoflegends.com";
 const LOCALE: &str = "es_MX";
-const FILES: [&str; 3] = ["champion.json", "item.json", "runesReforged.json"];
+const FILES: [&str; 4] = [
+    "champion.json",
+    "item.json",
+    "runesReforged.json",
+    "summoner.json",
+];
 /// Mapa de la Grieta del Invocador en Data Dragon.
 const SUMMONERS_RIFT: &str = "11";
 
@@ -61,6 +66,13 @@ pub struct RuneTree {
     pub slots: Vec<Vec<Rune>>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Spell {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct GameData {
     pub version: String,
@@ -69,6 +81,10 @@ pub struct GameData {
     pub champions: Vec<Champion>,
     pub items: Vec<Item>,
     pub rune_trees: Vec<RuneTree>,
+    /// Hechizos de invocador de la Grieta (modo CLASSIC).
+    pub spells: Vec<Spell>,
+    /// Aviso para la UI cuando se usa una copia local más vieja.
+    pub notice: Option<String>,
 }
 
 impl GameData {
@@ -89,6 +105,11 @@ impl GameData {
             .find(|r| normalize(&r.name) == n)
     }
 
+    pub fn spell_by_name(&self, name: &str) -> Option<&Spell> {
+        let n = normalize(name);
+        self.spells.iter().find(|s| normalize(&s.name) == n)
+    }
+
     pub fn tree_by_name(&self, name: &str) -> Option<&RuneTree> {
         let n = normalize(name);
         self.rune_trees.iter().find(|t| normalize(&t.name) == n)
@@ -98,17 +119,18 @@ impl GameData {
 /// Compara nombres sin importar mayúsculas, acentos ni signos.
 pub fn normalize(s: &str) -> String {
     s.chars()
+        .flat_map(char::to_lowercase)
         .filter_map(|c| {
             let c = match c {
-                'á' | 'à' | 'ä' | 'Á' => 'a',
-                'é' | 'è' | 'ë' | 'É' => 'e',
-                'í' | 'ì' | 'ï' | 'Í' => 'i',
-                'ó' | 'ò' | 'ö' | 'Ó' => 'o',
-                'ú' | 'ù' | 'ü' | 'Ú' => 'u',
-                'ñ' | 'Ñ' => 'n',
+                'á' | 'à' | 'ä' | 'â' => 'a',
+                'é' | 'è' | 'ë' | 'ê' => 'e',
+                'í' | 'ì' | 'ï' | 'î' => 'i',
+                'ó' | 'ò' | 'ö' | 'ô' => 'o',
+                'ú' | 'ù' | 'ü' | 'û' => 'u',
+                'ñ' => 'n',
                 c => c,
             };
-            c.is_alphanumeric().then(|| c.to_ascii_lowercase())
+            c.is_alphanumeric().then_some(c)
         })
         .collect()
 }
@@ -163,7 +185,7 @@ pub fn parse_champions(json: &str, version: &str) -> Result<Vec<Champion>, Strin
 pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let data = v["data"].as_object().ok_or("item.json sin data")?;
-    let mut out: Vec<Item> = data
+    let in_store: Vec<(&String, &Value)> = data
         .iter()
         .filter(|(_, i)| {
             i["maps"][SUMMONERS_RIFT].as_bool().unwrap_or(false)
@@ -172,14 +194,25 @@ pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
                 && i["requiredChampion"].is_null()
                 && i["requiredAlly"].is_null()
         })
+        .collect();
+    let buyable: std::collections::HashSet<&str> =
+        in_store.iter().map(|(id, _)| id.as_str()).collect();
+    let mut out: Vec<Item> = in_store
+        .iter()
         .map(|(id, i)| {
             let tags = str_vec(&i["tags"]);
             let gold = i["gold"]["total"].as_u64().unwrap_or(0) as u32;
-            let builds_into = i["into"].as_array().is_some_and(|a| !a.is_empty());
+            // Solo cuenta si se combina en algo que se compra en la tienda: así
+            // Manamune (que se transforma en Muramana, fuera de tienda) es final.
+            let builds_into = i["into"].as_array().is_some_and(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .any(|t| buyable.contains(t))
+            });
             let is_boots = tags.iter().any(|t| t == "Boots");
             let consumable = tags.iter().any(|t| t == "Consumable" || t == "Trinket");
             Item {
-                id: id.clone(),
+                id: (*id).clone(),
                 name: i["name"].as_str().unwrap_or_default().into(),
                 plaintext: i["plaintext"].as_str().unwrap_or_default().into(),
                 gold,
@@ -238,6 +271,25 @@ pub fn parse_runes(json: &str) -> Result<Vec<RuneTree>, String> {
         .collect())
 }
 
+pub fn parse_spells(json: &str, version: &str) -> Result<Vec<Spell>, String> {
+    let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let data = v["data"].as_object().ok_or("summoner.json sin data")?;
+    let mut out: Vec<Spell> = data
+        .values()
+        .filter(|s| str_vec(&s["modes"]).iter().any(|m| m == "CLASSIC"))
+        .map(|s| Spell {
+            id: s["id"].as_str().unwrap_or_default().into(),
+            name: s["name"].as_str().unwrap_or_default().into(),
+            image: format!(
+                "{BASE}/cdn/{version}/img/spell/{}",
+                s["image"]["full"].as_str().unwrap_or_default()
+            ),
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 /// Data Dragon trae HTML en las descripciones.
 pub fn strip_tags(s: &str) -> String {
     let mut out = String::new();
@@ -260,6 +312,8 @@ pub fn build(version: &str, files: &HashMap<&str, String>) -> Result<GameData, S
         champions: parse_champions(&files["champion.json"], version)?,
         items: parse_items(&files["item.json"], version)?,
         rune_trees: parse_runes(&files["runesReforged.json"])?,
+        spells: parse_spells(&files["summoner.json"], version)?,
+        notice: None,
     })
 }
 
@@ -273,14 +327,27 @@ fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
         .join("ddragon"))
 }
 
-/// Versión de Data Dragon válida como nombre de carpeta (evita rutas raras).
+/// Versión de Data Dragon válida como nombre de carpeta: 2 a 4 números
+/// separados por puntos. Rechaza `.`, `..` y similares, que apuntarían fuera
+/// de la caché.
 fn valid_version(v: &str) -> bool {
-    !v.is_empty() && v.len() < 20 && v.chars().all(|c| c.is_ascii_digit() || c == '.')
+    let parts: Vec<&str> = v.split('.').collect();
+    v.len() < 20
+        && (2..=4).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn version_key(v: &str) -> Vec<u32> {
+    v.split('.').filter_map(|p| p.parse().ok()).collect()
 }
 
 async fn latest_version(client: &reqwest::Client) -> Result<String, String> {
     let versions: Vec<String> = client
         .get(format!("{BASE}/api/versions.json"))
+        // Corto: si la red va mal, mejor usar pronto la copia local.
+        .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -304,11 +371,12 @@ async fn read_cached(dir: &Path) -> Option<HashMap<&'static str, String>> {
     Some(files)
 }
 
+/// Descarga un parche, comprueba que se puede leer y solo entonces lo guarda.
 async fn download(
     client: &reqwest::Client,
     version: &str,
-    dir: &Path,
-) -> Result<HashMap<&'static str, String>, String> {
+    root: &Path,
+) -> Result<GameData, String> {
     let mut files = HashMap::new();
     for f in FILES {
         let text = client
@@ -323,8 +391,11 @@ async fn download(
             .map_err(|e| e.to_string())?;
         files.insert(f, text);
     }
+    // Si Riot (o un portal cautivo) devuelve algo que no se puede leer, no se cachea.
+    let data = build(version, &files)?;
     // Se escribe a una carpeta temporal y se renombra: nunca queda una caché a medias.
-    let tmp = dir.with_extension("tmp");
+    let dir = root.join(version);
+    let tmp = root.join(format!(".tmp-{version}"));
     let _ = tokio::fs::remove_dir_all(&tmp).await;
     tokio::fs::create_dir_all(&tmp)
         .await
@@ -334,28 +405,58 @@ async fn download(
             .await
             .map_err(|e| e.to_string())?;
     }
-    let _ = tokio::fs::remove_dir_all(dir).await;
-    tokio::fs::rename(&tmp, dir)
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    tokio::fs::rename(&tmp, &dir)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(files)
+    Ok(data)
+}
+
+/// Usa la copia local del parche si se puede leer; si está dañada la borra y
+/// la vuelve a descargar.
+async fn load_version(
+    client: &reqwest::Client,
+    root: &Path,
+    version: &str,
+) -> Result<GameData, String> {
+    let dir = root.join(version);
+    if let Some(files) = read_cached(&dir).await {
+        if let Ok(data) = build(version, &files) {
+            return Ok(data);
+        }
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+    download(client, version, root).await
+}
+
+/// Borra parches viejos: se quedan los `keep` más recientes.
+async fn prune(root: &Path, keep: usize) {
+    let mut versions = cached_versions(root).await;
+    versions.sort_by_key(|v| std::cmp::Reverse(version_key(v)));
+    for v in versions.into_iter().skip(keep) {
+        let _ = tokio::fs::remove_dir_all(root.join(v)).await;
+    }
+}
+
+async fn cached_versions(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(mut rd) = tokio::fs::read_dir(root).await {
+        while let Ok(Some(e)) = rd.next_entry().await {
+            let name = e.file_name().to_string_lossy().to_string();
+            if valid_version(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out
 }
 
 /// Último parche ya descargado (para trabajar sin internet).
 async fn newest_cached(root: &Path) -> Option<String> {
-    let mut rd = tokio::fs::read_dir(root).await.ok()?;
-    let mut best: Option<(Vec<u32>, String)> = None;
-    while let Ok(Some(e)) = rd.next_entry().await {
-        let name = e.file_name().to_string_lossy().to_string();
-        if !valid_version(&name) {
-            continue;
-        }
-        let key: Vec<u32> = name.split('.').filter_map(|p| p.parse().ok()).collect();
-        if best.as_ref().is_none_or(|(k, _)| key > *k) {
-            best = Some((key, name));
-        }
-    }
-    best.map(|(_, n)| n)
+    cached_versions(root)
+        .await
+        .into_iter()
+        .max_by_key(|v| version_key(v))
 }
 
 async fn load(app: &AppHandle) -> Result<GameData, String> {
@@ -365,25 +466,30 @@ async fn load(app: &AppHandle) -> Result<GameData, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    match latest_version(&client).await {
-        Ok(version) => {
-            let dir = root.join(&version);
-            let files = match read_cached(&dir).await {
-                Some(f) => f,
-                None => download(&client, &version, &dir).await?,
-            };
-            build(&version, &files)
-        }
-        Err(net_err) => {
-            let version = newest_cached(&root).await.ok_or_else(|| {
-                format!("No pude descargar los datos del parche y no hay copia local: {net_err}")
-            })?;
-            let files = read_cached(&root.join(&version))
-                .await
-                .ok_or("La copia local del parche está incompleta.")?;
-            build(&version, &files)
-        }
-    }
+    let net_err = match latest_version(&client).await {
+        Ok(version) => match load_version(&client, &root, &version).await {
+            Ok(data) => {
+                prune(&root, 2).await;
+                return Ok(data);
+            }
+            Err(e) => e,
+        },
+        Err(e) => e,
+    };
+
+    // Sin internet, o falló la descarga del parche nuevo: último parche guardado.
+    let version = newest_cached(&root).await.ok_or_else(|| {
+        format!("No pude descargar los datos del parche y no hay copia local: {net_err}")
+    })?;
+    let files = read_cached(&root.join(&version))
+        .await
+        .ok_or("La copia local del parche está incompleta.")?;
+    let mut data = build(&version, &files)?;
+    data.notice = Some(format!(
+        "No pude actualizar los datos del parche; uso la copia guardada del {}.",
+        data.patch
+    ));
+    Ok(data)
 }
 
 #[derive(Default)]
@@ -432,19 +538,30 @@ pub mod fixtures {
     pub const RUNES: &str = r#"[
       {"id":8000,"key":"Precision","icon":"perk-images/Styles/7201_Precision.png","name":"Precisión","slots":[
         {"runes":[{"id":8010,"key":"Conqueror","icon":"perk-images/Styles/Precision/Conqueror/Conqueror.png","name":"Conquistador","shortDesc":"Gana <b>fuerza adaptable</b>.","longDesc":""}]},
-        {"runes":[{"id":9111,"key":"Triumph","icon":"perk-images/Styles/Precision/Triumph.png","name":"Triunfo","shortDesc":"Cura al participar en asesinatos.","longDesc":""}]}
+        {"runes":[{"id":9111,"key":"Triumph","icon":"perk-images/Styles/Precision/Triumph.png","name":"Triunfo","shortDesc":"Cura al participar en asesinatos.","longDesc":""},{"id":8009,"key":"PresenceOfMind","icon":"p.png","name":"Claridad Mental","shortDesc":"","longDesc":""}]},
+        {"runes":[{"id":9104,"key":"LegendAlacrity","icon":"p.png","name":"Leyenda: Presteza","shortDesc":"","longDesc":""}]},
+        {"runes":[{"id":8299,"key":"LastStand","icon":"p.png","name":"Último Esfuerzo","shortDesc":"","longDesc":""}]}
       ]},
       {"id":8400,"key":"Resolve","icon":"perk-images/Styles/7204_Resolve.png","name":"Valor","slots":[
         {"runes":[{"id":8437,"key":"GraspOfTheUndying","icon":"perk-images/Styles/Resolve/GraspOfTheUndying/GraspOfTheUndying.png","name":"Garras del Inmortal","shortDesc":"","longDesc":""}]},
-        {"runes":[{"id":8444,"key":"SecondWind","icon":"perk-images/Styles/Resolve/SecondWind/SecondWind.png","name":"Segundo Aliento","shortDesc":"","longDesc":""}]}
+        {"runes":[{"id":8446,"key":"Demolish","icon":"p.png","name":"Demoler","shortDesc":"","longDesc":""}]},
+        {"runes":[{"id":8444,"key":"SecondWind","icon":"perk-images/Styles/Resolve/SecondWind/SecondWind.png","name":"Segundo Aliento","shortDesc":"","longDesc":""}]},
+        {"runes":[{"id":8451,"key":"Overgrowth","icon":"p.png","name":"Crecimiento Excesivo","shortDesc":"","longDesc":""}]}
       ]}
     ]"#;
+
+    pub const SPELLS: &str = r#"{"type":"summoner","version":"15.22.1","data":{
+      "SummonerFlash":{"id":"SummonerFlash","name":"Destello","image":{"full":"SummonerFlash.png"},"modes":["CLASSIC","ARAM"]},
+      "SummonerTeleport":{"id":"SummonerTeleport","name":"Teleportar","image":{"full":"SummonerTeleport.png"},"modes":["CLASSIC"]},
+      "SummonerSnowball":{"id":"SummonerSnowball","name":"Marcar","image":{"full":"SummonerSnowball.png"},"modes":["ARAM"]}
+    }}"#;
 
     pub fn data() -> GameData {
         let files: HashMap<&str, String> = [
             ("champion.json", CHAMPIONS.to_string()),
             ("item.json", ITEMS.to_string()),
             ("runesReforged.json", RUNES.to_string()),
+            ("summoner.json", SPELLS.to_string()),
         ]
         .into_iter()
         .collect();
@@ -521,5 +638,36 @@ mod tests {
         assert!(valid_version("15.22.1"));
         assert!(!valid_version("../x"));
         assert!(!valid_version(""));
+        assert!(!valid_version("."));
+        assert!(!valid_version(".."));
+        assert!(!valid_version("15..1"));
+        assert!(!valid_version("15"));
+        assert!(valid_version(
+            "lolpatch_7.20".replace("lolpatch_", "").as_str()
+        ));
+    }
+
+    #[test]
+    fn spells_only_for_classic() {
+        let d = data();
+        let names: Vec<&str> = d.spells.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Destello", "Teleportar"]);
+        assert!(d.spell_by_name("destello").is_some());
+    }
+
+    #[test]
+    fn items_that_transform_out_of_store_are_completed() {
+        let json = r#"{"data":{
+          "3004":{"name":"Manamune","into":["3042"],"image":{"full":"3004.png"},"gold":{"purchasable":true,"total":2900},"tags":["Damage"],"maps":{"11":true}},
+          "3042":{"name":"Muramana","from":["3004"],"inStore":false,"image":{"full":"3042.png"},"gold":{"purchasable":false,"total":2900},"tags":["Damage"],"maps":{"11":true}}
+        }}"#;
+        let items = parse_items(json, "15.22.1").unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].completed);
+    }
+
+    #[test]
+    fn normalize_handles_non_ascii_uppercase() {
+        assert_eq!(normalize("ÜBER Ñandú"), normalize("uber nandu"));
     }
 }

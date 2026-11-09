@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES } from "./game";
+import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES } from "./game";
+import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
 
-type Slot = { team: "me" | "ally" | "enemy"; index: number };
-
-const EMPTY: (string | null)[] = [null, null, null, null];
-const EMPTY5: (string | null)[] = [null, null, null, null, null];
+/** Build recibida, con el modelo y el draft que la generaron. */
+type Result = Recommendation & { kind: ProviderKind; draft: Draft };
 
 const mdLinks = {
   a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
@@ -65,18 +64,15 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   const [data, setData] = useState<GameData | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
 
-  const [role, setRole] = useState<Role>("top");
-  const [me, setMe] = useState<string | null>(null);
-  const [allies, setAllies] = useState(EMPTY);
-  const [enemies, setEnemies] = useState(EMPTY5);
-  const [lane, setLane] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
+  const [d, setD] = useState<DraftState>(EMPTY_DRAFT);
   const [picking, setPicking] = useState<Slot | null>(null);
+  // Para devolver el foco a la casilla al cerrar el selector.
+  const opener = useRef<HTMLElement | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [rec, setRec] = useState<Recommendation | null>(null);
+  const [rec, setRec] = useState<Result | null>(null);
   const [followUp, setFollowUp] = useState("");
   const [answers, setAnswers] = useState<{ q: string; a: string; error?: string }[]>([]);
   const requestId = useRef<string | null>(null);
@@ -90,42 +86,36 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   }, [ready, kind]);
 
   const byId = useMemo(() => new Map(data?.champions.map((c) => [c.id, c]) ?? []), [data]);
-  const taken = new Set([me, ...allies, ...enemies].filter(Boolean) as string[]);
+  const draft = toDraft(d);
+  // La build ya no corresponde a lo que hay en pantalla.
+  const stale = !!rec && !sameDraft(rec.draft, draft);
+
+  function openPicker(slot: Slot) {
+    opener.current = document.activeElement as HTMLElement | null;
+    setPicking(slot);
+  }
+
+  const closePicker = useCallback(() => {
+    setPicking(null);
+    requestAnimationFrame(() => opener.current?.focus());
+  }, []);
 
   function pick(id: string) {
     if (!picking) return;
-    if (picking.team === "me") setMe(id);
-    if (picking.team === "ally") setAllies((a) => a.map((x, i) => (i === picking.index ? id : x)));
-    if (picking.team === "enemy") setEnemies((a) => a.map((x, i) => (i === picking.index ? id : x)));
-    setPicking(null);
-  }
-
-  function clearEnemy(i: number) {
-    if (enemies[i] === lane) setLane(null);
-    setEnemies((a) => a.map((x, j) => (j === i ? null : x)));
+    setD((s) => setSlot(s, picking, id));
+    closePicker();
   }
 
   function reset() {
-    setMe(null);
-    setAllies(EMPTY);
-    setEnemies(EMPTY5);
-    setLane(null);
-    setNotes("");
+    setD(EMPTY_DRAFT);
     setRec(null);
     setAnswers([]);
     setError(null);
   }
 
   async function recommend() {
-    if (!me || !kind || busy) return;
-    const draft: Draft = {
-      role,
-      champion: me,
-      allies: allies.filter(Boolean) as string[],
-      enemies: enemies.filter(Boolean) as string[],
-      lane_opponent: lane,
-      notes: notes.trim() || null,
-    };
+    if (!draft || !kind || busy) return;
+    const usedKind = kind;
     const id = crypto.randomUUID();
     requestId.current = id;
     setBusy(true);
@@ -134,10 +124,10 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
     setAnswers([]);
     setStatus("Preparando la build…");
     try {
-      const r = await recommendBuild(kind, draft, id, (ev) => {
+      const r = await recommendBuild(usedKind, draft, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
       });
-      setRec(r);
+      setRec({ ...r, kind: usedKind, draft });
     } catch (e) {
       setError(humanizeError(String(e)));
     } finally {
@@ -149,7 +139,8 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
 
   async function ask() {
     const q = followUp.trim();
-    if (!q || !kind || !rec?.session_id || busy) return;
+    // Se sigue con el mismo modelo que hizo la build: la sesión es suya.
+    if (!q || !rec?.session_id || stale || busy) return;
     setFollowUp("");
     setBusy(true);
     setAnswers((a) => [...a, { q, a: "" }]);
@@ -159,7 +150,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
     requestId.current = id;
     try {
       await sendPrompt(
-        kind,
+        rec.kind,
         `${q}\n\n(Responde en texto normal, no en JSON.)`,
         rec.session_id,
         id,
@@ -210,6 +201,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
         </button>
       </header>
 
+      {data?.notice && <p className="muted small">{data.notice}</p>}
       {dataError && <p className="error">No pude cargar los datos del parche: {dataError}</p>}
       {!data && !dataError && <p className="muted">Cargando campeones del parche…</p>}
 
@@ -220,9 +212,9 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
               <button
                 key={r.id}
                 role="radio"
-                aria-checked={role === r.id}
-                className={role === r.id ? "role on" : "role"}
-                onClick={() => setRole(r.id)}
+                aria-checked={d.role === r.id}
+                className={d.role === r.id ? "role on" : "role"}
+                onClick={() => setD((s) => ({ ...s, role: r.id }))}
               >
                 {r.label}
               </button>
@@ -233,32 +225,32 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             <div className="team ally-team">
               <h3>Tu equipo</h3>
               <Portrait
-                champ={me ? byId.get(me) : undefined}
+                champ={d.me ? byId.get(d.me) : undefined}
                 label="Tu campeón"
-                onClick={() => setPicking({ team: "me", index: 0 })}
-                onClear={() => setMe(null)}
+                onClick={() => openPicker({ team: "me", index: 0 })}
+                onClear={() => setD((s) => setSlot(s, { team: "me", index: 0 }, null))}
               />
-              {allies.map((a, i) => (
+              {d.allies.map((a, i) => (
                 <Portrait
                   key={i}
                   champ={a ? byId.get(a) : undefined}
                   label="Aliado"
-                  onClick={() => setPicking({ team: "ally", index: i })}
-                  onClear={() => setAllies((x) => x.map((y, j) => (j === i ? null : y)))}
+                  onClick={() => openPicker({ team: "ally", index: i })}
+                  onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
                 />
               ))}
             </div>
             <div className="vs">VS</div>
             <div className="team enemy-team">
               <h3>Rivales</h3>
-              {enemies.map((e, i) => (
+              {d.enemies.map((e, i) => (
                 <Portrait
                   key={i}
                   champ={e ? byId.get(e) : undefined}
                   label="Rival"
-                  onClick={() => setPicking({ team: "enemy", index: i })}
-                  onClear={() => clearEnemy(i)}
-                  star={e ? { on: lane === e, toggle: () => setLane(lane === e ? null : e) } : undefined}
+                  onClick={() => openPicker({ team: "enemy", index: i })}
+                  onClear={() => setD((s) => setSlot(s, { team: "enemy", index: i }, null))}
+                  star={e ? { on: d.lane === e, toggle: () => setD((s) => toggleLane(s, e)) } : undefined}
                 />
               ))}
             </div>
@@ -269,20 +261,23 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
               aria-label="Notas de la partida"
               rows={2}
               placeholder="Opcional: cómo va la partida (p. ej. voy 0/2, su jungla campea mucho mi línea)"
-              value={notes}
-              onChange={(e) => setNotes(e.currentTarget.value)}
+              value={d.notes}
+              onChange={(e) => {
+                const notes = e.currentTarget.value;
+                setD((s) => ({ ...s, notes }));
+              }}
             />
             {busy ? (
               <button className="danger" onClick={() => requestId.current && cancelPrompt(requestId.current)}>
                 Detener
               </button>
             ) : (
-              <button className="primary" onClick={recommend} disabled={!me || !kind}>
-                Recomendar build
+              <button className="primary" onClick={recommend} disabled={!draft || !kind}>
+                {stale ? "Recalcular build" : "Recomendar build"}
               </button>
             )}
           </div>
-          {!me && <p className="muted small">Elige al menos tu campeón. Con rivales la build se adapta mucho mejor.</p>}
+          {!d.me && <p className="muted small">Elige al menos tu campeón. Con rivales la build se adapta mucho mejor.</p>}
         </>
       )}
 
@@ -291,9 +286,18 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
         {error && <p className="error">⚠ {error}</p>}
       </div>
       {busy && !rec && answers.length === 0 && <BuildCardSkeleton />}
-      {rec && <BuildCard card={rec.card} patch={rec.patch} warnings={rec.warnings} />}
+      {stale && !busy && (
+        <p className="stale-note" role="status">
+          Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.
+        </p>
+      )}
+      {rec && (
+        <div className={stale ? "stale" : undefined}>
+          <BuildCard card={rec.card} patch={rec.patch} warnings={rec.warnings} />
+        </div>
+      )}
 
-      {rec?.session_id && (
+      {rec?.session_id && !stale && (
         <section className="follow-up">
           <h4>Preguntar más sobre esta partida</h4>
           {answers.map((x, i) => (
@@ -337,10 +341,10 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       {picking && data && (
         <ChampionPicker
           champions={data.champions}
-          taken={taken}
+          taken={takenIds(d)}
           title={picking.team === "me" ? "Tu campeón" : picking.team === "ally" ? "Aliado" : "Rival"}
           onPick={pick}
-          onClose={() => setPicking(null)}
+          onClose={closePicker}
         />
       )}
     </section>

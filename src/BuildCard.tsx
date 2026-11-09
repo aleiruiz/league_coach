@@ -71,6 +71,7 @@ function BuildCard({ card, patch, warnings }: { card: Card; patch: string; warni
         <div>
           <h4>Runas</h4>
           <div className="icon-row compact">
+            <Icon r={card.runes.primary_tree} size={28} />
             <Icon r={card.runes.keystone} size={52} />
             {card.runes.primary.map((r, i) => (
               <Icon key={i} r={r} size={32} />
@@ -96,7 +97,13 @@ function BuildCard({ card, patch, warnings }: { card: Card; patch: string; warni
             </p>
           )}
           {card.skill_order.first_levels && <p className="small">Primeros niveles: {card.skill_order.first_levels}</p>}
-          {card.summoner_spells.length > 0 && <p className="small">Hechizos: {card.summoner_spells.join(" + ")}</p>}
+          {card.summoner_spells.length > 0 && (
+            <div className="icon-row compact">
+              {card.summoner_spells.map((r, i) => (
+                <Icon key={i} r={r} size={32} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

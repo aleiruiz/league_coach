@@ -16,6 +16,8 @@ export type GameData = {
   version: string;
   patch: string;
   champions: Champion[];
+  /** Aviso cuando se usa una copia local más vieja del parche. */
+  notice: string | null;
 };
 
 export type Role = "top" | "jungle" | "mid" | "adc" | "support";
@@ -52,7 +54,7 @@ export type Card = {
     secondary_tree: Ref;
     secondary: Ref[];
   };
-  summoner_spells: string[];
+  summoner_spells: Ref[];
   skill_order: { max: string[]; first_levels: string };
   game_plan: { early: string; mid: string; late: string };
   matchup_tips: string[];

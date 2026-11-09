@@ -722,3 +722,15 @@ button.primary {
   margin: 0 0 6px;
   color: var(--accent);
 }
+
+.stale {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.stale-note {
+  border-left: 3px solid var(--accent, #c8aa6e);
+  padding: 6px 10px;
+  margin: 12px 0 8px;
+  font-size: 0.9rem;
+}

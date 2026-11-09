@@ -9,7 +9,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tokio::sync::oneshot;
 
-use crate::ddragon::{self, Champion, GameData};
+use crate::ddragon::{self, Champion, GameData, RuneTree};
 use crate::providers::{self, ChatEvent, Collected, ProviderKind, Running};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -31,37 +31,66 @@ pub struct Draft {
 
 // ---------- lo que devuelve el modelo ----------
 
+/// `#[serde(default)]` solo cubre campos ausentes; los modelos a veces mandan
+/// `null` (p. ej. `"boots": null` con Cassiopeia). Eso no debe tumbar la tarjeta.
+fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 pub struct RawCard {
+    #[serde(deserialize_with = "null_default")]
     pub summary: String,
+    #[serde(deserialize_with = "null_default")]
     pub starting_items: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub core_items: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub boots: String,
+    #[serde(deserialize_with = "null_default")]
     pub situational: Vec<RawSituational>,
+    #[serde(deserialize_with = "null_default")]
     pub runes: RawRunes,
+    #[serde(deserialize_with = "null_default")]
     pub summoner_spells: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub skill_order: RawSkills,
+    #[serde(deserialize_with = "null_default")]
     pub game_plan: RawPlan,
+    #[serde(deserialize_with = "null_default")]
     pub matchup_tips: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub threats: Vec<RawThreat>,
+    #[serde(deserialize_with = "null_default")]
     pub caveat: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 pub struct RawSituational {
+    #[serde(deserialize_with = "null_default")]
     pub item: String,
+    #[serde(deserialize_with = "null_default")]
     pub when: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 pub struct RawRunes {
+    #[serde(deserialize_with = "null_default")]
     pub primary_tree: String,
+    #[serde(deserialize_with = "null_default")]
     pub keystone: String,
+    #[serde(deserialize_with = "null_default")]
     pub primary: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub secondary_tree: String,
+    #[serde(deserialize_with = "null_default")]
     pub secondary: Vec<String>,
 }
 
@@ -69,22 +98,29 @@ pub struct RawRunes {
 #[serde(default)]
 pub struct RawSkills {
     /// Orden de maximización, p. ej. ["Q", "E", "W"].
+    #[serde(deserialize_with = "null_default")]
     pub max: Vec<String>,
+    #[serde(deserialize_with = "null_default")]
     pub first_levels: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 #[serde(default)]
 pub struct RawPlan {
+    #[serde(deserialize_with = "null_default")]
     pub early: String,
+    #[serde(deserialize_with = "null_default")]
     pub mid: String,
+    #[serde(deserialize_with = "null_default")]
     pub late: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 #[serde(default)]
 pub struct RawThreat {
+    #[serde(deserialize_with = "null_default")]
     pub champion: String,
+    #[serde(deserialize_with = "null_default")]
     pub why: String,
 }
 
@@ -120,7 +156,7 @@ pub struct Card {
     pub boots: Ref,
     pub situational: Vec<Situational>,
     pub runes: Runes,
-    pub summoner_spells: Vec<String>,
+    pub summoner_spells: Vec<Ref>,
     pub skill_order: RawSkills,
     pub game_plan: RawPlan,
     pub matchup_tips: Vec<String>,
@@ -131,7 +167,7 @@ pub struct Card {
 #[derive(Debug, Serialize)]
 pub struct Recommendation {
     pub card: Card,
-    /// Nombres que no existen en el parche (se muestran marcados).
+    /// Nombres que no existen en el parche o no encajan (se muestran marcados).
     pub warnings: Vec<String>,
     pub session_id: Option<String>,
     pub patch: String,
@@ -239,18 +275,36 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
         let _ = writeln!(p, "\nNOTAS DEL JUGADOR: {}", n.trim());
     }
 
-    let _ = writeln!(
-        p,
-        "\nÍTEMS VÁLIDOS EN ESTE PARCHE (usa estos nombres exactos):\n{}",
+    let names = |f: &dyn Fn(&ddragon::Item) -> bool| {
         data.items
             .iter()
+            .filter(|i| f(i))
             .map(|i| i.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let _ = writeln!(
+        p,
+        "\nÍTEMS DEL PARCHE (usa estos nombres exactos):\n\
+- COMPLETOS (para core_items y situational): {}\n\
+- BOTAS (para boots): {}\n\
+- INICIALES Y COMPONENTES (solo para starting_items): {}",
+        names(&|i| i.completed && !is_boots(i)),
+        names(&|i| i.completed && is_boots(i)),
+        names(&|i| !i.completed),
+    );
+    let _ = writeln!(
+        p,
+        "\nHECHIZOS DE INVOCADOR: {}",
+        data.spells
+            .iter()
+            .map(|s| s.name.as_str())
             .collect::<Vec<_>>()
             .join(", ")
     );
     let _ = writeln!(
         p,
-        "\nRUNAS VÁLIDAS (rama: fila de piedras angulares | resto):"
+        "\nRUNAS VÁLIDAS (rama: piedras angulares | fila 1 | fila 2 | fila 3). La piedra angular sale de la primera fila de la rama principal; las 3 runas principales, una por cada fila de esa rama; las 2 secundarias, de filas distintas de otra rama:"
     );
     for t in &data.rune_trees {
         let rows: Vec<String> = t
@@ -293,70 +347,189 @@ pub fn parse_card(text: &str) -> Result<RawCard, String> {
     serde_json::from_str(json).map_err(|e| format!("JSON inválido: {e}"))
 }
 
+fn is_boots(i: &ddragon::Item) -> bool {
+    i.tags.iter().any(|t| t == "Boots")
+}
+
+/// Fila de `tree` donde está la runa (0 = piedras angulares).
+fn row_in<'a>(tree: &'a RuneTree, name: &str) -> Option<(usize, &'a ddragon::Rune)> {
+    let n = ddragon::normalize(name);
+    tree.slots.iter().enumerate().find_map(|(row, runes)| {
+        runes
+            .iter()
+            .find(|r| ddragon::normalize(&r.name) == n)
+            .map(|r| (row, r))
+    })
+}
+
 pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
-    let mut item = |name: &str| {
+    let patch = &data.patch;
+
+    // ítems: existen y, para core/situacionales/botas, son del tipo correcto
+    #[derive(Clone, Copy, PartialEq)]
+    enum Slot {
+        Start,
+        Core,
+        Boots,
+    }
+    let mut item = |name: &str, slot: Slot| {
         let found = data.item_by_name(name);
-        if found.is_none() && !name.trim().is_empty() {
-            warnings.push(format!(
-                "Ítem \"{name}\" no existe en el parche {}",
-                data.patch
-            ));
+        let mut valid = found.is_some();
+        match found {
+            None if !name.trim().is_empty() => {
+                warnings.push(format!("Ítem \"{name}\" no existe en el parche {patch}"))
+            }
+            Some(i) if slot == Slot::Core && (!i.completed || is_boots(i)) => {
+                valid = false;
+                warnings.push(format!(
+                    "\"{}\" no es un ítem completo; usa uno de la lista de COMPLETOS",
+                    i.name
+                ));
+            }
+            Some(i) if slot == Slot::Boots && !is_boots(i) => {
+                valid = false;
+                warnings.push(format!("\"{}\" no son botas", i.name));
+            }
+            _ => {}
         }
         Ref {
             name: found.map_or(name.to_string(), |i| i.name.clone()),
             image: found.map(|i| i.image.clone()),
-            valid: found.is_some(),
+            valid,
         }
     };
-    let starting_items = raw.starting_items.iter().map(|n| item(n)).collect();
-    let core_items = raw.core_items.iter().map(|n| item(n)).collect();
-    let boots = item(&raw.boots);
+    let starting_items = raw
+        .starting_items
+        .iter()
+        .map(|n| item(n, Slot::Start))
+        .collect();
+    let core_items = raw.core_items.iter().map(|n| item(n, Slot::Core)).collect();
+    let boots = item(&raw.boots, Slot::Boots);
     let situational = raw
         .situational
         .iter()
         .map(|s| Situational {
-            item: item(&s.item),
+            item: item(&s.item, Slot::Core),
             when: s.when.clone(),
         })
         .collect();
 
-    let mut rune = |name: &str| {
-        let found = data.rune_by_name(name);
-        if found.is_none() && !name.trim().is_empty() {
-            warnings.push(format!(
-                "Runa \"{name}\" no existe en el parche {}",
-                data.patch
-            ));
-        }
-        Ref {
-            name: found.map_or(name.to_string(), |r| r.name.clone()),
-            image: found.map(|r| r.icon.clone()),
-            valid: found.is_some(),
-        }
-    };
-    let keystone = rune(&raw.runes.keystone);
-    let primary = raw.runes.primary.iter().map(|n| rune(n)).collect();
-    let secondary = raw.runes.secondary.iter().map(|n| rune(n)).collect();
-
-    let mut tree = |name: &str| {
-        let found = data.tree_by_name(name);
-        if found.is_none() && !name.trim().is_empty() {
+    // runas: además de existir, tienen que formar una página posible
+    let r = &raw.runes;
+    let primary_tree = data.tree_by_name(&r.primary_tree);
+    let secondary_tree = data.tree_by_name(&r.secondary_tree);
+    let tree_ref = |name: &str, t: Option<&RuneTree>, warnings: &mut Vec<String>| {
+        if t.is_none() && !name.trim().is_empty() {
             warnings.push(format!("Rama de runas \"{name}\" no existe"));
         }
         Ref {
-            name: found.map_or(name.to_string(), |t| t.name.clone()),
-            image: found.map(|t| t.icon.clone()),
-            valid: found.is_some(),
+            name: t.map_or(name.to_string(), |t| t.name.clone()),
+            image: t.map(|t| t.icon.clone()),
+            valid: t.is_some(),
         }
     };
+    let primary_tree_ref = tree_ref(&r.primary_tree, primary_tree, &mut warnings);
+    let mut secondary_tree_ref = tree_ref(&r.secondary_tree, secondary_tree, &mut warnings);
+    if primary_tree
+        .zip(secondary_tree)
+        .is_some_and(|(a, b)| a.id == b.id)
+    {
+        secondary_tree_ref.valid = false;
+        warnings.push("La rama secundaria no puede ser la misma que la principal".into());
+    }
+
+    // `rows`: filas permitidas; `used`: filas ya ocupadas (no se repiten).
+    let mut rune = |name: &str,
+                    tree: Option<&RuneTree>,
+                    rows: std::ops::RangeInclusive<usize>,
+                    what: &str,
+                    used: &mut Vec<usize>| {
+        let global = data.rune_by_name(name);
+        let in_tree = tree.and_then(|t| row_in(t, name));
+        let mut valid = global.is_some();
+        if global.is_none() {
+            if !name.trim().is_empty() {
+                warnings.push(format!("Runa \"{name}\" no existe en el parche {patch}"));
+            }
+        } else if let Some(t) = tree {
+            match in_tree {
+                None => {
+                    valid = false;
+                    warnings.push(format!("\"{name}\" no es de la rama {}", t.name));
+                }
+                Some((row, _)) if !rows.contains(&row) => {
+                    valid = false;
+                    warnings.push(format!("\"{name}\" no puede ir como {what}"));
+                }
+                Some((row, _)) if used.contains(&row) => {
+                    valid = false;
+                    warnings.push(format!("\"{name}\" repite fila de {}", t.name));
+                }
+                Some((row, _)) => used.push(row),
+            }
+        }
+        let found = in_tree.map(|(_, r)| r).or(global);
+        Ref {
+            name: found.map_or(name.to_string(), |r| r.name.clone()),
+            image: found.map(|r| r.icon.clone()),
+            valid,
+        }
+    };
+    let mut used = Vec::new();
+    let keystone = rune(
+        &r.keystone,
+        primary_tree,
+        0..=0,
+        "piedra angular",
+        &mut used,
+    );
+    let primary: Vec<Ref> = r
+        .primary
+        .iter()
+        .map(|n| rune(n, primary_tree, 1..=3, "runa principal", &mut used))
+        .collect();
+    let mut used = Vec::new();
+    let secondary: Vec<Ref> = r
+        .secondary
+        .iter()
+        .map(|n| rune(n, secondary_tree, 1..=3, "runa secundaria", &mut used))
+        .collect();
+    if !r.primary.is_empty() && primary.len() != 3 {
+        warnings.push(format!(
+            "Faltan runas principales: van 3 (llegaron {})",
+            primary.len()
+        ));
+    }
+    if !r.secondary.is_empty() && secondary.len() != 2 {
+        warnings.push(format!(
+            "Van 2 runas secundarias (llegaron {})",
+            secondary.len()
+        ));
+    }
     let runes = Runes {
-        primary_tree: tree(&raw.runes.primary_tree),
+        primary_tree: primary_tree_ref,
         keystone,
         primary,
-        secondary_tree: tree(&raw.runes.secondary_tree),
+        secondary_tree: secondary_tree_ref,
         secondary,
     };
+
+    let summoner_spells = raw
+        .summoner_spells
+        .iter()
+        .map(|name| {
+            let found = data.spell_by_name(name);
+            if found.is_none() && !name.trim().is_empty() {
+                warnings.push(format!("Hechizo \"{name}\" no existe en la Grieta"));
+            }
+            Ref {
+                name: found.map_or(name.to_string(), |s| s.name.clone()),
+                image: found.map(|s| s.image.clone()),
+                valid: found.is_some(),
+            }
+        })
+        .collect();
 
     let card = Card {
         summary: raw.summary.clone(),
@@ -365,7 +538,7 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
         boots,
         situational,
         runes,
-        summoner_spells: raw.summoner_spells.clone(),
+        summoner_spells,
         skill_order: raw.skill_order.clone(),
         game_plan: raw.game_plan.clone(),
         matchup_tips: raw.matchup_tips.clone(),
@@ -431,8 +604,16 @@ pub async fn recommend_build(
 
     let rx = running.register(&request_id);
     let first = ask(&app, kind, &prompt, None, rx, &on_event).await;
-    running.finish(&request_id);
-    let first = first?;
+    // Se registra ya la posible ronda de corrección, para que un «Detener»
+    // pulsado mientras se valida la primera respuesta no se pierda.
+    let retry_cancel = running.register(&request_id);
+    let first = match first {
+        Ok(c) => c,
+        Err(e) => {
+            running.finish(&request_id);
+            return Err(e);
+        }
+    };
     let mut session_id = first.session_id.clone();
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
@@ -442,7 +623,7 @@ pub async fn recommend_build(
             let (_, warnings) = validate(raw, &data);
             (!warnings.is_empty()).then(|| {
                 format!(
-                    "Estos nombres no existen en el parche {}: {}. Reemplázalos por ítems o runas de la lista válida.",
+                    "Hay problemas con el parche {}: {}. Corrígelos usando solo las listas válidas.",
                     data.patch,
                     warnings.join("; ")
                 )
@@ -454,12 +635,20 @@ pub async fn recommend_build(
     let raw = match (retry_reason, session_id.clone()) {
         (Some(reason), Some(sid)) => {
             status("Corrigiendo la build…");
-            let rx = running.register(&request_id);
             let fix_prompt = format!(
                 "{reason} Responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
             );
-            let second = ask(&app, kind, &fix_prompt, Some(&sid), rx, &on_event).await;
+            let second = ask(&app, kind, &fix_prompt, Some(&sid), retry_cancel, &on_event).await;
             running.finish(&request_id);
+            // Si el usuario detuvo la corrección, se respeta en vez de mostrar
+            // la primera tarjeta como si nada.
+            if let Some(e) = second
+                .as_ref()
+                .err()
+                .filter(|e| e.starts_with("Consulta detenida"))
+            {
+                return Err(e.clone());
+            }
             let fixed = second.and_then(|c| {
                 if c.session_id.is_some() {
                     session_id = c.session_id.clone();
@@ -473,7 +662,10 @@ pub async fn recommend_build(
                 (Err(e), Err(_)) => return Err(e),
             }
         }
-        _ => first_card?,
+        _ => {
+            running.finish(&request_id);
+            first_card?
+        }
     };
 
     let (card, warnings) = validate(&raw, &data);
@@ -545,33 +737,109 @@ mod tests {
         assert!(extract_json("sin json").is_none());
     }
 
+    const GOOD: &str = r#"{"summary":"Duelo y split","starting_items":["Poción de Vida"],
+        "core_items":["fuerza de trinidad"],"boots":"Botas de Mercurio",
+        "situational":[],
+        "runes":{"primary_tree":"Precisión","keystone":"Conquistador",
+                 "primary":["Triunfo","Leyenda: Presteza","Último Esfuerzo"],
+                 "secondary_tree":"Valor","secondary":["Segundo Aliento","Demoler"]},
+        "summoner_spells":["Destello","Teleportar"],
+        "skill_order":{"max":["Q","W","E"],"first_levels":"E-Q-W"},
+        "game_plan":{"early":"a","mid":"b","late":"c"},
+        "matchup_tips":["no pelees con 5 stacks"],
+        "threats":[{"champion":"Darius","why":"pasiva"}],
+        "caveat":""}"#;
+
+    fn check(json: &str) -> (Card, Vec<String>) {
+        validate(&parse_card(json).unwrap(), &fixtures::data())
+    }
+
     #[test]
-    fn validates_against_patch() {
-        let data = fixtures::data();
-        let raw = parse_card(
-            r#"{"summary":"Duelo y split","starting_items":["Poción de Vida"],
-                "core_items":["fuerza de trinidad","Filo Pirata"],"boots":"Botas de Mercurio",
-                "situational":[{"item":"Llamado del Verdugo","when":"contra Soraka"}],
-                "runes":{"primary_tree":"Precisión","keystone":"Conquistador","primary":["Triunfo"],
-                         "secondary_tree":"Valor","secondary":["Segundo Aliento","Runa Falsa"]},
-                "summoner_spells":["Destello","Teleportar"],
-                "skill_order":{"max":["Q","W","E"],"first_levels":"E-Q-W"},
-                "game_plan":{"early":"a","mid":"b","late":"c"},
-                "matchup_tips":["no pelees con 5 stacks"],
-                "threats":[{"champion":"Darius","why":"pasiva"}],
-                "caveat":""}"#,
-        )
-        .unwrap();
-        let (card, warnings) = validate(&raw, &data);
+    fn valid_card_has_no_warnings() {
+        let (card, warnings) = check(GOOD);
+        assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(card.core_items[0].name, "Fuerza de Trinidad");
-        assert!(card.core_items[0].valid && card.core_items[0].image.is_some());
-        assert!(!card.core_items[1].valid);
-        assert!(card.runes.keystone.valid);
-        assert!(card.runes.secondary_tree.valid);
-        assert!(!card.runes.secondary[1].valid);
+        assert!(card.core_items[0].image.is_some());
+        assert!(
+            card.summoner_spells
+                .iter()
+                .all(|s| s.valid && s.image.is_some())
+        );
         assert_eq!(card.caveat, None);
-        assert_eq!(warnings.len(), 2);
-        assert!(warnings[0].contains("Filo Pirata"));
+    }
+
+    #[test]
+    fn unknown_names_are_flagged() {
+        let (card, warnings) = check(
+            &GOOD
+                .replace(
+                    r#"["fuerza de trinidad"]"#,
+                    r#"["fuerza de trinidad","Filo Pirata"]"#,
+                )
+                .replace(r#""Demoler""#, r#""Runa Falsa""#)
+                .replace("Teleportar", "Marcar"),
+        );
+        assert!(!card.core_items[1].valid);
+        assert!(!card.runes.secondary[1].valid);
+        assert!(!card.summoner_spells[1].valid);
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+    }
+
+    #[test]
+    fn components_and_wrong_boots_are_flagged() {
+        let (card, warnings) = check(
+            &GOOD
+                .replace(r#"["fuerza de trinidad"]"#, r#"["Llamado del Verdugo"]"#)
+                .replace(
+                    r#""boots":"Botas de Mercurio""#,
+                    r#""boots":"Fuerza de Trinidad""#,
+                ),
+        );
+        assert!(!card.core_items[0].valid);
+        assert!(!card.boots.valid);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+    }
+
+    #[test]
+    fn rune_page_structure_is_checked() {
+        // Triunfo no es piedra angular; Garras es de otra rama; secundaria repetida de fila.
+        let (card, warnings) = check(
+            &GOOD
+                .replace(r#""keystone":"Conquistador""#, r#""keystone":"Triunfo""#)
+                .replace(
+                    r#""primary":["Triunfo","#,
+                    r#""primary":["Claridad Mental","#,
+                )
+                .replace(r#""Último Esfuerzo""#, r#""Garras del Inmortal""#),
+        );
+        assert!(!card.runes.keystone.valid);
+        assert!(card.runes.primary[0].valid);
+        assert!(!card.runes.primary[2].valid);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+
+        let (card, warnings) = check(&GOOD.replace(
+            r#""secondary_tree":"Valor""#,
+            r#""secondary_tree":"Precisión""#,
+        ));
+        assert!(!card.runes.secondary_tree.valid);
+        assert!(warnings.iter().any(|w| w.contains("misma")));
+
+        let (_, warnings) =
+            check(&GOOD.replace(r#""Segundo Aliento","Demoler""#, r#""Segundo Aliento""#));
+        assert!(warnings.iter().any(|w| w.contains("Van 2")));
+    }
+
+    #[test]
+    fn nulls_do_not_break_the_card() {
+        let (card, warnings) = check(
+            r#"{"summary":"Cassiopeia","boots":null,"core_items":null,"situational":[{"item":"Fuerza de Trinidad","when":null}],
+                "runes":{"keystone":null},"skill_order":null,"caveat":null}"#,
+        );
+        assert_eq!(card.summary, "Cassiopeia");
+        assert_eq!(card.boots.name, "");
+        assert!(card.core_items.is_empty());
+        assert_eq!(card.situational[0].when, "");
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
