@@ -1040,7 +1040,7 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 /// de formato, que solo convierten texto ya escrito.
 const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
 
-async fn ask(
+pub(crate) async fn ask(
     app: &AppHandle,
     kind: ProviderKind,
     prompt: &str,
