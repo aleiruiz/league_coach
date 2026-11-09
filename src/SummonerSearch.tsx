@@ -261,7 +261,7 @@ export function SummonerSearch({
                         ? t(`Unstar ${s.riotId}`, `Quitar estrella a ${s.riotId}`)
                         : t(`Star ${s.riotId}`, `Marcar ${s.riotId} con estrella`)
                     }
-                    title={s.saved ? t("Saved", "Guardado") : t("Save", "Guardar")}
+                    title={s.saved ? t("Unstar", "Quitar estrella") : t("Star", "Marcar con estrella")}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
