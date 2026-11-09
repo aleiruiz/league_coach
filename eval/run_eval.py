@@ -216,6 +216,9 @@ coach a la misma pregunta de un jugador. No sabes qué sistema generó cada una.
 Parche del juego en esta evaluación: {patch}. Tu conocimiento puede estar desactualizado:
 si dudas de un dato del parche, verifícalo con la búsqueda web; si no puedes verificarlo,
 no lo des por bueno ni por malo, y dilo en "datos_incorrectos" como "no verificado".
+Los nombres de ítems, runas y habilidades pueden venir en español de la localización
+oficial es_MX de Riot (por ejemplo "Hacha Hogareña" o "Hábito del Espectro"): no los des
+por inventados solo porque no los reconozcas; verifícalos o márcalos como "no verificado".
 Puntúa el CONTENIDO del consejo, no el estilo: citar fuentes o el parche no compensa
 recomendar algo flojo o incorrecto.
 
@@ -487,7 +490,7 @@ def render_report(results, variants, skipped, meta, seed):
     lines.append(f"| juez | {jc:.2f} | — | — |")
     if "draft" in variants:
         bad = [(r["case"]["id"], n) for r in results for n in (r.get("answers") or {}).get("draft", {}).get("invalid", [])]
-        lines += ["", "## Nombres fuera del parche en la tarjeta (sin ronda de corrección)", ""]
+        lines += ["", "## Nombres fuera del parche en la tarjeta (tras la ronda de corrección)", ""]
         lines += [f"- {cid}: {n}" for cid, n in bad] or ["- Ninguno"]
     if skipped:
         lines += ["", "## Casos omitidos", ""] + [f"- {cid}: {why}" for cid, why in skipped]
@@ -562,8 +565,31 @@ def main() -> None:
     def answer(c: dict, v: str, image: Path | None) -> dict:
         if v != "draft":
             return run_claude(c["prompt"], model=args.model, image=image, **cfg[v])
-        out = run_claude(draft_prompt.build_prompt(c["draft"], data), model=args.model, image=image, **cfg[v])
+        prompt = draft_prompt.build_prompt(c["draft"], data)
+        out = run_claude(prompt, model=args.model, image=image, **cfg[v])
         card = draft_prompt.parse_card(out["text"]) if out["ok"] else None
+        # Igual que recommend_build: una ronda de corrección si el JSON no se lee
+        # o hay nombres fuera del parche. La app reanuda la sesión; aquí se reenvía
+        # el prompt con la respuesta anterior, que es equivalente para el modelo.
+        reason = None
+        if out["ok"] and card is None:
+            reason = "Tu respuesta no se pudo leer como JSON."
+        elif card is not None:
+            bad = draft_prompt.invalid_names(card, data)
+            if bad:
+                reason = (f"Estos nombres no existen en el parche {data.patch}: {'; '.join(bad)}. "
+                          "Reemplázalos por ítems o runas de la lista válida.")
+        if reason:
+            fix = run_claude(
+                f"{prompt}\n\nTU RESPUESTA ANTERIOR:\n{out['text']}\n\n{reason} "
+                "Responde de nuevo SOLO con el objeto JSON completo, con la misma forma.",
+                model=args.model, image=image, **cfg[v],
+            )
+            fixed = draft_prompt.parse_card(fix["text"]) if fix["ok"] else None
+            if fixed is not None:
+                card = fixed
+                out = {**fix, "cost_usd": (out.get("cost_usd") or 0) + (fix.get("cost_usd") or 0),
+                       "tool_calls": (out.get("tool_calls") or []) + (fix.get("tool_calls") or []), "corrected": True}
         if card is None:
             return {**out, "ok": False, "error": out.get("error") or "JSON ilegible", "invalid": []}
         return {**out, "raw": out["text"], "text": draft_prompt.render_card(card), "invalid": draft_prompt.invalid_names(card, data)}

@@ -582,5 +582,24 @@
     "errores_graves": [
       "Inventar el estado del marcador."
     ]
+  },
+  {
+    "id": "shot-04-champ-select",
+    "categoria": "pantallazo",
+    "imagen": "eval/images/shot-04-champ-select.png",
+    "prompt": "Estoy en selección de campeón, mira el pantallazo. ¿Qué runas y build llevo y qué forma de mi campeón busco?",
+    "criterios": [
+      "Lee bien el pantallazo: el jugador es Kayn jungla; aliados Veigar (mid) y Warwick (top), con soporte y tirador sin elegir; rivales Ekko, Nunu y Willump y Kog'Maw, con dos sin elegir.",
+      "Recomienda una forma de Kayn y la justifica con la composición rival, avisando de que faltan dos rivales.",
+      "Runas y build concretas para esa forma.",
+      "Algún consejo para la partida contra Nunu en la jungla rival."
+    ],
+    "errores_graves": [
+      "Confundir aliados con rivales.",
+      "Inventar campeones que no aparecen en la imagen."
+    ],
+    "hechos": [
+      "Kayn consigue la forma Darkin (Rhaast) golpeando a campeones cuerpo a cuerpo y la de Asesino de las Sombras golpeando a campeones a distancia."
+    ]
   }
 ]

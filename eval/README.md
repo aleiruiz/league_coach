@@ -53,7 +53,7 @@ repetirlo con `--only`.
 Reproduce "Recomendar build": parche actual, aliados y rivales por separado, perfil
 de daño rival, listas de ítems y runas válidos, y respuesta JSON. La tarjeta se pasa
 a texto para el juez, y el informe lista los nombres que no existen en el parche.
-No hace la ronda de corrección de la app, así que mide la primera respuesta.
+Hace una ronda de corrección como la app (JSON ilegible o nombres fuera del parche).
 
 Necesita Data Dragon: `--fetch-ddragon` descarga el último parche a `eval/ddragon/`,
 o usa `--ddragon <carpeta>` con una carpeta que tenga `champion.json`, `item.json` y
