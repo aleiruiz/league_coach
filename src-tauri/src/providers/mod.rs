@@ -292,9 +292,11 @@ pub async fn run(
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
-            let prompt_file = workdir.with_file_name("coach-prompt.md");
-            std::fs::write(&prompt_file, prompts::coach(i18n::lang()))
-                .map_err(|e| e.to_string())?;
+            // One file per language: a chat and a build running at once
+            // never read each other's prompt.
+            let lang = i18n::lang();
+            let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
+            std::fs::write(&prompt_file, prompts::coach(lang)).map_err(|e| e.to_string())?;
             (
                 claude_code::args(&prompt_file, session_id),
                 prompt.to_string(),
