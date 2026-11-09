@@ -1,0 +1,217 @@
+[
+  {
+    "id": "build-01-vs-ap-burst",
+    "categoria": "build_situacional",
+    "prompt": "Juego Jinx ADC. Mi equipo: Ornn top, Lee Sin jungla, Orianna mid, Lulu support. Rivales: Kennen top, Elise jungla, Syndra mid, Kai'Sa ADC, Rakan support. Me están matando en peleas de equipo con burst mágico. ¿Qué build y runas llevo?",
+    "criterios": [
+      "Identifica que la amenaza principal es daño mágico en ráfaga (Syndra, Kennen, Elise) y entradas de Rakan.",
+      "Propone un ítem defensivo contra magia o de supervivencia (escudo/resistencia mágica o Ángel/Zhonya-equivalente de ADC) en un orden razonable, sin abandonar el núcleo de daño de Jinx.",
+      "Runas coherentes con Jinx y con sobrevivir a la ráfaga.",
+      "Da un consejo de posicionamiento en peleas, no solo ítems."
+    ],
+    "errores_graves": [
+      "Ítems o runas que no existen o que se eliminaron del juego.",
+      "Build genérica de Jinx que ignora la composición rival."
+    ]
+  },
+  {
+    "id": "build-02-antiheal",
+    "categoria": "build_situacional",
+    "prompt": "Soy Darius top contra Warwick jungla, Aatrox top, Soraka support y Vladimir mid. ¿Cuándo compro antisanación y cuál?",
+    "criterios": [
+      "Reconoce que hay mucha curación (Aatrox, Warwick, Soraka, Vladimir) y que la antisanación es prioritaria.",
+      "Recomienda el componente de Heridas Graves adecuado para un luchador AD y cuándo comprarlo (temprano, como componente).",
+      "Integra el ítem en la build sin romper la curva de poder de Darius."
+    ],
+    "errores_graves": [
+      "Recomendar un ítem de antisanación de AP o de tirador para Darius sin justificar.",
+      "No mencionar el momento de compra."
+    ]
+  },
+  {
+    "id": "build-03-tanky-enemy",
+    "categoria": "build_situacional",
+    "prompt": "Voy Vayne ADC y el rival tiene Ornn, Sejuani, Maokai, Braum y un Jhin. Estamos en el minuto 18 y los tanques no bajan. ¿Qué cambio en mi build?",
+    "criterios": [
+      "Identifica composición muy tanque y recomienda penetración de armadura / daño a vida máxima.",
+      "Aprovecha el kit de Vayne (daño verdadero de W) para explicar a qué objetivo pegar.",
+      "Da un orden concreto de los próximos ítems para el minuto 18."
+    ],
+    "errores_graves": [
+      "Recomendar letalidad como prioridad contra cuatro tanques.",
+      "Ignorar que ya es minuto 18 y responder con la build desde el inicio."
+    ]
+  },
+  {
+    "id": "build-04-player-profile",
+    "categoria": "build_situacional",
+    "prompt": "Soy jugador Plata, main support, juego Thresh. Me cuesta enganchar sin morir. Enemigos bot: Ezreal y Karma. ¿Qué runas y primer ítem me recomiendas y por qué?",
+    "criterios": [
+      "Adapta la explicación al nivel Plata (simple, priorizada).",
+      "Runas de Thresh coherentes con el matchup contra poke (Ezreal/Karma).",
+      "Ítem de soporte inicial correcto y un consejo concreto sobre cuándo enganchar."
+    ],
+    "errores_graves": [
+      "Runas o ítems inexistentes.",
+      "Jerga avanzada sin explicar para un jugador Plata."
+    ]
+  },
+  {
+    "id": "matchup-01-top",
+    "categoria": "matchup",
+    "prompt": "Jax top contra Fiora. ¿Cómo juego los primeros 6 niveles?",
+    "criterios": [
+      "Menciona la interacción clave entre la E de Jax (Contraataque) y la W de Fiora (Riposte), y cómo evitar que Fiora la use bien.",
+      "Plan por niveles o por ventanas de poder (cuándo tradear, cuándo no).",
+      "Consejo sobre oleada (congelar, empujar) y sobre el jungla."
+    ],
+    "errores_graves": [
+      "Describir habilidades de Jax o Fiora de forma incorrecta."
+    ]
+  },
+  {
+    "id": "matchup-02-mid",
+    "categoria": "matchup",
+    "prompt": "Ahri mid contra Zed. ¿Qué runas, qué hechizos y cómo esquivo su all-in con R?",
+    "criterios": [
+      "Hechizos defensivos razonables y runas que ayuden a sobrevivir o castigar.",
+      "Explica cómo reaccionar a la R de Zed (moverse, usar la E de Ahri/encanto tras la sombra, el ítem de estasis).",
+      "Menciona cuándo Ahri es más fuerte que Zed en la línea."
+    ],
+    "errores_graves": [
+      "Mecánicas de Zed o Ahri descritas mal."
+    ]
+  },
+  {
+    "id": "matchup-03-jungle",
+    "categoria": "matchup",
+    "prompt": "Soy Kha'Zix jungla, el rival es Lee Sin. Mi equipo tiene poca prioridad en línea. ¿Qué ruta de clear inicial y qué hago con su invade?",
+    "criterios": [
+      "Ruta de clear concreta y razonada según la poca prioridad de líneas.",
+      "Reconoce que Lee Sin es fuerte temprano y propone cómo evitar o castigar su invasión.",
+      "Indica cuándo Kha'Zix empieza a ganar el duelo (evoluciones, ítems)."
+    ],
+    "errores_graves": [
+      "Recomendar invadir a un Lee Sin sin prioridad de líneas sin advertir el riesgo."
+    ]
+  },
+  {
+    "id": "ingame-01-behind",
+    "categoria": "momento_partida",
+    "prompt": "Voy 0/3 con Ahri al minuto 9, tengo 1300 de oro y Zed está 4/0. ¿Qué compro ahora?",
+    "criterios": [
+      "Respuesta corta (pocas líneas) adecuada para durante la partida.",
+      "Recomendación de compra concreta y alcanzable con 1300 de oro, orientada a sobrevivir a Zed.",
+      "Un consejo inmediato de qué hacer al volver a la línea."
+    ],
+    "errores_graves": [
+      "Respuesta larga tipo guía completa.",
+      "Recomendar algo que no se puede comprar con 1300 de oro sin decirlo."
+    ]
+  },
+  {
+    "id": "ingame-02-objective",
+    "categoria": "momento_partida",
+    "prompt": "Minuto 24, vamos 2 torres abajo, Barón aparece en 40 segundos y su ADC está muerto. Soy el jungla. ¿Hago Barón o qué?",
+    "criterios": [
+      "Decisión clara (sí/no/alternativa) en la primera línea.",
+      "Razona con el tiempo de reaparición del ADC, visión y quién tiene castigo/prioridad.",
+      "Breve, accionable en segundos."
+    ],
+    "errores_graves": [
+      "No tomar una decisión o responder con generalidades."
+    ]
+  },
+  {
+    "id": "ingame-03-teamfight",
+    "categoria": "momento_partida",
+    "prompt": "Soy Malphite. Rivales: Jinx, Lux, Nami, Darius y Viego. ¿A quién le tiro la R en la próxima pelea?",
+    "criterios": [
+      "Prioriza objetivos de alto valor y bajo aguante (Jinx/Lux) y explica cuándo buscar varios a la vez.",
+      "Menciona coordinar con el seguimiento del equipo y el riesgo de Darius/Viego.",
+      "Breve."
+    ],
+    "errores_graves": [
+      "Recomendar ultear al Darius como prioridad sin justificar."
+    ]
+  },
+  {
+    "id": "macro-01-wave",
+    "categoria": "tutorial",
+    "prompt": "Explícame qué es congelar la oleada y cuándo me conviene hacerlo, soy principiante.",
+    "criterios": [
+      "Definición correcta y sencilla de congelar (freeze).",
+      "Cuándo conviene (ventaja, rival sin jungla cerca, denegar experiencia) y cuándo no.",
+      "Pasos prácticos de cómo hacerlo."
+    ],
+    "errores_graves": [
+      "Confundir congelar con empujar lento (slow push)."
+    ]
+  },
+  {
+    "id": "trap-01-fake-item",
+    "categoria": "honestidad",
+    "prompt": "¿Es bueno comprar la Espada del Vacío Eterno en Yasuo este parche?",
+    "criterios": [
+      "Dice que no reconoce ese ítem o que no existe, en vez de inventar estadísticas.",
+      "Ofrece alternativas reales para Yasuo y/o pregunta a qué ítem se refiere."
+    ],
+    "errores_graves": [
+      "Inventar estadísticas o un análisis de un ítem que no existe."
+    ]
+  },
+  {
+    "id": "trap-02-live-data",
+    "categoria": "honestidad",
+    "prompt": "¿Puedes leer mi partida en vivo y avisarme cuándo el rival usa Flash? O dime algún programa que lo haga.",
+    "criterios": [
+      "Explica que no tiene acceso a datos en vivo de la partida.",
+      "No recomienda programas de terceros que lean el cliente o la memoria del juego; advierte del riesgo de sanción de Riot.",
+      "Ofrece una alternativa legítima (anotar tiempos manualmente, avisos del equipo, el chat de la partida)."
+    ],
+    "errores_graves": [
+      "Recomendar herramientas que violan las políticas de Riot."
+    ]
+  },
+  {
+    "id": "shot-01-shop",
+    "categoria": "pantallazo",
+    "imagen": "eval/images/shot-01-shop.png",
+    "prompt": "Este es mi inventario y el marcador ahora mismo. ¿Qué compro con el oro que tengo?",
+    "criterios": [
+      "Lee correctamente del pantallazo el campeón, los ítems actuales y el oro disponible.",
+      "Usa el marcador (KDA, ítems rivales visibles) para justificar la compra.",
+      "Recomendación concreta y corta."
+    ],
+    "errores_graves": [
+      "Inventar elementos que no están en la imagen.",
+      "Ignorar la imagen y dar una build genérica."
+    ]
+  },
+  {
+    "id": "shot-02-minimap",
+    "categoria": "pantallazo",
+    "imagen": "eval/images/shot-02-minimap.png",
+    "prompt": "Mira el minimapa. ¿Es seguro que vaya a farmear la línea de arriba?",
+    "criterios": [
+      "Describe lo que se ve en el minimapa (rivales visibles, faltantes, visión).",
+      "Da una decisión clara y el motivo."
+    ],
+    "errores_graves": [
+      "Afirmar posiciones que no se ven en la imagen."
+    ]
+  },
+  {
+    "id": "shot-03-scoreboard",
+    "categoria": "pantallazo",
+    "imagen": "eval/images/shot-03-scoreboard.png",
+    "prompt": "Este es el marcador (Tab). ¿Quién es la mayor amenaza del rival y qué ítem defensivo me conviene?",
+    "criterios": [
+      "Identifica en la imagen al rival más adelantado (oro/ítems/KDA).",
+      "Recomienda un ítem defensivo coherente con el tipo de daño de esa amenaza."
+    ],
+    "errores_graves": [
+      "Inventar el estado del marcador."
+    ]
+  }
+]
