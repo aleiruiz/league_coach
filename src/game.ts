@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ChatEvent, ProviderKind } from "./providers";
+import { t } from "./i18n";
 
 export type Champion = {
   id: string;
@@ -14,24 +15,27 @@ export type Champion = {
 
 export type Rune = { id: number; name: string; short_desc: string; icon: string };
 export type RuneTree = { id: number; name: string; icon: string; slots: Rune[][] };
+export type Shard = { name: string; short: string; icon: string };
 
 export type GameData = {
   version: string;
   patch: string;
   champions: Champion[];
   rune_trees: RuneTree[];
-  /** Aviso cuando se usa una copia local más vieja del parche. */
+  /** Stat shard rows, in the app language. */
+  shards: Shard[][];
+  /** Notice when an older local copy of the patch is used. */
   notice: string | null;
 };
 
 export type Role = "top" | "jungle" | "mid" | "adc" | "support";
 
-export const ROLES: { id: Role; label: string }[] = [
-  { id: "top", label: "Top" },
-  { id: "jungle", label: "Jungla" },
-  { id: "mid", label: "Mid" },
-  { id: "adc", label: "ADC" },
-  { id: "support", label: "Soporte" },
+export const ROLES: { id: Role; label: () => string }[] = [
+  { id: "top", label: () => "Top" },
+  { id: "jungle", label: () => t("Jungle", "Jungla") },
+  { id: "mid", label: () => "Mid" },
+  { id: "adc", label: () => "ADC" },
+  { id: "support", label: () => t("Support", "Soporte") },
 ];
 
 export type Draft = {
@@ -46,7 +50,7 @@ export type Draft = {
 export type Ref = { name: string; image: string | null; valid: boolean };
 
 export type Card = {
-  /** Respuesta directa a las notas del jugador, si las escribió. */
+  /** Direct answer to the player's notes, if they wrote any. */
   answer: string | null;
   summary: string;
   starting_items: Ref[];
@@ -68,13 +72,13 @@ export type Card = {
   threats: { champion: string; why: string }[];
   caveat: string | null;
   stats: Stat[];
-  /** Cifras que el modelo dio pero no salían en los resultados de su búsqueda. */
+  /** Figures the model gave that weren't in its search results. */
   stats_dropped: number;
-  /** El modelo expone las fuentes de su búsqueda (Claude sí, Codex no). */
+  /** The model exposes its search sources (Claude does, Codex doesn't). */
   stats_verifiable: boolean;
 };
 
-/** Cifra citada de un sitio de estadísticas, con su fuente. */
+/** Figure quoted from a stats site, with its source. */
 export type Stat = {
   site: string;
   url: string;
@@ -89,40 +93,21 @@ export type Stat = {
   current_patch: boolean;
 };
 
-/** Fragmentos de estadística por fila (igual que en ddragon.rs): [nombre, etiqueta corta]. */
-export const SHARD_ROWS: [string, string][][] = [
-  [
-    ["Fuerza adaptable", "Fuerza"],
-    ["Velocidad de ataque", "Vel. ataque"],
-    ["Velocidad de habilidades", "Vel. habilid."],
-  ],
-  [
-    ["Fuerza adaptable", "Fuerza"],
-    ["Velocidad de movimiento", "Vel. mov."],
-    ["Vida escalable", "Vida esc."],
-  ],
-  [
-    ["Vida", "Vida"],
-    ["Tenacidad y resistencia a ralentizaciones", "Tenacidad"],
-    ["Vida escalable", "Vida esc."],
-  ],
-];
-
 export type Recommendation = {
   card: Card;
   warnings: string[];
-  /** Partes de la tarjeta que llegaron vacías, en palabras para el jugador. */
+  /** Parts of the card that came back empty, in the player's words. */
   incomplete: string[];
-  /** Notas con las que se pidió la build. */
+  /** Notes the build was requested with. */
   notes: string | null;
-  /** Análisis en texto libre del que sale la tarjeta. */
+  /** Free-text analysis the card comes from. */
   analysis: string;
-  /** La tarjeta no se pudo armar; queda el análisis solo. */
+  /** The card couldn't be built; only the analysis remains. */
   card_error: string | null;
   session_id: string | null;
   patch: string;
   version: string;
-  /** Hubo una ronda de corrección automática. */
+  /** There was an automatic correction round. */
   retried: boolean;
 };
 
@@ -141,7 +126,7 @@ export function recommendBuild(
   return invoke<Recommendation>("recommend_build", { kind, draft, requestId, onEvent: channel });
 }
 
-/** Filtra campeones por nombre ignorando mayúsculas y acentos. */
+/** Filters champions by name, ignoring case and accents. */
 export function searchChampions(list: Champion[], query: string): Champion[] {
   const norm = (s: string) =>
     s

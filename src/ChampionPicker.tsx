@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Champion, searchChampions } from "./game";
+import { t } from "./i18n";
 
 type Props = {
   champions: Champion[];
@@ -9,13 +10,13 @@ type Props = {
   onClose: () => void;
 };
 
-const TAGS: [string, string][] = [
-  ["Fighter", "Luchador"],
-  ["Tank", "Tanque"],
-  ["Mage", "Mago"],
-  ["Assassin", "Asesino"],
-  ["Marksman", "Tirador"],
-  ["Support", "Soporte"],
+const TAGS: [string, string, string][] = [
+  ["Fighter", "Fighter", "Luchador"],
+  ["Tank", "Tank", "Tanque"],
+  ["Mage", "Mage", "Mago"],
+  ["Assassin", "Assassin", "Asesino"],
+  ["Marksman", "Marksman", "Tirador"],
+  ["Support", "Support", "Soporte"],
 ];
 
 function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
@@ -41,8 +42,8 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
           <h3>{title}</h3>
           <input
             ref={input}
-            aria-label="Buscar campeón"
-            placeholder="Buscar campeón…"
+            aria-label={t("Search champion", "Buscar campeón")}
+            placeholder={t("Search champion…", "Buscar campeón…")}
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
             onKeyDown={(e) => {
@@ -53,16 +54,16 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
             }}
           />
           <button className="secondary" onClick={onClose}>
-            Cerrar
+            {t("Close", "Cerrar")}
           </button>
         </header>
-        <div className="picker-tags" role="group" aria-label="Filtrar por clase">
+        <div className="picker-tags" role="group" aria-label={t("Filter by class", "Filtrar por clase")}>
           <button className={tag === null ? "chip on" : "chip"} aria-pressed={tag === null} onClick={() => setTag(null)}>
-            Todos
+            {t("All", "Todos")}
           </button>
-          {TAGS.map(([id, label]) => (
+          {TAGS.map(([id, en, es]) => (
             <button key={id} className={tag === id ? "chip on" : "chip"} aria-pressed={tag === id} onClick={() => setTag(tag === id ? null : id)}>
-              {label}
+              {t(en, es)}
             </button>
           ))}
         </div>
@@ -80,7 +81,9 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
             </button>
           ))}
           {results.length === 0 && (
-            <p className="muted picker-empty">{tag ? "Ningún campeón de esa clase coincide con la búsqueda." : "No hay campeones con ese nombre."}</p>
+            <p className="muted picker-empty">{tag
+                ? t("No champion of that class matches the search.", "Ningún campeón de esa clase coincide con la búsqueda.")
+                : t("No champions with that name.", "No hay campeones con ese nombre.")}</p>
           )}
         </div>
       </div>
