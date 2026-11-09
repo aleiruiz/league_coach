@@ -94,3 +94,17 @@ If an image is over 3.5 MB, the script warns: save it as JPG or crop it.
 Rerun when `prompts.rs`, `recommend.rs`, the model's tools or the injected context
 change. Compare with `baselines/` and save the new report there if you want to keep it
 as a reference.
+
+## Post-game review ("My progress")
+
+`history_eval.py` checks `review_prompt` (`src-tauri/src/history.rs`) with synthetic players: each
+case generates up to 20 games with a planted pattern (early solo deaths, CS deficit, thrown leads,
+a support with no control wards, a tiny sample, one outlier game...). The harness (coach prompt
+plus `review_prompt`, JSON answer) is compared with the plain model given the same numbers. The
+rubric is `rubric_history.md`. When `history.rs` changes, update the Python port.
+
+```
+python3 eval/history_eval.py --judge-model claude-opus-5-5
+python3 eval/history_eval.py --only hist-07-small-sample --print-prompt
+python3 eval/history_eval.py --fix   # proposed prompt changes
+```
