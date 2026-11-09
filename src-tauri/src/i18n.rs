@@ -103,16 +103,19 @@ pub async fn set_language(
     cache: tauri::State<'_, crate::ddragon::Cache>,
     language: Lang,
 ) -> Result<(), String> {
-    set_current(language);
-    // Names come from Data Dragon in the chosen locale: reload on next use.
-    cache.clear().await;
+    // Save first: if it fails, nothing changes and the UI shows the error.
     let path = settings_path(&app).ok_or("No settings folder")?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let text =
         serde_json::to_string_pretty(&SettingsFile { language }).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    std::fs::write(path, text).map_err(|e| e.to_string())?;
+    set_current(language);
+    // Names come from Data Dragon in the chosen locale: reload on next use.
+    // `clear` only waits for a short lock (the download runs outside it).
+    cache.clear().await;
+    Ok(())
 }
 
 #[cfg(test)]
