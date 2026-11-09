@@ -5,7 +5,7 @@
 pub mod claude_code;
 pub mod codex;
 mod process;
-pub use process::DEFAULT_TIMEOUT;
+pub use process::{DEFAULT_TIMEOUT, is_stopped};
 pub mod prompts;
 mod terminal;
 
@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::oneshot;
+
+use crate::i18n::{self, tr};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -123,7 +125,13 @@ async fn status(kind: ProviderKind) -> ProviderStatus {
         detail: None,
     };
     let Some(bin) = process::resolve(kind.binary()) else {
-        st.detail = Some("No está instalado o no está en el PATH.".into());
+        st.detail = Some(
+            tr(
+                "Not installed, or not on the PATH.",
+                "No está instalado o no está en el PATH.",
+            )
+            .into(),
+        );
         return st;
     };
     st.installed = true;
@@ -141,11 +149,17 @@ async fn status(kind: ProviderKind) -> ProviderStatus {
     st
 }
 
+fn not_installed(kind: ProviderKind) -> String {
+    tr(
+        format!("{} is not installed.", kind.label()),
+        format!("{} no está instalado.", kind.label()),
+    )
+}
+
 /// Abre una terminal con el comando de login oficial del CLI.
 #[tauri::command]
 pub fn open_login(kind: ProviderKind) -> Result<(), String> {
-    let bin = process::resolve(kind.binary())
-        .ok_or_else(|| format!("{} no está instalado.", kind.label()))?;
+    let bin = process::resolve(kind.binary()).ok_or_else(|| not_installed(kind))?;
     terminal::open_with(&bin, kind.login_args()).map_err(|e| e.to_string())
 }
 
@@ -228,7 +242,7 @@ pub async fn test_provider(app: AppHandle, kind: ProviderKind) -> Result<String,
     run(
         &app,
         kind,
-        "Esto es una prueba de conexión. Responde solo con la palabra OK.",
+        "This is a connection test. Reply with just the word OK.",
         None,
         Duration::from_secs(60),
         None,
@@ -241,7 +255,11 @@ pub async fn test_provider(app: AppHandle, kind: ProviderKind) -> Result<String,
     }
     let text = c.text.trim().to_string();
     if text.is_empty() {
-        Err("El modelo no devolvió respuesta.".into())
+        Err(tr(
+            "The model returned no answer.",
+            "El modelo no devolvió respuesta.",
+        )
+        .into())
     } else {
         Ok(text)
     }
@@ -258,10 +276,9 @@ pub async fn run(
     send: &(dyn Fn(ChatEvent) + Send + Sync),
 ) -> Result<(), String> {
     if session_id.is_some_and(|id| !valid_session_id(id)) {
-        return Err("Id de conversación inválido.".into());
+        return Err(tr("Invalid conversation id.", "Id de conversación inválido.").into());
     }
-    let bin = process::resolve(kind.binary())
-        .ok_or_else(|| format!("{} no está instalado.", kind.label()))?;
+    let bin = process::resolve(kind.binary()).ok_or_else(|| not_installed(kind))?;
 
     // Directorio de trabajo propio y vacío, para que el CLI no cargue
     // instrucciones ni archivos de otros proyectos del usuario.
@@ -276,7 +293,8 @@ pub async fn run(
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
             let prompt_file = workdir.with_file_name("coach-prompt.md");
-            std::fs::write(&prompt_file, prompts::COACH).map_err(|e| e.to_string())?;
+            std::fs::write(&prompt_file, prompts::coach(i18n::lang()))
+                .map_err(|e| e.to_string())?;
             (
                 claude_code::args(&prompt_file, session_id),
                 prompt.to_string(),

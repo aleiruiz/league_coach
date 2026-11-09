@@ -1,4 +1,5 @@
 mod ddragon;
+mod i18n;
 mod providers;
 mod recommend;
 mod secrets;
@@ -9,6 +10,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(providers::Running::default())
         .manage(ddragon::Cache::default())
+        .setup(|app| {
+            i18n::load(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             secrets::set_api_key,
             secrets::delete_api_key,
@@ -20,7 +25,9 @@ pub fn run() {
             providers::test_provider,
             ddragon::game_data,
             recommend::recommend_build,
+            i18n::get_language,
+            i18n::set_language,
         ])
         .run(tauri::generate_context!())
-        .expect("error al iniciar League Coach");
+        .expect("error while starting League Coach");
 }

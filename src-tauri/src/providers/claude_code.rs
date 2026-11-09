@@ -6,11 +6,18 @@ use serde_json::Value;
 
 use super::ChatEvent;
 use super::process::{self, Parsed};
+use crate::i18n::tr;
 
 pub async fn login_status(bin: &Path) -> (bool, Option<String>) {
     match process::run_capture(bin, &["auth", "status", "--json"]).await {
         Ok(out) => parse_auth_status(&out.stdout),
-        Err(e) => (false, Some(format!("No pude consultar la sesión: {e}"))),
+        Err(e) => (
+            false,
+            Some(tr(
+                format!("Couldn't check the session: {e}"),
+                format!("No pude consultar la sesión: {e}"),
+            )),
+        ),
     }
 }
 
@@ -18,17 +25,37 @@ pub fn parse_auth_status(stdout: &str) -> (bool, Option<String>) {
     let Ok(v) = serde_json::from_str::<Value>(stdout) else {
         return (
             false,
-            Some("Respuesta inesperada de `claude auth status`.".into()),
+            Some(
+                tr(
+                    "Unexpected answer from `claude auth status`.",
+                    "Respuesta inesperada de `claude auth status`.",
+                )
+                .into(),
+            ),
         );
     };
     let logged_in = v["loggedIn"].as_bool().unwrap_or(false);
     if !logged_in {
-        return (false, Some("No has iniciado sesión.".into()));
+        return (
+            false,
+            Some(tr("You are not signed in.", "No has iniciado sesión.").into()),
+        );
     }
     let detail = match (v["apiProvider"].as_str(), v["authMethod"].as_str()) {
-        (Some(p), _) if p != "firstParty" => format!("Conectado vía {p} (no con tu suscripción)."),
-        (_, Some("api_key")) => "Conectado con API key (no con tu suscripción).".into(),
-        _ => "Conectado con tu cuenta de Claude.".into(),
+        (Some(p), _) if p != "firstParty" => tr(
+            format!("Connected via {p} (not your subscription)."),
+            format!("Conectado vía {p} (no con tu suscripción)."),
+        ),
+        (_, Some("api_key")) => tr(
+            "Connected with an API key (not your subscription).",
+            "Conectado con API key (no con tu suscripción).",
+        )
+        .into(),
+        _ => tr(
+            "Connected with your Claude account.",
+            "Conectado con tu cuenta de Claude.",
+        )
+        .into(),
     };
     (true, Some(detail))
 }
@@ -102,7 +129,10 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
             let text = v["result"].as_str().unwrap_or_default().to_string();
             if v["is_error"].as_bool().unwrap_or(false) || v["subtype"] != "success" {
                 let message = if text.is_empty() {
-                    format!("Claude Code devolvió un error ({}).", v["subtype"])
+                    tr(
+                        format!("Claude Code returned an error ({}).", v["subtype"]),
+                        format!("Claude Code devolvió un error ({}).", v["subtype"]),
+                    )
                 } else {
                     text
                 };
@@ -184,10 +214,12 @@ fn parse_stream_event(ev: &Value) -> Vec<ChatEvent> {
             match block["type"].as_str() {
                 Some("web_search_tool_result") => sources(urls_in(&block["content"])),
                 Some("server_tool_use") | Some("tool_use") => {
-                    let name = block["name"].as_str().unwrap_or("una herramienta");
+                    let name = block["name"].as_str().unwrap_or("a tool");
                     let text = match name {
-                        "web_search" | "WebSearch" => "Buscando en la web…".to_string(),
-                        other => format!("Usando {other}…"),
+                        "web_search" | "WebSearch" => {
+                            tr("Searching the web…", "Buscando en la web…").to_string()
+                        }
+                        other => tr(format!("Using {other}…"), format!("Usando {other}…")),
                     };
                     vec![ChatEvent::Status { text }]
                 }
@@ -260,7 +292,7 @@ mod tests {
             r#"{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}"#,
         );
         assert!(ok);
-        assert!(d.unwrap().contains("cuenta de Claude"));
+        assert!(d.unwrap().contains("Claude account"));
         let (_, d) = parse_auth_status(r#"{"loggedIn":true,"apiProvider":"bedrock"}"#);
         assert!(d.unwrap().contains("bedrock"));
         let (_, d) = parse_auth_status(r#"{"loggedIn":true,"authMethod":"api_key"}"#);
@@ -310,7 +342,7 @@ mod tests {
                 ChatEvent::Session { id: "s-1".into() },
                 ChatEvent::Break,
                 ChatEvent::Status {
-                    text: "Buscando en la web…".into()
+                    text: "Searching the web…".into()
                 },
                 ChatEvent::Delta {
                     text: "Compra ".into()

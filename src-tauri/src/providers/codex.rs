@@ -6,11 +6,18 @@ use serde_json::Value;
 
 use super::process::{self, Parsed};
 use super::{ChatEvent, prompts};
+use crate::i18n::tr;
 
 pub async fn login_status(bin: &Path) -> (bool, Option<String>) {
     match process::run_capture(bin, &["login", "status"]).await {
         Ok(out) => parse_login_status(out.status_ok, &out.stdout, &out.stderr),
-        Err(e) => (false, Some(format!("No pude consultar la sesión: {e}"))),
+        Err(e) => (
+            false,
+            Some(tr(
+                format!("Couldn't check the session: {e}"),
+                format!("No pude consultar la sesión: {e}"),
+            )),
+        ),
     }
 }
 
@@ -19,7 +26,10 @@ pub fn parse_login_status(ok: bool, stdout: &str, stderr: &str) -> (bool, Option
     let text = format!("{stdout}\n{stderr}");
     let lower = text.to_lowercase();
     if lower.contains("not logged in") {
-        return (false, Some("No has iniciado sesión.".into()));
+        return (
+            false,
+            Some(tr("You are not signed in.", "No has iniciado sesión.").into()),
+        );
     }
     if !ok {
         // Otro fallo (versión vieja, config rota): mostrar el error real en vez
@@ -28,19 +38,41 @@ pub fn parse_login_status(ok: bool, stdout: &str, stderr: &str) -> (bool, Option
         return (
             false,
             Some(if t.is_empty() {
-                "`codex login status` falló.".into()
+                tr(
+                    "`codex login status` failed.",
+                    "`codex login status` falló.",
+                )
+                .into()
             } else {
-                format!("`codex login status` falló: {t}")
+                tr(
+                    format!("`codex login status` failed: {t}"),
+                    format!("`codex login status` falló: {t}"),
+                )
             }),
         );
     }
     if lower.contains("api key") {
         return (
             true,
-            Some("Conectado con API key (no con tu suscripción).".into()),
+            Some(
+                tr(
+                    "Connected with an API key (not your subscription).",
+                    "Conectado con API key (no con tu suscripción).",
+                )
+                .into(),
+            ),
         );
     }
-    (true, Some("Conectado con tu cuenta de ChatGPT.".into()))
+    (
+        true,
+        Some(
+            tr(
+                "Connected with your ChatGPT account.",
+                "Conectado con tu cuenta de ChatGPT.",
+            )
+            .into(),
+        ),
+    )
 }
 
 /// Herramientas de Codex que el coach no debe tener: sin shell, sin plugins,
@@ -105,7 +137,7 @@ pub fn args(session_id: Option<&str>) -> Vec<String> {
 /// mensaje de la conversación anteponemos las instrucciones del coach.
 pub fn stdin_prompt(prompt: &str, first_turn: bool) -> String {
     if first_turn {
-        format!("{}\n\n---\n\n{prompt}", prompts::COACH)
+        format!("{}\n\n---\n\n{prompt}", prompts::coach(crate::i18n::lang()))
     } else {
         prompt.to_string()
     }
@@ -127,15 +159,19 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
             ) =>
         {
             let what = match item_type {
-                "command_execution" => format!(
-                    "ejecutar un comando ({})",
-                    v["item"]["command"].as_str().unwrap_or("?")
-                ),
-                "file_change" => "modificar archivos".to_string(),
-                _ => "usar una herramienta externa".to_string(),
+                "command_execution" => {
+                    let cmd = v["item"]["command"].as_str().unwrap_or("?");
+                    tr(
+                        format!("run a command ({cmd})"),
+                        format!("ejecutar un comando ({cmd})"),
+                    )
+                }
+                "file_change" => tr("change files", "modificar archivos").to_string(),
+                _ => tr("use an external tool", "usar una herramienta externa").to_string(),
             };
-            vec![Parsed::Abort(format!(
-                "Codex intentó {what}; detuve la consulta por seguridad."
+            vec![Parsed::Abort(tr(
+                format!("Codex tried to {what}; I stopped the request for safety."),
+                format!("Codex intentó {what}; detuve la consulta por seguridad."),
             ))]
         }
         Some("thread.started") => v["thread_id"]
@@ -143,7 +179,7 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
             .map(|id| ev(ChatEvent::Session { id: id.into() }))
             .unwrap_or_default(),
         Some("item.started") if item_type == "web_search" => ev(ChatEvent::Status {
-            text: "Buscando en la web…".into(),
+            text: tr("Searching the web…", "Buscando en la web…").into(),
         }),
         Some("item.completed") if item_type == "agent_message" => v["item"]["text"]
             .as_str()
@@ -152,11 +188,17 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
         Some("turn.failed") => ev(ChatEvent::Error {
             message: v["error"]["message"]
                 .as_str()
-                .unwrap_or("Codex no pudo completar la respuesta.")
+                .unwrap_or(tr(
+                    "Codex couldn't finish the answer.",
+                    "Codex no pudo completar la respuesta.",
+                ))
                 .into(),
         }),
         Some("error") => ev(ChatEvent::Error {
-            message: v["message"].as_str().unwrap_or("Error de Codex.").into(),
+            message: v["message"]
+                .as_str()
+                .unwrap_or(tr("Codex error.", "Error de Codex."))
+                .into(),
         }),
         _ => vec![],
     }
@@ -201,7 +243,7 @@ mod tests {
 
     #[test]
     fn coach_prompt_only_on_first_turn() {
-        assert!(stdin_prompt("hola", true).starts_with(prompts::COACH));
+        assert!(stdin_prompt("hola", true).starts_with(&prompts::coach(crate::i18n::lang())));
         assert_eq!(stdin_prompt("hola", false), "hola");
     }
 
@@ -222,7 +264,7 @@ mod tests {
             vec![
                 Parsed::Event(ChatEvent::Session { id: "t-1".into() }),
                 Parsed::Event(ChatEvent::Status {
-                    text: "Buscando en la web…".into()
+                    text: "Searching the web…".into()
                 }),
                 Parsed::Event(ChatEvent::Message {
                     text: "Ve Trinity Force.".into()
