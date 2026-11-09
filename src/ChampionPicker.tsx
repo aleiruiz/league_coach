@@ -9,10 +9,20 @@ type Props = {
   onClose: () => void;
 };
 
+const TAGS: [string, string][] = [
+  ["Fighter", "Luchador"],
+  ["Tank", "Tanque"],
+  ["Mage", "Mago"],
+  ["Assassin", "Asesino"],
+  ["Marksman", "Tirador"],
+  ["Support", "Soporte"],
+];
+
 function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const input = useRef<HTMLInputElement>(null);
-  const results = searchChampions(champions, query);
+  const [tag, setTag] = useState<string | null>(null);
+  const results = searchChampions(champions, query).filter((c) => !tag || c.tags.includes(tag));
 
   useEffect(() => {
     input.current?.focus();
@@ -46,6 +56,16 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
             Cerrar
           </button>
         </header>
+        <div className="picker-tags" role="group" aria-label="Filtrar por clase">
+          <button className={tag === null ? "chip on" : "chip"} aria-pressed={tag === null} onClick={() => setTag(null)}>
+            Todos
+          </button>
+          {TAGS.map(([id, label]) => (
+            <button key={id} className={tag === id ? "chip on" : "chip"} aria-pressed={tag === id} onClick={() => setTag(tag === id ? null : id)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="picker-grid">
           {results.map((c) => (
             <button
@@ -59,7 +79,9 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
               <span>{c.name}</span>
             </button>
           ))}
-          {results.length === 0 && <p className="muted">No hay campeones con ese nombre.</p>}
+          {results.length === 0 && (
+            <p className="muted picker-empty">{tag ? "Ningún campeón de esa clase coincide con la búsqueda." : "No hay campeones con ese nombre."}</p>
+          )}
         </div>
       </div>
     </div>

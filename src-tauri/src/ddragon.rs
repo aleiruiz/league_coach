@@ -21,6 +21,33 @@ const FILES: [&str; 4] = [
     "runesReforged.json",
     "summoner.json",
 ];
+/// Fragmentos de estadística (no vienen en runesReforged.json): una fila
+/// por posición, con el nombre y el archivo de ícono en `perk-images/StatMods`.
+pub const SHARDS: [&[(&str, &str)]; 3] = [
+    &[
+        ("Fuerza adaptable", "StatModsAdaptiveForceIcon.png"),
+        ("Velocidad de ataque", "StatModsAttackSpeedIcon.png"),
+        ("Velocidad de habilidades", "StatModsCDRScalingIcon.png"),
+    ],
+    &[
+        ("Fuerza adaptable", "StatModsAdaptiveForceIcon.png"),
+        ("Velocidad de movimiento", "StatModsMovementSpeedIcon.png"),
+        ("Vida escalable", "StatModsHealthPlusIcon.png"),
+    ],
+    &[
+        ("Vida", "StatModsHealthScalingIcon.png"),
+        (
+            "Tenacidad y resistencia a ralentizaciones",
+            "StatModsTenacityIcon.png",
+        ),
+        ("Vida escalable", "StatModsHealthPlusIcon.png"),
+    ],
+];
+
+pub fn shard_icon(file: &str) -> String {
+    format!("{BASE}/cdn/img/perk-images/StatMods/{file}")
+}
+
 /// Mapa de la Grieta del Invocador en Data Dragon.
 const SUMMONERS_RIFT: &str = "11";
 

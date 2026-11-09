@@ -86,6 +86,11 @@ pub enum ChatEvent {
     Error {
         message: String,
     },
+    /// URLs que devolvió una herramienta de búsqueda (no las que escribe el
+    /// modelo). Sirven para comprobar que una cifra citada viene de ahí.
+    Sources {
+        urls: Vec<String>,
+    },
     Done,
 }
 
@@ -301,6 +306,8 @@ pub struct Collected {
     pub text: String,
     pub session_id: Option<String>,
     pub error: Option<String>,
+    /// URLs de los resultados de búsqueda vistos en esta consulta.
+    pub sources: Vec<String>,
 }
 
 impl Collected {
@@ -318,6 +325,7 @@ impl Collected {
             }
             ChatEvent::Final { text } if self.text.trim().is_empty() => self.text = text.clone(),
             ChatEvent::Error { message } => self.error = Some(message.clone()),
+            ChatEvent::Sources { urls } => self.sources.extend(urls.iter().cloned()),
             _ => {}
         }
     }

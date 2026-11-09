@@ -1,4 +1,4 @@
-import type { Draft, Role } from "./game";
+import type { Champion, Draft, Role } from "./game";
 
 /** Estado editable de la pantalla Partida (antes de convertirlo en `Draft`). */
 export type DraftState = {
@@ -71,4 +71,27 @@ export function sameDraft(a: Draft | null, b: Draft | null): boolean {
     a.lane_opponent === b.lane_opponent &&
     a.notes === b.notes
   );
+}
+
+/**
+ * Estimación con las valoraciones 0-10 de Riot. MISMOS umbrales que `damage`
+ * y `team_profile` en src-tauri/src/recommend.rs: si cambias uno, cambia el otro.
+ */
+export function damageType(c: Champion): "ad" | "ap" | "mixed" {
+  if (c.magic >= c.attack + 3) return "ap";
+  if (c.attack >= c.magic + 3) return "ad";
+  return "mixed";
+}
+
+export function damageProfile(champs: Champion[]) {
+  const count = (t: string) => champs.filter((c) => damageType(c) === t).length;
+  const ad = count("ad");
+  const ap = count("ap");
+  const mixed = count("mixed");
+  // Un campeón mixto cuenta mitad y mitad en los porcentajes.
+  const total = champs.length || 1;
+  const adPct = Math.round(((ad + mixed / 2) / total) * 100);
+  const apPct = Math.round(((ap + mixed / 2) / total) * 100);
+  const tanks = champs.filter((c) => c.defense >= 7 || c.tags.includes("Tank")).length;
+  return { ad, ap, mixed, adPct, apPct, tanks };
 }

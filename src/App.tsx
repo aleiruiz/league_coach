@@ -3,6 +3,7 @@ import Chat from "./Chat";
 import DraftView from "./DraftView";
 import Models from "./Models";
 import Settings from "./Settings";
+import { NavIcon } from "./icons";
 import { providerStatuses, ProviderStatus } from "./providers";
 import "./App.css";
 
@@ -51,7 +52,12 @@ function App() {
   return (
     <div className="app">
       <nav className="sidebar">
-        <h1 className="brand">League Coach</h1>
+        <h1 className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            LC
+          </span>
+          League Coach
+        </h1>
         {NAV.map((n) => (
           <button
             key={n.view}
@@ -59,6 +65,7 @@ function App() {
             aria-current={view === n.view ? "page" : undefined}
             onClick={() => setView(n.view)}
           >
+            <NavIcon name={n.view} />
             {n.label}
           </button>
         ))}
