@@ -252,8 +252,13 @@ async fn app_server(bin: &Path, method: &str, params: Value) -> Result<Value, St
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+    // An empty folder of our own, like `exec`'s workdir: nothing of the
+    // user's projects (AGENTS.md, .codex/) is in reach.
+    let dir = std::env::temp_dir().join("league-coach-codex");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut child = process::command(bin)
         .args(app_server_args())
+        .current_dir(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
