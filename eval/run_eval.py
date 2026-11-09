@@ -590,7 +590,7 @@ def main() -> None:
         if reason:
             fix = run_claude(
                 f"{prompt}\n\nTU RESPUESTA ANTERIOR:\n{out['text']}\n\n{reason} "
-                "Responde de nuevo SOLO con el objeto JSON completo, con la misma forma.",
+                "Sin volver a buscar, responde de nuevo SOLO con el objeto JSON completo, con la misma forma.",
                 model=args.model, image=image, **cfg[v],
             )
             fixed = draft_prompt.parse_card(fix["text"]) if fix["ok"] else None

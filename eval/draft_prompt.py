@@ -1,4 +1,4 @@
-"""Réplica en Python del flujo `recommend_build` (src-tauri/src/recommend.rs, versión de #6).
+"""Réplica en Python del flujo `recommend_build` (src-tauri/src/recommend.rs, versión de #7).
 
 Sirve para evaluar la tarjeta de build con el draft estructurado sin compilar la
 app. Si cambia `analysis_prompt`, `card_prompt` o `validate` en Rust, actualiza también esto.
@@ -22,7 +22,7 @@ SHARDS = [
 ]
 
 SCHEMA = """{
-  "answer": "respuesta directa (1-3 líneas) a las NOTAS DEL JUGADOR, o \\"\\" si no hay notas",
+  "answer": "respuesta a las NOTAS DEL JUGADOR, tan larga como pida la pregunta (lo esencial del análisis), o \\"\\" si no hay notas",
   "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
@@ -113,6 +113,7 @@ class GameData:
             consumable = "Consumable" in tags or "Trinket" in tags
             starter = not i.get("from") and gold <= 500 and "Trinket" not in tags and ("Lane" in tags or "Jungle" in tags)
             out[i["name"]] = {
+                "tags": tags,
                 "boots": boots,
                 "starter": starter,
                 "support": starter and "GoldPer" in tags,
@@ -163,7 +164,8 @@ def analysis_prompt(draft: dict, data: GameData) -> str:
 
     p = [
         f"PARCHE ACTUAL: {data.patch} (versión de Data Dragon {data.version}). "
-        "Todo lo que recomiendes debe ser válido en este parche.\n",
+        "Todo lo que recomiendes debe ser válido en este parche. Algunas webs muestran el parche con la versión "
+        f"del cliente ({data.version.rsplit('.', 1)[0]}): es el mismo parche, no lo descartes.\n",
         f"TU CAMPEÓN: {_describe(me)} — rol {draft['role']}",
     ]
     if lane:
@@ -189,12 +191,15 @@ def analysis_prompt(draft: dict, data: GameData) -> str:
         "\nINSTRUCCIONES:\n"
         f"- PRIMERO, si tienes búsqueda web, busca la build de {me_name} {role} en el parche {patch} (u.gg, op.gg, "
         f"Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta "
-        "los de parches anteriores, y di de qué página sale cada cifra que menciones.\n"
-        "- Si hay NOTAS DEL JUGADOR, empieza respondiendo exactamente a lo que preguntan, en 1-3 líneas concretas.\n"
-        "- Después da UNA recomendación concreta y completa para ESTA partida, adaptada a estos rivales (daño, "
-        "curación, CC, tanques): página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en "
-        "orden, botas, situacionales con cuándo comprarlos, orden de habilidades, plan early/mid/late, claves del "
-        'matchup y amenazas. Nada de "la que prefieras" ni "mira u.gg".\n'
+        "los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la "
+        "tarjeta, donde se comprueban contra tu búsqueda.\n"
+        "- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia "
+        "por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat.\n"
+        "- Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, "
+        "iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del "
+        "matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos "
+        'genéricos. Nada de "la que prefieras" ni "mira u.gg".\n'
+        "- No afirmes nada de lo que no estés seguro: mejor menos ítems situacionales y bien elegidos.\n"
         "- Usa los nombres en español del cliente (es_MX). Sé directo; nada de tablas largas."
     )
     return "\n".join(p) + "\n"
@@ -208,7 +213,7 @@ def card_prompt(data: GameData, analysis: str | None) -> str:
     else:
         p.append("Pasa TU análisis anterior a una tarjeta.")
     p.append(
-        "No cambies las decisiones del análisis: solo escríbelas con los nombres exactos de estas listas. Si un "
+        "No vuelvas a buscar ni cambies las decisiones del análisis: solo escríbelas con los nombres exactos de estas listas. Si un "
         "nombre no aparece, usa el equivalente de la lista que más se parezca."
     )
     names = lambda f: ", ".join(n for n, i in data.item_info.items() if f(i))  # noqa: E731
@@ -270,6 +275,21 @@ def invalid_names(card: dict, data: GameData, draft: dict | None = None) -> list
     bad = []
     role = (draft or {}).get("role")
 
+    me = data.champions.get((draft or {}).get("champion", ""))
+
+    def off_type(info):
+        """Como off_type de #7: ítem ofensivo del tipo de daño contrario en un campeón claramente AP o AD."""
+        if not me:
+            return None
+        has = lambda t: t in info["tags"]  # noqa: E731
+        physical = has("Damage") or has("CriticalStrike")
+        a, m = me["attack"], me["magic"]
+        if m - a >= 5 and physical and not has("SpellDamage"):
+            return "es de daño físico"
+        if a - m >= 5 and has("SpellDamage") and not physical:
+            return "es de poder de habilidad"
+        return None
+
     def item(n, slot):
         if not n:
             return
@@ -284,6 +304,8 @@ def invalid_names(card: dict, data: GameData, draft: dict | None = None) -> list
             bad.append(f"{name} no es un ítem inicial")
         elif slot == "start" and info["support"] and role != "support":
             bad.append(f"{name} es el inicial de soporte y tu rol es {role}")
+        elif slot == "core" and off_type(info):
+            bad.append(f"{name} {off_type(info)} y {me['name']} hace {_damage(me)}")
         elif slot == "boots" and not info["boots"]:
             bad.append(f"{name} no son botas")
 
