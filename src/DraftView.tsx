@@ -12,6 +12,16 @@ import type { ProvidersState } from "./App";
 /** Build recibida, con el modelo y el draft que la generaron. */
 type Result = Recommendation & { kind: ProviderKind; draft: Draft };
 
+/** Motivo del fallo de la tarjeta, en palabras del jugador. */
+function cardFailure(e: string): string {
+  if (e.startsWith("El modelo tardó")) return "El modelo tardó demasiado en armar la tarjeta.";
+  if (/^(JSON inválido|La respuesta no contiene)/.test(e)) {
+    return "No pude convertir la respuesta del modelo en una tarjeta.";
+  }
+  // Límite de uso, sesión caducada, CLI que falla…: el motivo real importa.
+  return `No pude armar la tarjeta: ${humanizeError(e)}`;
+}
+
 function Portrait({ champ, label, onClick, onClear, star, me }: {
   champ: Champion | undefined;
   label: string;
@@ -89,6 +99,11 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   const [followUp, setFollowUp] = useState("");
   const [answers, setAnswers] = useState<{ q: string; a: string; error?: string }[]>([]);
   const requestId = useRef<string | null>(null);
+  const result = useRef<HTMLDivElement>(null);
+  // Al llegar una build nueva, se lleva a la vista (queda debajo del draft).
+  useEffect(() => {
+    if (rec) result.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [rec]);
 
   useEffect(() => {
     gameData().then(setData).catch((e) => setDataError(String(e)));
@@ -307,7 +322,26 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
           Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.
         </p>
       )}
-      {rec && (
+      <div ref={result} />
+      {rec?.card_error && (
+        <section className={stale ? "panel analysis-only stale" : "panel analysis-only"}>
+          <h4 className="panel-title">Análisis del modelo</h4>
+          <div className="card-warnings">
+            <p className="error small">
+              {cardFailure(rec.card_error)}{" "}
+              Aquí tienes su análisis mientras tanto.
+            </p>
+            {!stale && !busy && (
+              <button className="secondary" onClick={recommend}>
+                Pedir otra build
+              </button>
+            )}
+          </div>
+          <p className="muted small">Texto del modelo sin verificar: las cifras que mencione no están comprobadas.</p>
+          <SafeMarkdown>{rec.analysis}</SafeMarkdown>
+        </section>
+      )}
+      {rec && !rec.card_error && (
         <div className={stale ? "stale" : undefined}>
           <BuildCard
             trees={data?.rune_trees ?? []}

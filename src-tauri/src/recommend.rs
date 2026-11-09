@@ -344,6 +344,9 @@ pub struct Recommendation {
     pub notes: Option<String>,
     /// El análisis en texto libre del paso 1, del que sale la tarjeta.
     pub analysis: String,
+    /// La tarjeta no se pudo armar (p. ej. se agotó el tiempo): se muestra el
+    /// análisis solo, con este motivo.
+    pub card_error: Option<String>,
     pub session_id: Option<String>,
     pub patch: String,
     pub version: String,
@@ -388,7 +391,7 @@ pub fn team_profile(enemies: &[&Champion]) -> String {
 }
 
 const SCHEMA: &str = r#"{
-  "answer": "respuesta directa (1-3 líneas) a las NOTAS DEL JUGADOR, o \"\" si no hay notas",
+  "answer": "respuesta a las NOTAS DEL JUGADOR en 3-6 viñetas cortas en markdown (\"- ...\"), o \"\" si no hay notas",
   "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
@@ -434,8 +437,10 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
     let mut p = String::new();
     let _ = writeln!(
         p,
-        "PARCHE ACTUAL: {} (versión de Data Dragon {}). Todo lo que recomiendes debe ser válido en este parche.\n",
-        data.patch, data.version
+        "PARCHE ACTUAL: {} (versión de Data Dragon {}). Todo lo que recomiendes debe ser válido en este parche. Algunas webs muestran el parche con la versión del cliente ({}): es el mismo parche, no lo descartes.\n",
+        data.patch,
+        data.version,
+        data.version.rsplitn(2, '.').last().unwrap_or(&data.version)
     );
     let _ = writeln!(p, "TU CAMPEÓN: {} — rol {}", describe(me), draft.role);
     if let Some(l) = lane {
@@ -464,9 +469,10 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
     let _ = writeln!(
         p,
         "\nINSTRUCCIONES:\n\
-- PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores, y di de qué página sale cada cifra que menciones.\n\
-- Si hay NOTAS DEL JUGADOR, empieza respondiendo exactamente a lo que preguntan, en 1-3 líneas concretas.\n\
-- Después da UNA recomendación concreta y completa para ESTA partida, adaptada a estos rivales (daño, curación, CC, tanques): página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas, situacionales con cuándo comprarlos, orden de habilidades, plan early/mid/late, claves del matchup y amenazas. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
+- PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la tarjeta, donde se comprueban contra tu búsqueda.\n\
+- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat. Si pregunta qué comprar con cierto oro, di la compra exacta que alcanza con ese oro (un componente vale).\n\
+- Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos genéricos. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
+- No afirmes nada de lo que no estés seguro: mejor menos ítems situacionales y bien elegidos.\n\
 - Usa los nombres en español del cliente (es_MX). Sé directo; nada de tablas largas.",
         me = me.name,
         role = draft.role,
@@ -547,7 +553,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     let _ = writeln!(
         p,
         "\nREGLAS:\n\
-- \"answer\" es la respuesta a las notas del jugador (\"\" si no hay notas); \"summary\", UNA frase. Ningún campo lleva dudas ni correcciones (\"no, mejor…\", \"ver abajo\"): la duda, si la hay, va solo en \"caveat\".\n\
+- \"answer\" es la respuesta a las notas del jugador (\"\" si no hay notas): 3-6 viñetas cortas con lo que tiene que hacer, sin repetir runas ni la build (ya van en la tarjeta); \"summary\", UNA frase. Ningún campo lleva dudas ni correcciones (\"no, mejor…\", \"ver abajo\"): la duda, si la hay, va solo en \"caveat\".\n\
 - En \"stats\" pon SOLO cifras que salieron en los resultados de tu búsqueda web en esta conversación (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche que indique; null en lo que no diga. Si no buscaste, \"stats\": []. Nunca cifras de memoria: se descartan las que no correspondan a un resultado de búsqueda.\n\
 - Responde SOLO con un bloque ```json con esta forma:\n{SCHEMA}"
     );
@@ -962,7 +968,7 @@ pub async fn recommend_build(
     let status = |t: &str| {
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
     };
-    status("Analizando el draft…");
+    status("1/2 · Analizando el draft (busca en la web, puede tardar)…");
 
     // Paso 1: análisis libre con búsqueda, como en el chat del coach.
     let rx = running.register(&request_id);
@@ -982,7 +988,7 @@ pub async fn recommend_build(
     let analysis_text = analysis.text.trim().to_string();
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
-    status("Armando la tarjeta…");
+    status("2/2 · Armando la tarjeta…");
     let card_req = match &analysis.session_id {
         Some(_) => card_prompt(&data, None),
         None => card_prompt(&data, Some(&analysis_text)),
@@ -998,14 +1004,31 @@ pub async fn recommend_build(
     )
     .await;
     let retry_cancel = running.register(&request_id);
+    let mut session_id = analysis.session_id.clone();
+    // Si la tarjeta falla pero el análisis existe, se devuelve el análisis en
+    // vez de perder minutos de trabajo; solo un «Detener» corta del todo.
+    let fallback = |e: String, session_id: Option<String>, seen: &[String], retried: bool| {
+        if e.starts_with("Consulta detenida") || analysis_text.is_empty() {
+            return Err(e);
+        }
+        let mut rec = assemble(&RawCard::default(), &data, &draft, seen, kind, retried);
+        rec.card_error = Some(e);
+        rec.warnings.clear();
+        rec.incomplete.clear();
+        rec.analysis = analysis_text.clone();
+        rec.session_id = session_id;
+        Ok(rec)
+    };
     let first = match first {
         Ok(c) => c,
         Err(e) => {
             running.finish(&request_id);
-            return Err(e);
+            return fallback(e, session_id, &seen, false);
         }
     };
-    let mut session_id = first.session_id.clone().or(analysis.session_id.clone());
+    if first.session_id.is_some() {
+        session_id = first.session_id.clone();
+    }
     seen.extend(first.sources.iter().cloned());
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
@@ -1028,7 +1051,7 @@ pub async fn recommend_build(
     let mut retried = false;
     let raw = match (retry_reason, session_id.clone()) {
         (Some(reason), Some(sid)) => {
-            status("Corrigiendo la build…");
+            status("2/2 · Corrigiendo la tarjeta…");
             retried = true;
             let fix_prompt = format!(
                 "{reason} Sin volver a buscar, responde de nuevo SOLO con el objeto JSON completo, con la misma forma."
@@ -1064,23 +1087,42 @@ pub async fn recommend_build(
             match (fixed, first_card) {
                 (Ok(f), _) => f,
                 (Err(_), Ok(f)) => f,
-                (Err(e), Err(_)) => return Err(e),
+                (Err(e), Err(_)) => return fallback(e, session_id, &seen, true),
             }
         }
         _ => {
             running.finish(&request_id);
-            first_card?
+            match first_card {
+                Ok(c) => c,
+                Err(e) => return fallback(e, session_id, &seen, false),
+            }
         }
     };
 
-    let (mut card, warnings) = validate(&raw, &data, &draft);
-    let incomplete = missing(&raw, &draft)
+    let mut rec = assemble(&raw, &data, &draft, &seen, kind, retried);
+    rec.analysis = analysis_text.clone();
+    rec.session_id = session_id;
+    Ok(rec)
+}
+
+/// Arma la respuesta final a partir de la tarjeta (validada y con las cifras
+/// filtradas por las fuentes que de verdad salieron en la búsqueda).
+fn assemble(
+    raw: &RawCard,
+    data: &GameData,
+    draft: &Draft,
+    seen: &[String],
+    kind: ProviderKind,
+    retried: bool,
+) -> Recommendation {
+    let (mut card, warnings) = validate(raw, data, draft);
+    let incomplete = missing(raw, draft)
         .into_iter()
         .map(|(_, label)| label.to_string())
         .collect();
-    (card.stats, card.stats_dropped) = clean_stats(&raw.stats, &data, &seen);
+    (card.stats, card.stats_dropped) = clean_stats(&raw.stats, data, seen);
     card.stats_verifiable = kind == ProviderKind::ClaudeCode;
-    Ok(Recommendation {
+    Recommendation {
         card,
         warnings,
         incomplete,
@@ -1090,12 +1132,13 @@ pub async fn recommend_build(
             .map(str::trim)
             .filter(|n| !n.is_empty())
             .map(String::from),
-        analysis: analysis_text,
-        session_id,
+        analysis: String::new(),
+        card_error: None,
+        session_id: None,
         patch: data.patch.clone(),
         version: data.version.clone(),
         retried,
-    })
+    }
 }
 
 #[cfg(test)]

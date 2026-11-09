@@ -1343,8 +1343,8 @@ a.inline-link {
   border-left-width: 3px;
 }
 
-.answer-panel p {
-  margin: 0;
+.answer-text p {
+  margin: 0 0 6px;
   font-size: 15px;
   line-height: 1.45;
 }
@@ -1378,4 +1378,30 @@ a.inline-link {
   margin-top: 8px;
   font-size: 13.5px;
   line-height: 1.5;
+}
+
+.answer-text.clamped {
+  max-height: 9.5em;
+  overflow: hidden;
+}
+
+/* El degradado solo cuando hay más texto debajo. */
+.answer-text.faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.answer-text ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.link-button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
 }

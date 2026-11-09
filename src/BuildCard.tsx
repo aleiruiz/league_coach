@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
 import { SHARD_ROWS } from "./game";
@@ -256,6 +257,64 @@ function BuildCard({
   role,
   roleLabel,
 }: Props) {
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [answerLong, setAnswerLong] = useState(false);
+  const answerRef = useRef<HTMLDivElement>(null);
+  // Una build nueva empieza recortada otra vez.
+  useEffect(() => setAnswerOpen(false), [card]);
+  // «Ver más» solo si la respuesta no cabe en el alto recortado.
+  useLayoutEffect(() => {
+    const el = answerRef.current;
+    if (el && !answerOpen) setAnswerLong(el.scrollHeight > el.clientHeight + 2);
+  }, [card.answer, answerOpen]);
+  // Sin cifras, el panel va al final: no empuja la build fuera de la vista.
+  const statsPanel = (
+  <section className="panel stats-panel">
+    <h4 className="panel-title">Estadísticas citadas</h4>
+    {card.stats.length > 0 ? (
+      <ul className="stats">
+        {card.stats.map((s, i) => (
+          <StatRow key={i} s={s} />
+        ))}
+      </ul>
+    ) : (
+      <p className="small">
+        {card.stats_verifiable
+          ? "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build."
+          : "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran."}
+      </p>
+    )}
+    <p className="small muted">
+      {card.stats.length > 0 &&
+        "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. "}
+      {card.stats_verifiable &&
+        card.stats_dropped > 0 &&
+        `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}
+      League Coach no calcula win rates.
+      {champion && (
+        <>
+          {" "}
+          Ver por tu cuenta:{" "}
+          {statLinks(champion).map((l, i) => (
+            <span key={l.site}>
+              {i > 0 && " · "}
+              <a
+                className="inline-link"
+                href={l.url}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openUrl(l.url);
+                }}
+              >
+                {l.site} ↗
+              </a>
+            </span>
+          ))}
+        </>
+      )}
+    </p>
+  </section>
+  );
   return (
     <article className="build-card">
       <header className="card-head">
@@ -281,55 +340,19 @@ function BuildCard({
         <section className="panel answer-panel" aria-label="Respuesta a tus notas">
           <h4 className="panel-title">Tu pregunta</h4>
           <blockquote className="answer-q">{notes}</blockquote>
-          <p>{card.answer}</p>
+          <div ref={answerRef} className={answerOpen ? "answer-text" : answerLong ? "answer-text clamped faded" : "answer-text clamped"}>
+            <SafeMarkdown>{card.answer}</SafeMarkdown>
+          </div>
+          {(answerLong || answerOpen) && (
+            <button className="link-button" onClick={() => setAnswerOpen((o) => !o)}>
+              {answerOpen ? "Ver menos" : "Ver más"}
+            </button>
+          )}
         </section>
       )}
 
-      <section className="panel stats-panel">
-        <h4 className="panel-title">Estadísticas citadas</h4>
-        {card.stats.length > 0 ? (
-          <ul className="stats">
-            {card.stats.map((s, i) => (
-              <StatRow key={i} s={s} />
-            ))}
-          </ul>
-        ) : (
-          <p className="small">
-            {card.stats_verifiable
-              ? "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build."
-              : "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran."}
-          </p>
-        )}
-        <p className="small muted">
-          {card.stats.length > 0 &&
-            "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. "}
-          {card.stats_verifiable &&
-            card.stats_dropped > 0 &&
-            `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}
-          League Coach no calcula win rates.
-          {champion && (
-            <>
-              {" "}
-              Ver por tu cuenta:{" "}
-              {statLinks(champion).map((l, i) => (
-                <span key={l.site}>
-                  {i > 0 && " · "}
-                  <a
-                    className="inline-link"
-                    href={l.url}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openUrl(l.url);
-                    }}
-                  >
-                    {l.site} ↗
-                  </a>
-                </span>
-              ))}
-            </>
-          )}
-        </p>
-      </section>
+      {card.stats.length > 0 && statsPanel}
+
 
       <div className="card-grid">
         <Section title="Runas" className="runes-panel">
@@ -445,9 +468,13 @@ function BuildCard({
       )}
 
       {card.caveat && <p className="muted small">Nota: {card.caveat}</p>}
+      {card.stats.length === 0 && statsPanel}
       {analysis && (
         <details className="analysis">
           <summary>Ver el análisis completo del modelo</summary>
+          <p className="muted small">
+            Texto del modelo sin verificar. Las cifras comprobadas contra su búsqueda están en «Estadísticas citadas».
+          </p>
           <div className="analysis-text">
             <SafeMarkdown>{analysis}</SafeMarkdown>
           </div>
