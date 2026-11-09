@@ -31,12 +31,14 @@ pub fn open_with(bin: &Path, args: &[&str]) -> std::io::Result<()> {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let line = format!("{}; exec $SHELL", shell_line(&bin, args));
+        let line = format!("{}; exec \"${{SHELL:-sh}}\"", shell_line(&bin, args));
         let candidates: [(&str, &[&str]); 4] = [
-            ("x-terminal-emulator", &["-e", "sh", "-c"]),
+            // Terminales concretas primero: el wrapper x-terminal-emulator no
+            // siempre acepta `-e sh -c`.
             ("gnome-terminal", &["--", "sh", "-c"]),
             ("konsole", &["-e", "sh", "-c"]),
             ("xterm", &["-e", "sh", "-c"]),
+            ("x-terminal-emulator", &["-e", "sh", "-c"]),
         ];
         for (term, pre) in candidates {
             if which::which(term).is_ok() {
