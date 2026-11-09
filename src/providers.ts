@@ -20,6 +20,7 @@ export type ChatEvent =
   | { type: "final"; text: string }
   | { type: "status"; text: string }
   | { type: "error"; message: string }
+  | { type: "sources"; urls: string[] }
   | { type: "done" };
 
 export function providerStatuses() {

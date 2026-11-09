@@ -5,8 +5,14 @@ const ULT_LEVELS = [6, 11, 16];
 
 /** Letras Q/W/E en el orden en que aparecen (p. ej. "E-Q-W" o "E, luego Q y W"). */
 export function parseKeys(text: string): Key[] {
-  return (text.toUpperCase().match(/\b[QWE]\b/g) ?? []) as Key[];
+  const t = text.toUpperCase().trim();
+  // «QWE» pegado: letra por letra.
+  if (/^[QWE]{2,}$/.test(t)) return t.split("") as Key[];
+  return (t.match(/\b[QWE]\b/g) ?? []) as Key[];
 }
+
+/** Campeones cuya R no sigue la regla 6/11/16: no se dibuja la tabla. */
+export const SPECIAL_R = new Set(["Udyr", "Jayce", "Elise", "Nidalee", "Karma", "Aphelios"]);
 
 /**
  * Orden de habilidades nivel a nivel (1 a 18) con la regla estándar:

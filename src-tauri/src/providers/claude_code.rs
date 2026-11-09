@@ -86,6 +86,18 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
             .map(|id| vec![ChatEvent::Session { id: id.into() }])
             .unwrap_or_default(),
         Some("stream_event") => parse_stream_event(&v["event"]),
+        // Resultados de herramientas (WebSearch de Claude Code devuelve los
+        // enlaces en un tool_result). Nunca se miran los textos del modelo.
+        Some("user") => sources(tool_results(&v)),
+        Some("assistant") => sources(
+            v["message"]["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|b| b["type"] == "web_search_tool_result")
+                .flat_map(|b| urls_in(&b["content"]))
+                .collect(),
+        ),
         Some("result") => {
             let text = v["result"].as_str().unwrap_or_default().to_string();
             if v["is_error"].as_bool().unwrap_or(false) || v["subtype"] != "success" {
@@ -103,12 +115,64 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
     }
 }
 
+fn sources(urls: Vec<String>) -> Vec<ChatEvent> {
+    if urls.is_empty() {
+        vec![]
+    } else {
+        vec![ChatEvent::Sources { urls }]
+    }
+}
+
+/// URLs dentro de los `tool_result` de un mensaje "user" (y del campo
+/// `tool_use_result` que agregan las versiones nuevas de Claude Code).
+fn tool_results(v: &Value) -> Vec<String> {
+    let mut out: Vec<String> = v["message"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|b| b["type"] == "tool_result")
+        .flat_map(|b| urls_in(&b["content"]))
+        .collect();
+    out.extend(urls_in(&v["tool_use_result"]));
+    out
+}
+
+/// Todas las URLs https en un valor JSON: campos `url` y enlaces dentro de texto.
+pub fn urls_in(v: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_urls(v, &mut out);
+    out
+}
+
+fn collect_urls(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => {
+            let mut rest = s.as_str();
+            while let Some(i) = rest.find("https://") {
+                let tail = &rest[i..];
+                let end = tail
+                    .find(|c: char| c.is_whitespace() || "\"'<>()[]{}`".contains(c))
+                    .unwrap_or(tail.len());
+                let url = tail[..end].trim_end_matches(['.', ',', ';', ':']);
+                if url.len() > "https://".len() {
+                    out.push(url.to_string());
+                }
+                rest = &tail[end..];
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| collect_urls(x, out)),
+        Value::Object(o) => o.values().for_each(|x| collect_urls(x, out)),
+        _ => {}
+    }
+}
+
 fn parse_stream_event(ev: &Value) -> Vec<ChatEvent> {
     match ev["type"].as_str() {
         Some("message_start") => vec![ChatEvent::Break],
         Some("content_block_start") => {
             let block = &ev["content_block"];
             match block["type"].as_str() {
+                Some("web_search_tool_result") => sources(urls_in(&block["content"])),
                 Some("server_tool_use") | Some("tool_use") => {
                     let name = block["name"].as_str().unwrap_or("una herramienta");
                     let text = match name {
@@ -134,6 +198,32 @@ mod tests {
 
     fn events(lines: &[&str]) -> Vec<ChatEvent> {
         lines.iter().flat_map(|l| parse_events(l)).collect()
+    }
+
+    #[test]
+    fn search_result_urls_are_collected_but_not_model_text() {
+        let ev = events(&[
+            // WebSearch de Claude Code: enlaces dentro del tool_result.
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Web search results for query: \"jax build\"\n\nLinks: [{\"title\":\"Jax Build\",\"url\":\"https://u.gg/lol/champions/jax/build\"}]"}]},"tool_use_result":{"results":[{"content":[{"title":"x","url":"https://www.op.gg/champions/jax/build"}]}]}}"#,
+            // Bloque de búsqueda del servidor.
+            r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"s1","content":[{"type":"web_search_result","url":"https://lolalytics.com/lol/jax/build/","title":"t"}]}}}"#,
+            // Texto del modelo: no cuenta como fuente.
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Según https://u.gg/inventado tiene 60%"}]}}"#,
+        ]);
+        let urls: Vec<String> = ev
+            .into_iter()
+            .flat_map(|e| match e {
+                ChatEvent::Sources { urls } => urls,
+                _ => vec![],
+            })
+            .collect();
+        assert!(
+            urls.contains(&"https://u.gg/lol/champions/jax/build".to_string()),
+            "{urls:?}"
+        );
+        assert!(urls.contains(&"https://www.op.gg/champions/jax/build".to_string()));
+        assert!(urls.contains(&"https://lolalytics.com/lol/jax/build/".to_string()));
+        assert!(!urls.iter().any(|u| u.contains("inventado")));
     }
 
     #[test]

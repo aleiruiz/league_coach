@@ -10,12 +10,28 @@ describe("skillPath", () => {
     expect(parseKeys("Empieza con E, luego Q y W")).toEqual(["E", "Q", "W"]);
   });
 
-  it("sin primeros niveles igual reparte sin pasarse de rango", () => {
-    const p = skillPath(["Q", "W", "E"], "")!;
-    expect(p).toHaveLength(18);
-    for (const k of ["Q", "W", "E"]) expect(p.filter((x) => x === k)).toHaveLength(5);
-    expect(p.filter((x) => x === "R")).toHaveLength(3);
-    expect(p.slice(0, 3).join("")).toBe("QWQ".slice(0, 1) + p.slice(1, 3).join(""));
+  it("nunca pasa del rango que permite cada nivel y R solo en 6/11/16", () => {
+    for (const [max, first] of [
+      [["Q", "W", "E"], ""],
+      [["E", "Q", "W"], "Q-Q-Q"],
+      [["W", "E", "Q"], "W E Q"],
+    ] as [string[], string][]) {
+      const p = skillPath(max, first)!;
+      expect(p).toHaveLength(18);
+      const rank: Record<string, number> = { Q: 0, W: 0, E: 0, R: 0 };
+      p.forEach((k, i) => {
+        const level = i + 1;
+        rank[k]++;
+        if (k === "R") expect([6, 11, 16]).toContain(level);
+        else expect(rank[k]).toBeLessThanOrEqual(Math.floor((level + 1) / 2));
+      });
+      for (const k of ["Q", "W", "E"]) expect(rank[k]).toBe(5);
+    }
+  });
+
+  it("entiende «QWE» pegado", () => {
+    expect(parseKeys("QWE")).toEqual(["Q", "W", "E"]);
+    expect(parseKeys("Q→W→E")).toEqual(["Q", "W", "E"]);
   });
 
   it("sin orden de maximización no inventa nada", () => {

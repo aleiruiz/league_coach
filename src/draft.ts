@@ -73,7 +73,10 @@ export function sameDraft(a: Draft | null, b: Draft | null): boolean {
   );
 }
 
-/** Igual que `damage` en recommend.rs: estimación con las valoraciones 0-10 de Riot. */
+/**
+ * Estimación con las valoraciones 0-10 de Riot. MISMOS umbrales que `damage`
+ * y `team_profile` en src-tauri/src/recommend.rs: si cambias uno, cambia el otro.
+ */
 export function damageType(c: Champion): "ad" | "ap" | "mixed" {
   if (c.magic >= c.attack + 3) return "ap";
   if (c.attack >= c.magic + 3) return "ad";

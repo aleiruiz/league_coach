@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
 import { SHARD_ROWS } from "./game";
 import { RoleIcon } from "./icons";
-import { Key, skillPath } from "./skills";
+import { Key, skillPath, SPECIAL_R } from "./skills";
 
 const norm = (s: string) =>
   s
@@ -81,6 +81,15 @@ function StatRow({ s }: { s: Stat }) {
   );
 }
 
+/** Enlaces directos a la página del campeón en sitios de stats (para comprobar a mano). */
+export function statLinks(c: Champion) {
+  const slug = (c.id === "MonkeyKing" ? "wukong" : c.id).toLowerCase();
+  return [
+    { site: "u.gg", url: `https://u.gg/lol/champions/${slug}/build` },
+    { site: "op.gg", url: `https://www.op.gg/champions/${slug}/build` },
+  ];
+}
+
 /* ---------- runas ---------- */
 
 function RuneRows({ tree, rows, picked }: { tree: RuneTree; rows: number[]; picked: Ref[] }) {
@@ -109,7 +118,7 @@ function RunePage({ card, trees }: { card: Card; trees: RuneTree[] }) {
   if (!primary || !secondary) {
     return (
       <div className="icon-row compact">
-        {[r.primary_tree, ...picked.slice(0, 4), r.secondary_tree, ...picked.slice(4)].map((x, i) => (
+        {[r.primary_tree, r.keystone, ...r.primary, r.secondary_tree, ...r.secondary].map((x, i) => (
           <Icon key={i} r={x} size={32} />
         ))}
       </div>
@@ -239,17 +248,45 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
         <span className="badge patch">Parche {patch}</span>
       </header>
 
-      {card.stats.length > 0 && (
-        <section className="panel stats-panel">
-          <h4 className="panel-title">Estadísticas citadas</h4>
+      <section className="panel stats-panel">
+        <h4 className="panel-title">Estadísticas citadas</h4>
+        {card.stats.length > 0 ? (
           <ul className="stats">
             {card.stats.map((s, i) => (
               <StatRow key={i} s={s} />
             ))}
           </ul>
-          <p className="small muted">Cifras que el modelo leyó en cada sitio. Ábrelas para comprobarlas: League Coach no calcula win rates.</p>
-        </section>
-      )}
+        ) : (
+          <p className="small">Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build.</p>
+        )}
+        <p className="small muted">
+          {card.stats.length > 0 && "Cifras que el modelo vio en los resultados de su búsqueda; ábrelas para comprobarlas. "}
+          {card.stats_dropped > 0 &&
+            `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `}
+          League Coach no calcula win rates.
+          {champion && (
+            <>
+              {" "}
+              Ver por tu cuenta:{" "}
+              {statLinks(champion).map((l, i) => (
+                <span key={l.site}>
+                  {i > 0 && " · "}
+                  <a
+                    className="inline-link"
+                    href={l.url}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openUrl(l.url);
+                    }}
+                  >
+                    {l.site} ↗
+                  </a>
+                </span>
+              ))}
+            </>
+          )}
+        </p>
+      </section>
 
       <div className="card-grid">
         <Section title="Runas" className="runes-panel">
@@ -304,7 +341,11 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
             ))}
             <span className="muted small"> prioridad de maximización</span>
           </p>
-          <SkillGrid max={card.skill_order.max} first={card.skill_order.first_levels} />
+          {champion && SPECIAL_R.has(champion.id) ? (
+            <p className="small muted">{champion.name} no sigue el orden estándar de la R, así que no dibujo la tabla por niveles.</p>
+          ) : (
+            <SkillGrid max={card.skill_order.max} first={card.skill_order.first_levels} />
+          )}
         </Section>
       )}
 

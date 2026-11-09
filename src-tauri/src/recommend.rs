@@ -202,52 +202,108 @@ const STAT_SITES: &[(&str, &str)] = &[
     ("metasrc.com", "METAsrc"),
 ];
 
-/// Nombre del sitio si la URL es https y de un sitio conocido.
-fn stat_site(url: &str) -> Option<&'static str> {
-    let rest = url.strip_prefix("https://")?;
-    let host = rest.split(['/', '?', '#']).next()?.to_ascii_lowercase();
-    if host.contains('@') || host.contains(':') {
+/// Parsea la URL como lo haría el navegador (WHATWG) y la acepta solo si es
+/// https, sin usuario ni puerto, y de un sitio conocido. Devuelve la URL ya
+/// normalizada: lo que se abre es exactamente lo que se validó.
+fn stat_url(raw: &str) -> Option<(url::Url, &'static str)> {
+    let u = url::Url::parse(raw.trim()).ok()?;
+    if u.scheme() != "https"
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.port().is_some()
+    {
         return None;
     }
-    STAT_SITES
+    let host = u.host_str()?.to_string();
+    let site = STAT_SITES
         .iter()
         .find(|(domain, _)| host == *domain || host.ends_with(&format!(".{domain}")))
-        .map(|(_, name)| *name)
+        .map(|(_, name)| *name)?;
+    Some((u, site))
 }
 
-/// Solo se muestran cifras con una fuente verificable y valores con sentido.
-/// Las que no cumplen se descartan (no se puede comprobar qué leyó el modelo).
-pub fn clean_stats(raw: &[RawStat], patch: &str) -> Vec<Stat> {
+/// Clave para comparar una URL citada con las de los resultados de búsqueda:
+/// host sin `www.` y ruta sin `/` final (sin query ni fragmento).
+fn url_key(u: &url::Url) -> String {
+    let host = u.host_str().unwrap_or_default();
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    format!("{host}{}", u.path().trim_end_matches('/'))
+}
+
+/// Primer `N.N` de un texto («Parche 25.22», «25.22.1» → «25.22»).
+fn patch_of(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i + 1 < bytes.len() && bytes[i] == b'.' && bytes[i + 1].is_ascii_digit() {
+                let major = &text[start..i];
+                i += 1;
+                let ms = i;
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                return Some(format!("{major}.{}", &text[ms..i]));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+fn short(t: &str) -> Option<String> {
+    let t = t.trim();
+    (!t.is_empty()).then(|| t.chars().take(60).collect())
+}
+
+/// Solo se muestran cifras cuya URL apareció en los resultados de búsqueda de
+/// esta consulta (`seen`), de un sitio conocido y con valores con sentido.
+/// Devuelve también cuántas se descartaron.
+pub fn clean_stats(raw: &[RawStat], data: &GameData, seen: &[String]) -> (Vec<Stat>, usize) {
+    let seen: std::collections::HashSet<String> = seen
+        .iter()
+        .filter_map(|u| url::Url::parse(u).ok())
+        .map(|u| url_key(&u))
+        .collect();
+    let current = [Some(data.patch.clone()), patch_of(&data.version)];
     let pct = |v: Option<f64>| v.filter(|x| (0.0..=100.0).contains(x));
-    raw.iter()
+    let kept: Vec<Stat> = raw
+        .iter()
         .filter_map(|s| {
-            let site = stat_site(s.url.trim())?;
-            let (win_rate, pick_rate, ban_rate) =
-                (pct(s.win_rate), pct(s.pick_rate), pct(s.ban_rate));
-            if win_rate.is_none()
-                && pick_rate.is_none()
-                && ban_rate.is_none()
-                && s.tier.trim().is_empty()
-            {
+            let (u, site) = stat_url(&s.url)?;
+            if !seen.contains(&url_key(&u)) {
                 return None;
             }
-            let opt = |t: &str| Some(t.trim().to_string()).filter(|t| !t.is_empty());
+            let (win_rate, pick_rate, ban_rate) =
+                (pct(s.win_rate), pct(s.pick_rate), pct(s.ban_rate));
+            let tier = short(&s.tier).filter(|t| t.chars().count() <= 3);
+            if win_rate.is_none() && pick_rate.is_none() && ban_rate.is_none() && tier.is_none() {
+                return None;
+            }
+            let patch = patch_of(&s.patch);
             Some(Stat {
                 site: site.to_string(),
-                url: s.url.trim().to_string(),
-                patch: s.patch.trim().to_string(),
-                about: s.about.trim().to_string(),
+                url: u.to_string(),
+                current_patch: patch.is_some() && current.contains(&patch),
+                patch: patch.unwrap_or_default(),
+                about: short(&s.about).unwrap_or_default(),
                 win_rate,
                 pick_rate,
                 ban_rate,
-                games: s.games,
-                tier: opt(&s.tier),
-                rank: opt(&s.rank),
-                current_patch: s.patch.trim() == patch,
+                games: s.games.filter(|g| (1..=1_000_000_000).contains(g)),
+                tier,
+                rank: short(&s.rank),
             })
         })
         .take(6)
-        .collect()
+        .collect();
+    let dropped = raw.len() - kept.len();
+    (kept, dropped)
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -266,6 +322,8 @@ pub struct Card {
     pub caveat: Option<String>,
     /// Cifras de sitios de estadísticas, cada una con su fuente.
     pub stats: Vec<Stat>,
+    /// Cifras que el modelo dio pero no se pudieron atribuir a una búsqueda.
+    pub stats_dropped: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -284,6 +342,7 @@ pub struct Recommendation {
 // ---------- prompt ----------
 
 /// Estimación gruesa del tipo de daño a partir de las valoraciones de Riot.
+/// MISMOS umbrales que `damageType` en src/draft.ts: si cambias uno, cambia el otro.
 fn damage(c: &Champion) -> &'static str {
     match (c.attack, c.magic) {
         (a, m) if m >= a + 3 => "daño mágico (AP)",
@@ -443,7 +502,7 @@ pub fn build_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
 - Da UNA recomendación concreta y completa: página de runas entera, 3 ítems principales en orden, botas, iniciales, hechizos y orden de habilidades. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
 - Adáptala a ESTOS rivales (daño, curación, CC, tanques) y explica en \"situational\" y \"threats\" qué cambia contra cada amenaza.\n\
 - Si usas búsqueda web, usa solo datos del parche {} y descarta los de parches anteriores.\n\
-- En \"stats\" cita SOLO cifras que hayas leído en una página de u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc durante esta respuesta, con la URL exacta de esa página y el parche que muestra. Usa null en lo que la página no diga. Si no buscaste o no encontraste datos, deja \"stats\": []. Nunca inventes ni estimes cifras.\n\
+- En \"stats\" cita SOLO cifras que aparezcan en los resultados de tu búsqueda web de esta respuesta (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche que indique. Usa null en lo que el resultado no diga. Si no buscaste o los resultados no traen cifras, deja \"stats\": []. Nunca pongas cifras de memoria ni estimadas: se descartan las que no correspondan a un resultado de búsqueda.\n\
 - Si dudas de algo, ponlo en \"caveat\" en una sola línea; no lo repartas por toda la respuesta.\n\
 - Responde SOLO con un objeto JSON válido, sin texto antes ni después, con esta forma:\n{SCHEMA}",
         data.patch
@@ -644,8 +703,11 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
             }
         })
         .collect();
-    if shards.len() > 3 {
-        warnings.push("Van 3 fragmentos de estadística".into());
+    if !shards.is_empty() && shards.len() != 3 {
+        warnings.push(format!(
+            "Van 3 fragmentos de estadística (llegaron {})",
+            shards.len()
+        ));
     }
     let runes = Runes {
         primary_tree: primary_tree_ref,
@@ -685,7 +747,9 @@ pub fn validate(raw: &RawCard, data: &GameData) -> (Card, Vec<String>) {
         matchup_tips: raw.matchup_tips.clone(),
         threats: raw.threats.clone(),
         caveat: raw.caveat.clone().filter(|c| !c.trim().is_empty()),
-        stats: clean_stats(&raw.stats, &data.patch),
+        // Se completan en `recommend_build`, que sabe qué devolvió la búsqueda.
+        stats: Vec::new(),
+        stats_dropped: 0,
     };
     (card, warnings)
 }
@@ -757,6 +821,8 @@ pub async fn recommend_build(
         }
     };
     let mut session_id = first.session_id.clone();
+    // URLs que devolvió la búsqueda en las dos rondas (fuentes válidas para `stats`).
+    let mut seen = first.sources.clone();
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
     let first_card = parse_card(&first.text);
@@ -797,6 +863,7 @@ pub async fn recommend_build(
                 if c.session_id.is_some() {
                     session_id = c.session_id.clone();
                 }
+                seen.extend(c.sources.iter().cloned());
                 parse_card(&c.text)
             });
             // Si la corrección falla, nos quedamos con la primera tarjeta (marcada).
@@ -812,7 +879,8 @@ pub async fn recommend_build(
         }
     };
 
-    let (card, warnings) = validate(&raw, &data);
+    let (mut card, warnings) = validate(&raw, &data);
+    (card.stats, card.stats_dropped) = clean_stats(&raw.stats, &data, &seen);
     Ok(Recommendation {
         card,
         warnings,
@@ -990,25 +1058,57 @@ mod tests {
     }
 
     #[test]
-    fn stats_need_a_known_https_source() {
+    fn stats_need_a_known_https_source_seen_in_search() {
         let raw: Vec<RawStat> = serde_json::from_str(
             r#"[
-              {"site":"u.gg","url":"https://u.gg/lol/champions/jax/build/top","patch":"25.22","about":"Jax top","win_rate":51.2,"games":12000,"tier":"A"},
-              {"site":"op.gg","url":"https://www.op.gg/champions/jax/top/build","patch":"25.21","win_rate":50.1},
-              {"site":"inventado","url":"https://misstats.example/jax","win_rate":60},
-              {"site":"u.gg","url":"http://u.gg/jax","win_rate":51},
-              {"site":"u.gg","url":"https://u.gg.evil.com/jax","win_rate":51},
-              {"site":"u.gg","url":"https://u.gg/jax","win_rate":140},
-              {"site":"u.gg","url":"","win_rate":51}
+              {"url":"https://U.GG/lol/champions/jax/build/top/","patch":"Parche 25.22","about":"Jax top","win_rate":51.2,"games":12000,"tier":"A"},
+              {"url":"https://op.gg/champions/jax/top/build","patch":"25.21","win_rate":50.1,"games":0},
+              {"url":"https://u.gg/lol/champions/jax/build/mid","patch":"25.22","win_rate":52.7},
+              {"url":"https://misstats.example/jax","win_rate":60},
+              {"url":"http://u.gg/lol/champions/jax/build/top","win_rate":51},
+              {"url":"https://evil.com\\.u.gg/lol/champions/jax/build/top","win_rate":51},
+              {"url":"https://u.gg%2eevil.com/lol/champions/jax/build/top","win_rate":51},
+              {"url":"https://u.gg.evil.com/lol/champions/jax/build/top","win_rate":51},
+              {"url":"https://user@u.gg/lol/champions/jax/build/top","win_rate":51},
+              {"url":"https://u.gg/lol/champions/jax/build/top","win_rate":140},
+              {"url":"","win_rate":51}
             ]"#,
         )
         .unwrap();
-        let s = clean_stats(&raw, "25.22");
+        // Lo que devolvió la búsqueda (la ruta /mid no estaba).
+        let seen = vec![
+            "https://u.gg/lol/champions/jax/build/top".to_string(),
+            "https://www.op.gg/champions/jax/top/build?region=global".to_string(),
+            "https://evil.com/".to_string(),
+        ];
+        let (s, dropped) = clean_stats(&raw, &fixtures::data(), &seen);
         assert_eq!(s.len(), 2, "{s:?}");
+        assert_eq!(dropped, 9);
         assert_eq!(s[0].site, "u.gg");
+        assert_eq!(s[0].url, "https://u.gg/lol/champions/jax/build/top/");
+        assert_eq!(s[0].patch, "25.22");
         assert!(s[0].current_patch);
         assert_eq!(s[1].site, "op.gg");
         assert!(!s[1].current_patch);
+        assert_eq!(s[1].games, None);
+    }
+
+    #[test]
+    fn stats_without_search_are_dropped() {
+        let raw: Vec<RawStat> = serde_json::from_str(
+            r#"[{"url":"https://u.gg/lol/champions/jax/build","win_rate":52.7}]"#,
+        )
+        .unwrap();
+        let (s, dropped) = clean_stats(&raw, &fixtures::data(), &[]);
+        assert!(s.is_empty());
+        assert_eq!(dropped, 1);
+    }
+
+    #[test]
+    fn patch_numbers_are_extracted() {
+        assert_eq!(patch_of("Parche 25.22"), Some("25.22".into()));
+        assert_eq!(patch_of("15.22.1"), Some("15.22".into()));
+        assert_eq!(patch_of("sin parche"), None);
     }
 
     #[test]

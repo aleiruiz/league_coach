@@ -66,6 +66,8 @@ export type Card = {
   threats: { champion: string; why: string }[];
   caveat: string | null;
   stats: Stat[];
+  /** Cifras que el modelo dio pero no salían en los resultados de su búsqueda. */
+  stats_dropped: number;
 };
 
 /** Cifra citada de un sitio de estadísticas, con su fuente. */
