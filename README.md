@@ -13,7 +13,14 @@ App de escritorio que funciona como harness para cualquier modelo de IA (Claude,
 
 ## Desarrollo
 
-Requisitos: [prerrequisitos de Tauri](https://tauri.app/start/prerequisites/), Rust estable y Node 22.
+Requisitos generales: Rust 1.85 o superior (el crate usa `edition = "2024"`) y Node 22. Detalle por sistema en los [prerrequisitos de Tauri](https://tauri.app/start/prerequisites/).
+
+**Windows:**
+- Visual Studio Build Tools con la carga de trabajo "Desarrollo de escritorio con C++".
+- WebView2 (ya viene instalado en Windows 10 y 11).
+- Rust con el toolchain MSVC (`rustup default stable-msvc`).
+
+El instalador se genera con `npm run tauri build -- --bundles nsis` (un `.exe` que se instala por usuario, sin permisos de administrador). El CI también lo publica como artefacto en cada push a `main`. Como no está firmado, Windows SmartScreen mostrará un aviso: "Más información" y luego "Ejecutar de todas formas".
 
 ```bash
 npm install

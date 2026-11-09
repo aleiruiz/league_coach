@@ -29,8 +29,7 @@ function App() {
           <section>
             <h2>Coach</h2>
             <p className="muted">
-              Aquí vivirá el chat con el modelo (paso 2 del plan). Primero
-              configura al menos un proveedor en Ajustes.
+              Aquí elegirás tu partida: tu campeón, tus aliados y tus rivales.
             </p>
           </section>
         ) : (
