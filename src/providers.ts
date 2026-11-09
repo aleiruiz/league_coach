@@ -130,7 +130,7 @@ export type LimitWindow = {
   resets_at: number | null;
 };
 
-export type UsageBucket = { hour: number; input: number; output: number; queries: number };
+export type UsageBucket = { hour: number; input: number; cached: number; output: number; queries: number };
 
 export type ProviderUsage = {
   kind: ProviderKind;
@@ -149,8 +149,8 @@ export type ProviderModels = {
   error: string | null;
 };
 
-export function usageOverview() {
-  return invoke<ProviderUsage[]>("usage_overview");
+export function usageOverview(kind: ProviderKind) {
+  return invoke<ProviderUsage>("usage_overview", { kind });
 }
 
 export function providerModels(kind: ProviderKind) {

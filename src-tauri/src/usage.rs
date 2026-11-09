@@ -30,6 +30,7 @@ pub struct LimitWindow {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tokens {
     pub input: u64,
+    pub cached: u64,
     pub output: u64,
 }
 
@@ -38,6 +39,8 @@ pub struct Tokens {
 pub struct Bucket {
     pub hour: i64,
     pub input: u64,
+    #[serde(default)]
+    pub cached: u64,
     pub output: u64,
     pub queries: u32,
 }
@@ -89,12 +92,14 @@ fn add_tokens(buckets: &mut Vec<Bucket>, at: i64, t: Tokens) {
     match buckets.iter_mut().find(|b| b.hour == hour) {
         Some(b) => {
             b.input += t.input;
+            b.cached += t.cached;
             b.output += t.output;
             b.queries += 1;
         }
         None => buckets.push(Bucket {
             hour,
             input: t.input,
+            cached: t.cached,
             output: t.output,
             queries: 1,
         }),
@@ -170,44 +175,39 @@ pub struct ProviderUsage {
     limits_error: Option<String>,
 }
 
-/// Usage of each provider. For Codex it also asks its app server for the
-/// current plan limits (a few seconds at most; no model query is spent).
+/// Usage of one provider (the UI asks for each one separately, so a slow
+/// Codex read never holds up Claude's card). For Codex it also asks its app
+/// server for the current plan limits (10 s at most; no model query spent).
 #[tauri::command]
-pub async fn usage_overview(app: AppHandle) -> Vec<ProviderUsage> {
+pub async fn usage_overview(app: AppHandle, kind: ProviderKind) -> ProviderUsage {
     let store = app.state::<Store>();
-    let mut out = Vec::new();
-    for kind in ProviderKind::ALL {
-        let mut limits_error = None;
-        let mut live = false;
-        if let Some(bin) = (kind == ProviderKind::Codex)
-            .then(|| crate::providers::resolve(kind))
-            .flatten()
-        {
-            {
-                match crate::providers::codex::rate_limits(&bin).await {
-                    Ok(w) if !w.is_empty() => {
-                        store.record_limits(&app, kind, w);
-                        live = true;
-                    }
-                    Ok(_) => {}
-                    Err(e) => limits_error = Some(e),
-                }
+    let mut limits_error = None;
+    let mut live = false;
+    if let Some(bin) = (kind == ProviderKind::Codex)
+        .then(|| crate::providers::resolve(kind))
+        .flatten()
+    {
+        match crate::providers::codex::rate_limits(&bin).await {
+            Ok(w) if !w.is_empty() => {
+                store.record_limits(&app, kind, w);
+                live = true;
             }
+            Ok(_) => {}
+            Err(e) => limits_error = Some(e),
         }
-        let data = store.snapshot(&app, kind);
-        let limits_source = data
-            .limits
-            .as_ref()
-            .map(|_| if live { "live" } else { "answer" });
-        out.push(ProviderUsage {
-            kind,
-            buckets: data.buckets,
-            limits: data.limits,
-            limits_source,
-            limits_error,
-        });
     }
-    out
+    let data = store.snapshot(&app, kind);
+    let limits_source = data
+        .limits
+        .as_ref()
+        .map(|_| if live { "live" } else { "answer" });
+    ProviderUsage {
+        kind,
+        buckets: data.buckets,
+        limits: data.limits,
+        limits_source,
+        limits_error,
+    }
 }
 
 #[cfg(test)]
@@ -219,12 +219,16 @@ mod tests {
         let mut b = Vec::new();
         let t = Tokens {
             input: 10,
+            cached: 100,
             output: 2,
         };
         add_tokens(&mut b, 3600 * 1000 + 5, t);
         add_tokens(&mut b, 3600 * 1000 + 3000, t);
         assert_eq!(b.len(), 1);
-        assert_eq!((b[0].input, b[0].output, b[0].queries), (20, 4, 2));
+        assert_eq!(
+            (b[0].input, b[0].cached, b[0].output, b[0].queries),
+            (20, 200, 4, 2)
+        );
 
         add_tokens(&mut b, 3600 * (1000 + KEEP_HOURS), t);
         assert_eq!(b.len(), 1, "the 8-day-old hour is dropped");

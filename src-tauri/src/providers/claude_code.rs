@@ -158,14 +158,16 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
     }
 }
 
-/// Tokens of the whole answer (all its turns). Cached prompt tokens count
-/// as input: they are part of what the model read.
+/// Tokens of the whole answer (all its turns). Prompt tokens read back from
+/// the cache are counted apart: they are mostly the coach's instructions.
 fn usage(u: &Value) -> Option<ChatEvent> {
     let n = |k: &str| u[k].as_u64().unwrap_or(0);
-    let input = n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens");
+    let input = n("input_tokens") + n("cache_creation_input_tokens");
+    let cached = n("cache_read_input_tokens");
     let output = n("output_tokens");
-    (u.is_object() && input + output > 0).then_some(ChatEvent::Usage {
+    (u.is_object() && input + cached + output > 0).then_some(ChatEvent::Usage {
         input_tokens: input,
+        cached_tokens: cached,
         output_tokens: output,
     })
 }
@@ -430,7 +432,8 @@ mod tests {
             ev[1..],
             [
                 ChatEvent::Usage {
-                    input_tokens: 1002,
+                    input_tokens: 102,
+                    cached_tokens: 900,
                     output_tokens: 4
                 },
                 ChatEvent::Final { text: "ok".into() }

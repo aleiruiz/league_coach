@@ -192,13 +192,15 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
             .as_str()
             .map(|t| ev(ChatEvent::Message { text: t.into() }))
             .unwrap_or_default(),
-        // `input_tokens` already includes the cached ones.
+        // `input_tokens` already includes the cached ones: split them out.
         Some("turn.completed") => {
             let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
-            let (input, output) = (n("input_tokens"), n("output_tokens"));
-            if input + output > 0 {
+            let cached = n("cached_input_tokens").min(n("input_tokens"));
+            let (input, output) = (n("input_tokens") - cached, n("output_tokens"));
+            if input + cached + output > 0 {
                 ev(ChatEvent::Usage {
                     input_tokens: input,
+                    cached_tokens: cached,
                     output_tokens: output,
                 })
             } else {
@@ -224,6 +226,26 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
     }
 }
 
+/// `app-server` has no `--ignore-user-config`: override what matters so the
+/// user's MCP servers, plugins and tools never start (same as `exec`).
+fn app_server_args() -> Vec<String> {
+    let mut a: Vec<String> = [
+        "app-server",
+        "-c",
+        "mcp_servers={}",
+        "-c",
+        "sandbox_mode=read-only",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    for f in DISABLED_FEATURES {
+        a.push("--disable".into());
+        a.push(f.to_string());
+    }
+    a
+}
+
 /// One request to `codex app-server` (JSON-RPC over stdio): plan limits and
 /// the model list come from there, without spending a model query.
 async fn app_server(bin: &Path, method: &str, params: Value) -> Result<Value, String> {
@@ -231,7 +253,7 @@ async fn app_server(bin: &Path, method: &str, params: Value) -> Result<Value, St
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let mut child = process::command(bin)
-        .arg("app-server")
+        .args(app_server_args())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -353,6 +375,25 @@ mod tests {
     }
 
     #[test]
+    fn app_server_is_isolated() {
+        let a = app_server_args();
+        assert_eq!(a[0], "app-server");
+        assert!(a.contains(&"mcp_servers={}".to_string()));
+        let pos = a.iter().position(|x| x == "shell_tool").unwrap();
+        assert_eq!(a[pos - 1], "--disable");
+    }
+
+    /// Talks to a real Codex: `CODEX_BIN=/path/to/codex cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn real_app_server_lists_models() {
+        let bin = std::env::var("CODEX_BIN").expect("CODEX_BIN");
+        let models = list_models(Path::new(&bin)).await.unwrap();
+        assert!(!models.is_empty());
+        assert!(models.iter().any(|m| m.3), "one is the default");
+    }
+
+    #[test]
     fn parses_app_server_answers() {
         let r: Value = serde_json::from_str(
             r#"{"rateLimits":{"primary":{"usedPercent":12.5,"windowDurationMins":300,"resetsAt":1794274800},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":null}}}"#,
@@ -418,7 +459,7 @@ mod tests {
             r#"{"type":"item.started","item":{"id":"i0","type":"web_search","query":"jax build"}}"#,
             r#"{"type":"item.completed","item":{"id":"i1","type":"reasoning","text":"..."}}"#,
             r#"{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"Ve Trinity Force."}}"#,
-            r#"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}"#,
+            r#"{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":5}}"#,
             r#"{"type":"turn.failed","error":{"message":"rate limited"}}"#,
         ];
         let parsed: Vec<Parsed> = lines.iter().flat_map(|l| parse_line(l)).collect();
@@ -433,7 +474,8 @@ mod tests {
                     text: "Ve Trinity Force.".into()
                 }),
                 Parsed::Event(ChatEvent::Usage {
-                    input_tokens: 10,
+                    input_tokens: 6,
+                    cached_tokens: 4,
                     output_tokens: 5
                 }),
                 Parsed::Event(ChatEvent::Error {

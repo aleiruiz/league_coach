@@ -53,7 +53,17 @@ export function resetText(resetsAt: number | null, now = Date.now()): string | n
   return t(`resets ${when}`, `se reinicia ${when}`);
 }
 
-type Day = { key: string; label: string; long: string; tokens: number; input: number; output: number; queries: number };
+type Day = {
+  key: string;
+  label: string;
+  long: string;
+  /** New prompt tokens + written tokens (cache reads are counted apart). */
+  tokens: number;
+  input: number;
+  cached: number;
+  output: number;
+  queries: number;
+};
 
 /** Hourly buckets grouped into the last 7 local days (oldest first, today last). */
 export function lastDays(buckets: UsageBucket[], now = new Date()): Day[] {
@@ -67,6 +77,7 @@ export function lastDays(buckets: UsageBucket[], now = new Date()): Day[] {
       long: d.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" }),
       tokens: 0,
       input: 0,
+      cached: 0,
       output: 0,
       queries: 0,
     });
@@ -75,6 +86,7 @@ export function lastDays(buckets: UsageBucket[], now = new Date()): Day[] {
     const day = days.find((d) => d.key === new Date(b.hour * 3600 * 1000).toDateString());
     if (!day) continue;
     day.input += b.input;
+    day.cached += b.cached ?? 0;
     day.output += b.output;
     day.tokens += b.input + b.output;
     day.queries += b.queries;
@@ -82,7 +94,34 @@ export function lastDays(buckets: UsageBucket[], now = new Date()): Day[] {
   return days;
 }
 
+/** The window reset after the provider reported it: that % is no longer true. */
+export function hasReset(w: LimitWindow, now = Date.now()): boolean {
+  return w.resets_at !== null && w.resets_at * 1000 <= now;
+}
+
 function Meter({ w }: { w: LimitWindow }) {
+  if (hasReset(w)) {
+    const at = new Date((w.resets_at ?? 0) * 1000).toLocaleString(currentLang() === "es" ? "es-MX" : "en-US", {
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return (
+      <div className="meter">
+        <div className="meter-head">
+          <span>{windowLabel(w)}</span>
+          <span className="muted">{t("Reset", "Reiniciado")}</span>
+        </div>
+        <div className="meter-track" aria-hidden="true" />
+        <p className="muted small">
+          {t(
+            `This window reset (${at}). Your new usage shows after your next answer.`,
+            `Esta ventana se reinició (${at}). Tu uso nuevo aparece tras tu próxima respuesta.`,
+          )}
+        </p>
+      </div>
+    );
+  }
   const pct = Math.round(w.used_percent);
   const level = pct >= 100 ? "full" : pct >= 80 ? "high" : "normal";
   const reset = resetText(w.resets_at);
@@ -196,14 +235,14 @@ function Tokens({ usage }: { usage: ProviderUsage | undefined }) {
       <p className="muted small" aria-live="polite">
         {shown.long}:{" "}
         {t(
-          `${fmt(shown.input)} read · ${fmt(shown.output)} written · ${shown.queries} ${shown.queries === 1 ? "answer" : "answers"}`,
-          `${fmt(shown.input)} leídos · ${fmt(shown.output)} escritos · ${shown.queries} ${shown.queries === 1 ? "respuesta" : "respuestas"}`,
+          `${fmt(shown.input)} read · ${fmt(shown.output)} written · ${fmt(shown.cached)} from cache · ${shown.queries} ${shown.queries === 1 ? "answer" : "answers"}`,
+          `${fmt(shown.input)} leídos · ${fmt(shown.output)} escritos · ${fmt(shown.cached)} de caché · ${shown.queries} ${shown.queries === 1 ? "respuesta" : "respuestas"}`,
         )}
       </p>
       <p className="muted small">
         {t(
-          "Only what this app asked for. Read tokens include the coach's instructions and the conversation so far.",
-          "Solo lo que pidió esta app. Los leídos incluyen las instrucciones del coach y la conversación hasta ahora.",
+          "Only what this app asked for. Your plan limits above are what really counts; tokens from cache (mostly the coach's instructions, re-read each answer) aren't in the totals.",
+          "Solo lo que pidió esta app. Lo que de verdad cuenta son los límites de tu plan (arriba); los tokens de caché (sobre todo las instrucciones del coach, que se releen en cada respuesta) no están en los totales.",
         )}
       </p>
     </div>
@@ -277,12 +316,41 @@ function ModelPicker({ kind }: { kind: ProviderKind }) {
 }
 
 /** Model picker, plan limits and token use of one signed-in provider. */
-export function ProviderDetails({ kind, usage }: { kind: ProviderKind; usage: ProviderUsage | undefined }) {
+export function ProviderDetails({
+  kind,
+  usage,
+  loading,
+}: {
+  kind: ProviderKind;
+  /** A string is the error that the read returned. */
+  usage: ProviderUsage | string | undefined;
+  loading: boolean;
+}) {
+  const data = typeof usage === "object" ? usage : undefined;
   return (
     <div className="usage">
       <ModelPicker kind={kind} />
-      <Limits kind={kind} usage={usage} />
-      <Tokens usage={usage} />
+      {data ? (
+        <>
+          <Limits kind={kind} usage={data} />
+          <Tokens usage={data} />
+        </>
+      ) : (
+        <div className="usage-block">
+          <h4>{t("Usage", "Uso")}</h4>
+          {loading ? (
+            <p className="muted small" role="status">
+              {kind === "codex"
+                ? t("Reading your plan limits from Codex…", "Leyendo los límites de tu plan desde Codex…")
+                : t("Loading usage…", "Cargando el uso…")}
+            </p>
+          ) : (
+            <p className="error small">
+              {t("Couldn't read usage:", "No pude leer el uso:")} {String(usage ?? "")}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

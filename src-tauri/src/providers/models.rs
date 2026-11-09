@@ -82,22 +82,25 @@ fn claude_options() -> Vec<ModelOption> {
             "opus",
             "Opus",
             tr(
-                "Most capable, uses your limits fastest.",
-                "El más capaz; gasta tus límites más rápido.",
+                "Best for build reviews and post-game analysis, where reasoning matters. Uses your limits fastest.",
+                "El mejor para revisar builds y analizar partidas, donde importa el razonamiento. Gasta tus límites más rápido.",
             ),
         ),
         (
             "sonnet",
             "Sonnet",
             tr(
-                "Fast and capable for everyday questions.",
-                "Rápido y capaz para el día a día.",
+                "Good for quick questions and drafts; makes your limits last longer.",
+                "Bueno para preguntas rápidas y drafts; hace que tus límites rindan más.",
             ),
         ),
         (
             "fable",
             "Fable",
-            tr("Newest model family.", "La familia de modelos más nueva."),
+            tr(
+                "Claude Code's newest model family (named in its --help).",
+                "La familia de modelos más nueva de Claude Code (la nombra su --help).",
+            ),
         ),
     ]
     .into_iter()
@@ -150,6 +153,22 @@ pub async fn provider_models(app: AppHandle, kind: ProviderKind) -> ProviderMode
     }
 }
 
+/// Back to the CLI's default model.
+pub fn clear(app: &AppHandle, kind: ProviderKind) -> Result<(), String> {
+    save(app, kind, None)
+}
+
+fn save(app: &AppHandle, kind: ProviderKind, model: Option<String>) -> Result<(), String> {
+    let p = path(app).ok_or("No settings folder")?;
+    let mut file = read(app);
+    *file.slot(kind) = model;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    std::fs::write(p, text).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn set_provider_model(
     app: AppHandle,
@@ -162,14 +181,7 @@ pub fn set_provider_model(
     if model.as_deref().is_some_and(|m| !valid_id(m)) {
         return Err(tr("Invalid model name.", "Nombre de modelo inválido.").into());
     }
-    let p = path(&app).ok_or("No settings folder")?;
-    let mut file = read(&app);
-    *file.slot(kind) = model;
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    std::fs::write(p, text).map_err(|e| e.to_string())
+    save(&app, kind, model)
 }
 
 #[cfg(test)]

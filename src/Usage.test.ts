@@ -25,16 +25,26 @@ describe("usage helpers", () => {
     const hour = (d: Date) => Math.floor(d.getTime() / 3_600_000);
     const days = lastDays(
       [
-        { hour: hour(new Date(2026, 10, 9, 9)), input: 100, output: 10, queries: 1 },
-        { hour: hour(new Date(2026, 10, 9, 14)), input: 50, output: 5, queries: 2 },
-        { hour: hour(new Date(2026, 10, 3, 12)), input: 7, output: 1, queries: 1 },
-        { hour: hour(new Date(2026, 10, 1, 12)), input: 999, output: 9, queries: 1 },
+        { hour: hour(new Date(2026, 10, 9, 9)), input: 100, cached: 500, output: 10, queries: 1 },
+        { hour: hour(new Date(2026, 10, 9, 14)), input: 50, cached: 0, output: 5, queries: 2 },
+        { hour: hour(new Date(2026, 10, 3, 12)), input: 7, cached: 0, output: 1, queries: 1 },
+        { hour: hour(new Date(2026, 10, 1, 12)), input: 999, cached: 0, output: 9, queries: 1 },
       ],
       now,
     );
     expect(days).toHaveLength(7);
-    expect(days[6]).toMatchObject({ tokens: 165, input: 150, output: 15, queries: 3 });
+    expect(days[6]).toMatchObject({ tokens: 165, input: 150, cached: 500, output: 15, queries: 3 });
     expect(days[0]).toMatchObject({ tokens: 8, queries: 1 });
     expect(days.reduce((s, d) => s + d.tokens, 0)).toBe(173);
+  });
+});
+
+import { hasReset } from "./Usage";
+describe("stale limits", () => {
+  it("knows when a reported window has reset", () => {
+    const w = { id: "five_hour", used_percent: 90, window_minutes: 300, resets_at: 1000 };
+    expect(hasReset(w, 999_000)).toBe(false);
+    expect(hasReset(w, 1_000_000)).toBe(true);
+    expect(hasReset({ ...w, resets_at: null }, 5e12)).toBe(false);
   });
 });

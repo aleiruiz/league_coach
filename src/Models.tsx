@@ -157,33 +157,42 @@ export const modelsIntro = () =>
   );
 
 function Models({ providers, active, lang }: { providers: ProvidersState; active: boolean; lang: Lang }) {
-  const [usage, setUsage] = useState<ProviderUsage[]>([]);
-  const [usageError, setUsageError] = useState<string | null>(null);
-  const loadUsage = useCallback(() => {
-    usageOverview()
-      .then((u) => {
-        setUsage(u);
-        setUsageError(null);
-      })
-      .catch((e) => setUsageError(String(e)));
+  // Per provider: `undefined` while loading, so a slow Codex read never
+  // holds up (or blanks) Claude's card.
+  const [usage, setUsage] = useState<Partial<Record<ProviderKind, ProviderUsage | string>>>({});
+  const [loadingUsage, setLoadingUsage] = useState<Partial<Record<ProviderKind, boolean>>>({});
+  const signedIn = providers.list
+    .filter((p) => p.logged_in)
+    .map((p) => p.kind)
+    .join(",");
+  const loadUsage = useCallback((kinds: ProviderKind[]) => {
+    for (const kind of kinds) {
+      setLoadingUsage((l) => ({ ...l, [kind]: true }));
+      usageOverview(kind)
+        .then((u) => setUsage((s) => ({ ...s, [kind]: u })))
+        .catch((e) => setUsage((s) => ({ ...s, [kind]: String(e) })))
+        .finally(() => setLoadingUsage((l) => ({ ...l, [kind]: false })));
+    }
   }, []);
   // Each time the tab is opened (the view stays mounted while hidden).
   useEffect(() => {
-    if (active) loadUsage();
-  }, [active, loadUsage]);
+    if (active && signedIn) loadUsage(signedIn.split(",") as ProviderKind[]);
+  }, [active, signedIn, loadUsage]);
 
   return (
     <section>
       <h2>{t("Models", "Modelos")}</h2>
       <p className="muted">{modelsIntro()}</p>
-      {usageError && (
-        <p className="error small">
-          {t("Couldn't read usage:", "No pude leer el uso:")} {usageError}
-        </p>
-      )}
       <ProviderSetup
         providers={providers}
-        details={(p) => <ProviderDetails key={`${p.kind}-${lang}`} kind={p.kind} usage={usage.find((u) => u.kind === p.kind)} />}
+        details={(p) => (
+          <ProviderDetails
+            key={`${p.kind}-${lang}`}
+            kind={p.kind}
+            usage={usage[p.kind]}
+            loading={loadingUsage[p.kind] ?? true}
+          />
+        )}
       />
     </section>
   );

@@ -97,7 +97,10 @@ pub enum ChatEvent {
     /// Tokens of the answer, as the CLI reports them. Recorded in the usage
     /// store by `run`, never sent to the UI.
     Usage {
+        /// Prompt tokens not read from the cache.
         input_tokens: u64,
+        /// Prompt tokens read back from the provider's cache.
+        cached_tokens: u64,
         output_tokens: u64,
     },
     /// Plan limits the CLI reported with the answer (Claude Code). Recorded
@@ -352,19 +355,52 @@ pub async fn run(
     let send = |ev: ChatEvent| match ev {
         ChatEvent::Usage {
             input_tokens,
+            cached_tokens,
             output_tokens,
         } => store.record_tokens(
             app,
             kind,
             crate::usage::Tokens {
                 input: input_tokens,
+                cached: cached_tokens,
                 output: output_tokens,
             },
         ),
         ChatEvent::Limits { windows } => store.record_limits(app, kind, windows),
+        ChatEvent::Error { message } => send(ChatEvent::Error {
+            message: model_gone(app, kind, model, message),
+        }),
         ev => send(ev),
     };
-    process::stream(&bin, &args, opts, parse, &send).await
+    process::stream(&bin, &args, opts, parse, &send)
+        .await
+        .map_err(|e| model_gone(app, kind, model, e))
+}
+
+/// If the CLI rejected the chosen model (it no longer exists, or the plan
+/// lost access to it), go back to the default so the next question works,
+/// and say so instead of the CLI's error.
+fn model_gone(app: &AppHandle, kind: ProviderKind, model: Option<&str>, error: String) -> String {
+    let Some(m) = model.filter(|m| mentions_model(&error, m)) else {
+        return error;
+    };
+    if models::clear(app, kind).is_err() {
+        return error;
+    }
+    tr(
+        format!(
+            "{} didn't accept the model “{m}” ({error}). I switched back to its default model: ask again.",
+            kind.label()
+        ),
+        format!(
+            "{} no aceptó el modelo «{m}» ({error}). Volví a su modelo predeterminado: pregunta de nuevo.",
+            kind.label()
+        ),
+    )
+}
+
+fn mentions_model(error: &str, model: &str) -> bool {
+    error.to_lowercase().contains(&model.to_lowercase())
 }
 
 /// Current patch, only if Data Dragon was already loaded this run (the main
@@ -414,6 +450,20 @@ impl Collected {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spots_a_rejected_model() {
+        // Real wording of Claude Code and Codex errors for an unknown model.
+        assert!(mentions_model(
+            "There's an issue with the selected model (claude-old). It may not exist or you may not have access to it.",
+            "claude-old"
+        ));
+        assert!(mentions_model(
+            "The 'GPT-9' model is not supported",
+            "gpt-9"
+        ));
+        assert!(!mentions_model("Usage limit reached", "opus"));
+    }
 
     #[test]
     fn session_id_validation() {
