@@ -185,14 +185,27 @@ pub fn list_keys(store: &dyn SecretStore) -> Vec<KeyStatus> {
 // de desbloqueo) no congele la ventana: Tauri los ejecuta fuera del hilo principal.
 
 #[tauri::command(async)]
-pub fn set_api_key(provider: String, key: String) -> Result<(), SecretError> {
+pub fn set_api_key(
+    app: tauri::AppHandle,
+    provider: String,
+    key: String,
+) -> Result<(), SecretError> {
     let key = Zeroizing::new(key);
-    set_key(&Keyring, &provider, &key)
+    set_key(&Keyring, &provider, &key)?;
+    if provider == "riot" {
+        // Riot encrypts PUUIDs per key: the cached one belongs to the old key.
+        crate::riot::forget_puuid(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]
-pub fn delete_api_key(provider: String) -> Result<(), SecretError> {
-    delete_key(&Keyring, &provider)
+pub fn delete_api_key(app: tauri::AppHandle, provider: String) -> Result<(), SecretError> {
+    delete_key(&Keyring, &provider)?;
+    if provider == "riot" {
+        crate::riot::forget_puuid(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]

@@ -16,6 +16,8 @@ import {
   roleName,
   SavedReport,
   signed,
+  asSyncError,
+  SyncError,
   syncMatches,
   trend,
 } from "./history";
@@ -33,16 +35,30 @@ function ChampIcon({ id, byId, size = 28 }: { id: string; byId: Map<string, Cham
   );
 }
 
+function gameDate(g: GameStats, lang: Lang): string {
+  return g.ended_at
+    ? new Date(g.ended_at).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })
+    : "";
+}
+
+function gameTitle(g: GameStats, lang: Lang): string {
+  return `${gameDate(g, lang)} · ${g.win ? t("Win", "Victoria") : t("Loss", "Derrota")} · ${g.champion}${
+    g.opponent ? ` vs ${g.opponent}` : ""
+  }`;
+}
+
 function PainCard({
   n,
   p,
   games,
   byId,
+  lang,
 }: {
   n: number;
   p: PainPoint;
   games: GameStats[];
   byId: Map<string, Champion>;
+  lang: Lang;
 }) {
   const cited = p.games.map((id) => games.find((g) => g.id === id)).filter((g): g is GameStats => !!g);
   return (
@@ -68,7 +84,7 @@ function PainCard({
       {cited.length > 0 && (
         <div className="pain-games" aria-label={t("Games that show it", "Partidas que lo muestran")}>
           {cited.map((g) => (
-            <span key={g.id} className={g.win ? "game-chip win" : "game-chip loss"} title={g.id}>
+            <span key={g.id} className={g.win ? "game-chip win" : "game-chip loss"} title={gameTitle(g, lang)}>
               <ChampIcon id={g.champion} byId={byId} size={18} />
               {g.kills}/{g.deaths}/{g.assists}
             </span>
@@ -99,8 +115,13 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
               <span className="metric-label">{m.label()}</span>
               <span className="metric-value">{m.format(v)}</span>
               {tr && s.recent[m.key] !== null && (
-                <span className={`metric-trend ${tr}`}>
-                  {tr === "up" ? "▲" : tr === "down" ? "▼" : "■"} {t("last 5", "últ. 5")}: {m.format(s.recent[m.key]!)}
+                <span
+                  className={`metric-trend ${tr.verdict}`}
+                  title={
+                    tr.verdict === "better" ? t("Better", "Mejor") : tr.verdict === "worse" ? t("Worse", "Peor") : t("About the same", "Igual")
+                  }
+                >
+                  {tr.arrow} {t("last 5", "últ. 5")}: {m.format(s.recent[m.key]!)}
                 </span>
               )}
               {before !== null && now !== null && (
@@ -131,9 +152,7 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
 function GameRow({ g, byId, lang }: { g: GameStats; byId: Map<string, Champion>; lang: Lang }) {
   const name = byId.get(g.champion.toLowerCase())?.name ?? g.champion;
   const opp = g.opponent ? (byId.get(g.opponent.toLowerCase())?.name ?? g.opponent) : null;
-  const date = g.ended_at
-    ? new Date(g.ended_at).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })
-    : "";
+  const date = gameDate(g, lang);
   return (
     <li className={g.win ? "game-row win" : "game-row loss"}>
       <ChampIcon id={g.champion} byId={byId} />
@@ -189,6 +208,12 @@ function Progress({
   const [reviewing, setReviewing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Last failed sync: a setup problem is shown in red with a way to fix it. */
+  const [syncError, setSyncError] = useState<SyncError | null>(null);
+  /** The saved account and the local history have been read once. */
+  const [loaded, setLoaded] = useState(false);
+  /** At least one sync finished (or failed) since the account was set. */
+  const [synced, setSynced] = useState(false);
   const requestId = useRef<string | null>(null);
   // The background check reads the latest values without restarting its timer.
   const live = useRef({ kind, profile, busy: false });
@@ -216,15 +241,23 @@ function Progress({
     try {
       setView(await matchHistory());
     } catch (e) {
-      setError(String(e));
+      setError(humanizeError(String(e)));
     }
   }, []);
 
   useEffect(() => {
-    riotAccount()
-      .then((a) => setProfile(a.profile))
-      .catch(() => setProfile(null));
-    reload();
+    let current = true;
+    setSynced(false);
+    setSyncError(null);
+    Promise.all([
+      riotAccount()
+        .then((a) => current && setProfile(a.profile))
+        .catch(() => current && setProfile(null)),
+      reload(),
+    ]).finally(() => current && setLoaded(true));
+    return () => {
+      current = false;
+    };
   }, [accountVersion, reload]);
 
   const review = useCallback(async () => {
@@ -264,15 +297,21 @@ function Progress({
         });
         await reload();
         setSyncing(false);
+        setSynced(true);
+        setSyncError(null);
         setStatus(null);
         if (!quiet && r.new_games === 0) setStatus(t("No new games.", "No hay partidas nuevas."));
         if (r.needs_review && (r.new_games > 0 || !quiet) && live.current.profile?.auto_analyze && live.current.kind) {
           await review();
         }
       } catch (e) {
+        const err = asSyncError(e);
         setSyncing(false);
+        setSynced(true);
+        // A background blip (offline, Riot busy) is a quiet line, not an alarm;
+        // a setup problem stays visible until it's fixed.
+        setSyncError({ ...err, message: humanizeError(err.message) });
         setStatus(null);
-        setError(String(e));
       }
     },
     [reload, review],
@@ -293,6 +332,7 @@ function Progress({
   }, [configured, accountVersion, sync]);
 
   const busy = syncing || reviewing;
+  const tooFew = view.games.length < 3;
   const latest = view.latest;
   const newSince = latest ? view.games.findIndex((g) => g.id === latest.newest_game) : -1;
 
@@ -325,7 +365,17 @@ function Progress({
                 {t("Stop", "Detener")}
               </button>
             ) : (
-              <button onClick={review} disabled={busy || !kind || view.games.length < 3}>
+              <button
+                onClick={review}
+                disabled={busy || !kind || tooFew}
+                title={
+                  tooFew
+                    ? t("The review needs at least 3 Summoner's Rift games.", "La revisión necesita al menos 3 partidas en la Grieta.")
+                    : !kind
+                      ? t("Connect a model first.", "Conecta un modelo primero.")
+                      : undefined
+                }
+              >
                 {t("Review my games", "Revisar mis partidas")}
               </button>
             )}
@@ -340,7 +390,8 @@ function Progress({
         )}
       </p>
 
-      {!configured && (
+      {!loaded && <p className="muted">{t("Loading…", "Cargando…")}</p>}
+      {loaded && !configured && (
         <div className="panel">
           <p>
             {t(
@@ -364,6 +415,32 @@ function Progress({
         {status}
       </p>
       {error && <p className="error">{error}</p>}
+      {syncError?.kind === "setup" && (
+        <div className="panel sync-error">
+          <p className="error">{syncError.message}</p>
+          <button className="secondary" onClick={onGoToSettings}>
+            {t("Open Settings", "Abrir Ajustes")}
+          </button>
+        </div>
+      )}
+      {syncError?.kind === "transient" && (
+        <p className="muted small">
+          {t("Couldn't check for new games; will try again in a few minutes.", "No pude buscar partidas nuevas; lo intento de nuevo en unos minutos.")}{" "}
+          ({syncError.message})
+        </p>
+      )}
+      {loaded && configured && view.games.length === 0 && !syncError && (
+        <div className="panel">
+          <p className="muted">
+            {!synced || syncing
+              ? t("Looking for your games…", "Buscando tus partidas…")
+              : t(
+                  "No Summoner's Rift games yet. Play one and it shows up here a few minutes after it ends, or press «Check for new games».",
+                  "Aún no hay partidas en la Grieta. Juega una y aparecerá aquí unos minutos después de terminar, o pulsa «Buscar partidas nuevas».",
+                )}
+          </p>
+        </div>
+      )}
 
       {latest && (
         <div className="review">
@@ -387,7 +464,7 @@ function Progress({
           </div>
           <div className="pain-grid">
             {latest.report.pain_points.map((p, i) => (
-              <PainCard key={i} n={i + 1} p={p} games={view.games} byId={byId} />
+              <PainCard key={i} n={i + 1} p={p} games={view.games} byId={byId} lang={lang} />
             ))}
           </div>
           {latest.report.strength && (
@@ -397,7 +474,7 @@ function Progress({
           )}
         </div>
       )}
-      {configured && !latest && view.games.length > 0 && view.games.length < 3 && (
+      {configured && !latest && view.games.length > 0 && tooFew && (
         <p className="muted">
           {t(
             "Play a few more Summoner's Rift games: the review needs at least 3.",

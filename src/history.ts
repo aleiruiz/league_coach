@@ -109,6 +109,17 @@ export function syncMatches(onEvent: (ev: ChatEvent) => void) {
   return invoke<{ new_games: number; needs_review: boolean }>("sync_matches", { onEvent: channel });
 }
 
+/** Error from `sync_matches`. `setup`: something to fix in Settings. */
+export type SyncError = { kind: "setup" | "transient"; message: string };
+
+export function asSyncError(e: unknown): SyncError {
+  if (e && typeof e === "object" && "message" in e && "kind" in e) {
+    const x = e as { kind: unknown; message: unknown };
+    return { kind: x.kind === "setup" ? "setup" : "transient", message: String(x.message) };
+  }
+  return { kind: "transient", message: String(e) };
+}
+
 export function reviewMatches(kind: ProviderKind, requestId: string, onEvent: (ev: ChatEvent) => void) {
   const channel = new Channel<ChatEvent>();
   channel.onmessage = onEvent;
@@ -143,15 +154,28 @@ export function signed(v: number): string {
   return r > 0 ? `+${r}` : `${r}`;
 }
 
+export type Trend = {
+  /** Which way the number moved. */
+  arrow: "▲" | "▼" | "■";
+  /** Whether that's good for the player (fewer deaths going down is better). */
+  verdict: "better" | "worse" | "flat";
+};
+
 /**
  * Last 5 games compared with the ones before. Small changes are "flat" so
  * noise doesn't read as progress.
  */
-export function trend(recent: number | null, earlier: number | null, higher: boolean): "up" | "down" | "flat" | null {
+export function trend(recent: number | null, earlier: number | null, higher: boolean): Trend | null {
   if (recent === null || earlier === null) return null;
   const scale = Math.max(Math.abs(earlier), Math.abs(recent), 1e-6);
-  if (Math.abs(recent - earlier) / scale < 0.08) return "flat";
-  return recent > earlier === higher ? "up" : "down";
+  if (Math.abs(recent - earlier) / scale < 0.08) return { arrow: "■", verdict: "flat" };
+  const rose = recent > earlier;
+  return { arrow: rose ? "▲" : "▼", verdict: rose === higher ? "better" : "worse" };
+}
+
+/** Client-side shape check before saving: "Name#TAG". */
+export function looksLikeRiotId(s: string): boolean {
+  return /^[^#]{3,16}#[^#\s]{3,5}$/u.test(s.trim());
 }
 
 const ROLE_NAMES: Record<string, [string, string]> = {

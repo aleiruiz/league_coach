@@ -1584,11 +1584,11 @@ a.inline-link {
   font-weight: 700;
 }
 
-.metric-trend.up {
+.metric-trend.better {
   color: var(--ok);
 }
 
-.metric-trend.down {
+.metric-trend.worse {
   color: var(--danger);
 }
 
@@ -1663,4 +1663,15 @@ a.inline-link {
 
 .check input {
   flex: none;
+}
+
+.sync-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sync-error .error {
+  margin: 0;
 }

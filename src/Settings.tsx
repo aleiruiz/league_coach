@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Lang, LANGUAGES, t } from "./i18n";
-import { Region, riotAccount, riotIdOf, saveRiotAccount } from "./history";
+import { looksLikeRiotId, Region, riotAccount, riotIdOf, saveRiotAccount } from "./history";
+import { humanizeError } from "./providers";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
 type KeyStatus = { provider: string; state: KeyState; error: string | null };
@@ -37,6 +38,8 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
   const [auto, setAuto] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The account as last saved: the auto-review toggle applies to it right away. */
+  const [saved, setSaved] = useState<{ riotId: string; region: string } | null>(null);
 
   useEffect(() => {
     riotAccount()
@@ -45,21 +48,34 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
         setRiotId(riotIdOf(profile));
         setRegion(profile.region);
         setAuto(profile.auto_analyze);
+        if (riotIdOf(profile) && profile.region) setSaved({ riotId: riotIdOf(profile), region: profile.region });
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(humanizeError(String(e))));
   }, []);
 
-  async function save() {
+  async function save(id: string, reg: string, autoAnalyze: boolean, done: string) {
     setMessage(null);
     setError(null);
+    if (!looksLikeRiotId(id)) {
+      setError(t("Write your Riot ID as Name#TAG.", "Escribe tu Riot ID como Nombre#TAG."));
+      return;
+    }
     try {
-      const p = await saveRiotAccount(riotId, region, auto);
+      const p = await saveRiotAccount(id, reg, autoAnalyze);
       setRiotId(riotIdOf(p));
-      setMessage(t("Riot account saved.", "Cuenta de Riot guardada."));
+      setSaved({ riotId: riotIdOf(p), region: p.region });
+      setMessage(done);
       onSaved();
     } catch (e) {
-      setError(String(e));
+      setError(humanizeError(String(e)));
     }
+  }
+
+  function toggleAuto(on: boolean) {
+    setAuto(on);
+    // Applies at once to the saved account; with no account yet, on the first save.
+    if (saved)
+      save(saved.riotId, saved.region, on, on ? t("Automatic review on.", "Revisión automática activada.") : t("Automatic review off.", "Revisión automática desactivada."));
   }
 
   return (
@@ -82,7 +98,7 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
         className="key-form riot-form"
         onSubmit={(e) => {
           e.preventDefault();
-          save();
+          save(riotId, region, auto, t("Riot account saved.", "Cuenta de Riot guardada."));
         }}
       >
         <input
@@ -108,10 +124,10 @@ function RiotAccount({ onSaved }: { onSaved: () => void }) {
         </button>
       </form>
       <label className="check">
-        <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.currentTarget.checked)} />
+        <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
         {t(
-          "Review new games automatically while the app is open (uses your model plan). Save to apply.",
-          "Revisar las partidas nuevas automáticamente mientras la app está abierta (usa tu plan del modelo). Guarda para aplicarlo.",
+          "Review new games automatically while the app is open. Each review is one request to your Claude or ChatGPT plan (one per batch of new games, not per minute).",
+          "Revisar las partidas nuevas automáticamente mientras la app está abierta. Cada revisión es una consulta a tu plan de Claude o ChatGPT (una por tanda de partidas nuevas, no por minuto).",
         )}
       </label>
       <p className="message" role="status" aria-live="polite">

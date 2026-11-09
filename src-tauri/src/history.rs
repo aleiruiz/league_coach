@@ -699,11 +699,12 @@ pub struct SavedReport {
     pub report: Report,
 }
 
-fn store_path(app: &AppHandle, puuid: &str) -> Result<PathBuf, String> {
-    let safe: String = puuid
+/// `id` is `Profile::store_id` (hex, so always a safe file name).
+fn store_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    let safe: String = id
         .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(100)
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(200)
         .collect();
     Ok(app
         .path()
@@ -713,16 +714,16 @@ fn store_path(app: &AppHandle, puuid: &str) -> Result<PathBuf, String> {
         .join(format!("{safe}.json")))
 }
 
-fn load_store(app: &AppHandle, puuid: &str) -> Store {
-    store_path(app, puuid)
+fn load_store(app: &AppHandle, id: &str) -> Store {
+    store_path(app, id)
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
 }
 
-fn save_store(app: &AppHandle, puuid: &str, store: &Store) -> Result<(), String> {
-    let path = store_path(app, puuid)?;
+fn save_store(app: &AppHandle, id: &str, store: &Store) -> Result<(), String> {
+    let path = store_path(app, id)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -818,12 +819,11 @@ fn needs_review(store: &Store) -> bool {
 #[tauri::command]
 pub fn match_history(app: AppHandle) -> HistoryView {
     let profile = riot::load_profile(&app);
-    let store = profile
-        .puuid
-        .as_deref()
-        .filter(|_| profile.is_complete())
-        .map(|p| load_store(&app, p))
-        .unwrap_or_default();
+    let store = if profile.is_complete() {
+        load_store(&app, &profile.store_id())
+    } else {
+        Store::default()
+    };
     let reviewed: Vec<GameStats> = store.games.iter().take(REVIEW_GAMES).cloned().collect();
     HistoryView {
         configured: profile.is_complete(),
@@ -832,6 +832,36 @@ pub fn match_history(app: AppHandle) -> HistoryView {
         latest: store.reports.first().cloned(),
         previous: store.reports.get(1).cloned(),
         games: store.games,
+    }
+}
+
+/// Why a sync failed. `setup`: the player must fix something in Settings
+/// (no key, expired key, unknown Riot ID). `transient`: try again later.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct SyncError {
+    pub kind: &'static str,
+    pub message: String,
+}
+
+impl From<RiotError> for SyncError {
+    fn from(e: RiotError) -> Self {
+        let kind = match e {
+            RiotError::NoKey | RiotError::KeyRejected | RiotError::NotFound => "setup",
+            RiotError::RateLimited | RiotError::BadRequest | RiotError::Other(_) => "transient",
+        };
+        SyncError {
+            kind,
+            message: e.message(),
+        }
+    }
+}
+
+impl From<String> for SyncError {
+    fn from(message: String) -> Self {
+        SyncError {
+            kind: "transient",
+            message,
+        }
     }
 }
 
@@ -848,40 +878,49 @@ pub async fn sync_matches(
     cache: State<'_, ddragon::Cache>,
     lock: State<'_, Lock>,
     on_event: Channel<ChatEvent>,
-) -> Result<SyncResult, String> {
+) -> Result<SyncResult, SyncError> {
     let _guard = lock.0.lock().await;
     let status = |t: String| {
         let _ = on_event.send(ChatEvent::Status { text: t });
     };
     let mut profile = riot::load_profile(&app);
     if !profile.is_complete() {
-        return Err(tr(
-            "Add your Riot ID and region in Settings.",
-            "Agrega tu Riot ID y tu región en Ajustes.",
-        )
-        .into());
+        return Err(SyncError {
+            kind: "setup",
+            message: tr(
+                "Add your Riot ID and region in Settings.",
+                "Agrega tu Riot ID y tu región en Ajustes.",
+            )
+            .into(),
+        });
     }
     let region = riot::find_region(&profile.region).expect("checked by is_complete");
-    let client = riot::Client::new(region).map_err(|e| e.message())?;
-    let puuid = match profile.puuid.clone() {
-        Some(p) => p,
-        None => {
-            status(tr("Looking up your account…", "Buscando tu cuenta…").into());
-            let p = client
-                .puuid(&profile.game_name, &profile.tag_line)
-                .await
-                .map_err(|e| e.message())?;
-            profile.puuid = Some(p.clone());
-            riot::save_profile(&app, &profile)?;
-            p
-        }
+    let client = riot::Client::new(region)?;
+    let (name, tag) = (profile.game_name.clone(), profile.tag_line.clone());
+    let lookup = || {
+        status(tr("Looking up your account…", "Buscando tu cuenta…").into());
+        client.puuid(&name, &tag)
     };
-
-    let ids = client
-        .match_ids(&puuid, FETCH_COUNT)
-        .await
-        .map_err(|e| e.message())?;
-    let mut store = load_store(&app, &puuid);
+    let cached = profile.puuid.is_some();
+    let mut puuid = match profile.puuid.clone() {
+        Some(p) => p,
+        None => lookup().await?,
+    };
+    let ids = match client.match_ids(&puuid, FETCH_COUNT).await {
+        // A PUUID cached with another API key isn't valid for this one
+        // (Riot encrypts them per key): look it up again once.
+        Err(RiotError::BadRequest | RiotError::NotFound) if cached => {
+            puuid = lookup().await?;
+            client.match_ids(&puuid, FETCH_COUNT).await?
+        }
+        other => other?,
+    };
+    if profile.puuid.as_deref() != Some(puuid.as_str()) {
+        profile.puuid = Some(puuid.clone());
+        riot::save_profile(&app, &profile)?;
+    }
+    let store_id = profile.store_id();
+    let mut store = load_store(&app, &store_id);
     let known: HashSet<&str> = store
         .games
         .iter()
@@ -920,8 +959,8 @@ pub async fn sync_matches(
             }
             Err(e) => {
                 // Keep what was already read.
-                save_store(&app, &puuid, &store)?;
-                return Err(e.message());
+                save_store(&app, &store_id, &store)?;
+                return Err(e.into());
             }
         };
         if compute(&m, None, &puuid, &legendary).is_none() {
@@ -932,8 +971,8 @@ pub async fn sync_matches(
             Ok(t) => Some(t),
             Err(RiotError::NotFound) => None,
             Err(e) => {
-                save_store(&app, &puuid, &store)?;
-                return Err(e.message());
+                save_store(&app, &store_id, &store)?;
+                return Err(e.into());
             }
         };
         if let Some(g) = compute(&m, timeline.as_ref(), &puuid, &legendary) {
@@ -945,7 +984,7 @@ pub async fn sync_matches(
     store.games.truncate(KEEP_GAMES);
     let skip_from = store.skipped.len().saturating_sub(200);
     store.skipped.drain(..skip_from);
-    save_store(&app, &puuid, &store)?;
+    save_store(&app, &store_id, &store)?;
     Ok(SyncResult {
         new_games,
         needs_review: needs_review(&store),
@@ -964,18 +1003,15 @@ pub async fn review_matches(
 ) -> Result<SavedReport, String> {
     let _guard = lock.0.lock().await;
     let profile = riot::load_profile(&app);
-    let puuid = profile
-        .puuid
-        .clone()
-        .filter(|_| profile.is_complete())
-        .ok_or_else(|| {
-            tr(
-                "Read your games first (Riot ID, region and key in Settings).",
-                "Primero lee tus partidas (Riot ID, región y key en Ajustes).",
-            )
-            .to_string()
-        })?;
-    let mut store = load_store(&app, &puuid);
+    if !profile.is_complete() {
+        return Err(tr(
+            "Add your Riot ID and region in Settings first.",
+            "Primero agrega tu Riot ID y tu región en Ajustes.",
+        )
+        .into());
+    }
+    let store_id = profile.store_id();
+    let mut store = load_store(&app, &store_id);
     let games: Vec<GameStats> = store.games.iter().take(REVIEW_GAMES).cloned().collect();
     if games.len() < MIN_GAMES {
         return Err(format!(
@@ -1047,7 +1083,7 @@ pub async fn review_matches(
     };
     store.reports.insert(0, saved.clone());
     store.reports.truncate(20);
-    save_store(&app, &puuid, &store)?;
+    save_store(&app, &store_id, &store)?;
     Ok(saved)
 }
 
@@ -1250,6 +1286,15 @@ mod tests {
         assert_eq!(r.pain_points[2].title, "C");
         assert!(parse_report(r#"{"pain_points": []}"#, &games).is_err());
         assert!(parse_report("no json", &games).is_err());
+    }
+
+    #[test]
+    fn sync_errors_say_whether_settings_need_fixing() {
+        assert_eq!(SyncError::from(RiotError::KeyRejected).kind, "setup");
+        assert_eq!(SyncError::from(RiotError::NoKey).kind, "setup");
+        assert_eq!(SyncError::from(RiotError::NotFound).kind, "setup");
+        assert_eq!(SyncError::from(RiotError::RateLimited).kind, "transient");
+        assert_eq!(SyncError::from(String::from("disk full")).kind, "transient");
     }
 
     #[test]

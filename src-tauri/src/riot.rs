@@ -95,6 +95,17 @@ impl Profile {
     pub fn riot_id(&self) -> String {
         format!("{}#{}", self.game_name, self.tag_line)
     }
+
+    /// Stable name for this account's local history. Not the PUUID: Riot
+    /// encrypts PUUIDs per API key, so it changes when the key does
+    /// (development key → Personal key).
+    pub fn store_id(&self) -> String {
+        format!("{}#{}#{}", self.region, self.game_name, self.tag_line)
+            .to_lowercase()
+            .bytes()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
 }
 
 /// Splits "Name#TAG" (spaces around it are ignored; the name may contain
@@ -139,6 +150,14 @@ pub fn load_profile(app: &AppHandle) -> Profile {
         })
 }
 
+/// The cached PUUID belongs to the old key: look it up again on next sync.
+pub fn forget_puuid(app: &AppHandle) {
+    let mut p = load_profile(app);
+    if p.puuid.take().is_some() {
+        let _ = save_profile(app, &p);
+    }
+}
+
 pub fn save_profile(app: &AppHandle, profile: &Profile) -> Result<(), String> {
     let path = profile_path(app).ok_or("No settings folder")?;
     if let Some(dir) = path.parent() {
@@ -156,6 +175,9 @@ pub enum RiotError {
     KeyRejected,
     #[error("not found")]
     NotFound,
+    /// Riot answers 400 to a PUUID encrypted for another API key.
+    #[error("bad request")]
+    BadRequest,
     #[error("rate limited")]
     RateLimited,
     #[error("{0}")]
@@ -186,6 +208,11 @@ impl RiotError {
                 "Se alcanzó el límite de consultas de Riot. Vuelve a intentarlo en un par de minutos.",
             )
             .into(),
+            RiotError::BadRequest => tr(
+                "Riot couldn't read the request. Check for new games again in a moment.",
+                "Riot no pudo leer la consulta. Vuelve a buscar partidas en un momento.",
+            )
+            .into(),
             RiotError::Other(e) => format!(
                 "{} {e}",
                 tr("Couldn't reach Riot:", "No pude conectar con Riot:")
@@ -197,6 +224,8 @@ impl RiotError {
 /// Longest wait honored from a `Retry-After` header. A development key
 /// allows 100 requests every 2 minutes.
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(125);
+
+const REQUEST_GAP: Duration = Duration::from_millis(80);
 
 pub struct Client {
     http: reqwest::Client,
@@ -230,6 +259,8 @@ impl Client {
         let mut attempt = 0;
         loop {
             attempt += 1;
+            // Stay well under a development key's 20 requests per second.
+            tokio::time::sleep(REQUEST_GAP).await;
             let resp = self
                 .http
                 .get(url.clone())
@@ -246,6 +277,7 @@ impl Client {
                         .map_err(|e| RiotError::Other(e.without_url().to_string()));
                 }
                 401 | 403 => return Err(RiotError::KeyRejected),
+                400 => return Err(RiotError::BadRequest),
                 404 => return Err(RiotError::NotFound),
                 429 if attempt <= 2 => {
                     let wait = resp
@@ -371,6 +403,29 @@ mod tests {
             u.as_str(),
             "https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/a%20b%2Fc%3F/TAG"
         );
+    }
+
+    #[test]
+    fn store_id_is_stable_and_safe() {
+        let p = Profile {
+            game_name: "Señor X".into(),
+            tag_line: "LAN".into(),
+            region: "la1".into(),
+            puuid: Some("one-key".into()),
+            ..Default::default()
+        };
+        let other_key = Profile {
+            puuid: Some("another-key".into()),
+            game_name: "señor x".into(),
+            ..p.clone()
+        };
+        assert_eq!(p.store_id(), other_key.store_id());
+        assert!(p.store_id().chars().all(|c| c.is_ascii_hexdigit()));
+        let euw = Profile {
+            region: "euw1".into(),
+            ..p.clone()
+        };
+        assert_ne!(p.store_id(), euw.store_id());
     }
 
     #[test]
