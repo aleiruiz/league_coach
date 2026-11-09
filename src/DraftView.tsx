@@ -99,6 +99,11 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   const [followUp, setFollowUp] = useState("");
   const [answers, setAnswers] = useState<{ q: string; a: string; error?: string }[]>([]);
   const requestId = useRef<string | null>(null);
+  const result = useRef<HTMLDivElement>(null);
+  // Al llegar una build nueva, se lleva a la vista (queda debajo del draft).
+  useEffect(() => {
+    if (rec) result.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [rec]);
 
   useEffect(() => {
     gameData().then(setData).catch((e) => setDataError(String(e)));
@@ -317,6 +322,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
           Cambiaste la partida desde esta build. Pulsa «Recalcular build» para adaptarla.
         </p>
       )}
+      <div ref={result} />
       {rec?.card_error && (
         <section className={stale ? "panel analysis-only stale" : "panel analysis-only"}>
           <h4 className="panel-title">Análisis del modelo</h4>

@@ -391,7 +391,7 @@ pub fn team_profile(enemies: &[&Champion]) -> String {
 }
 
 const SCHEMA: &str = r#"{
-  "answer": "respuesta a las NOTAS DEL JUGADOR, tan larga como pida la pregunta (lo esencial del análisis), o \"\" si no hay notas",
+  "answer": "respuesta a las NOTAS DEL JUGADOR en 3-6 viñetas cortas en markdown (\"- ...\"), o \"\" si no hay notas",
   "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
@@ -470,7 +470,7 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
         p,
         "\nINSTRUCCIONES:\n\
 - PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la tarjeta, donde se comprueban contra tu búsqueda.\n\
-- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat.\n\
+- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat. Si pregunta qué comprar con cierto oro, di la compra exacta que alcanza con ese oro (un componente vale).\n\
 - Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos genéricos. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
 - No afirmes nada de lo que no estés seguro: mejor menos ítems situacionales y bien elegidos.\n\
 - Usa los nombres en español del cliente (es_MX). Sé directo; nada de tablas largas.",
@@ -553,7 +553,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
     let _ = writeln!(
         p,
         "\nREGLAS:\n\
-- \"answer\" es la respuesta a las notas del jugador (\"\" si no hay notas); \"summary\", UNA frase. Ningún campo lleva dudas ni correcciones (\"no, mejor…\", \"ver abajo\"): la duda, si la hay, va solo en \"caveat\".\n\
+- \"answer\" es la respuesta a las notas del jugador (\"\" si no hay notas): 3-6 viñetas cortas con lo que tiene que hacer, sin repetir runas ni la build (ya van en la tarjeta); \"summary\", UNA frase. Ningún campo lleva dudas ni correcciones (\"no, mejor…\", \"ver abajo\"): la duda, si la hay, va solo en \"caveat\".\n\
 - En \"stats\" pon SOLO cifras que salieron en los resultados de tu búsqueda web en esta conversación (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs o METAsrc), con la URL exacta de ese resultado y el parche que indique; null en lo que no diga. Si no buscaste, \"stats\": []. Nunca cifras de memoria: se descartan las que no correspondan a un resultado de búsqueda.\n\
 - Responde SOLO con un bloque ```json con esta forma:\n{SCHEMA}"
     );

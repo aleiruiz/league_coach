@@ -1379,3 +1379,25 @@ a.inline-link {
   font-size: 13.5px;
   line-height: 1.5;
 }
+
+.answer-text.clamped {
+  max-height: 9.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.answer-text ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.link-button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
