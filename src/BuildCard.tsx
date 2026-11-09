@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, Role, RuneTree, Stat } from "./game";
 import { SHARD_ROWS } from "./game";
 import { RoleIcon } from "./icons";
+import SafeMarkdown from "./SafeMarkdown";
 import { Key, skillPath, SPECIAL_R } from "./skills";
 
 const norm = (s: string) =>
@@ -217,6 +218,9 @@ type Props = {
   card: Card;
   patch: string;
   warnings: string[];
+  incomplete: string[];
+  notes: string | null;
+  analysis: string;
   retried: boolean;
   onRetry?: () => void;
   trees: RuneTree[];
@@ -226,7 +230,32 @@ type Props = {
   roleLabel: string;
 };
 
-function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, lane, role, roleLabel }: Props) {
+/** «a, b y c» */
+function listaHumana(xs: string[]): string {
+  return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
+}
+
+/** «falta el resumen», «faltan las botas», «faltan el resumen y las botas». */
+function faltan(xs: string[]): string {
+  const plural = xs.length > 1 || /^(los|las) /.test(xs[0] ?? "");
+  return `${plural ? "faltan" : "falta"} ${listaHumana(xs)}`;
+}
+
+function BuildCard({
+  card,
+  patch,
+  warnings,
+  incomplete,
+  notes,
+  analysis,
+  retried,
+  onRetry,
+  trees,
+  champion,
+  lane,
+  role,
+  roleLabel,
+}: Props) {
   return (
     <article className="build-card">
       <header className="card-head">
@@ -247,6 +276,14 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
         </div>
         <span className="badge patch">Parche {patch}</span>
       </header>
+
+      {notes && card.answer && (
+        <section className="panel answer-panel" aria-label="Respuesta a tus notas">
+          <h4 className="panel-title">Tu pregunta</h4>
+          <blockquote className="answer-q">{notes}</blockquote>
+          <p>{card.answer}</p>
+        </section>
+      )}
 
       <section className="panel stats-panel">
         <h4 className="panel-title">Estadísticas citadas</h4>
@@ -408,11 +445,20 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
       )}
 
       {card.caveat && <p className="muted small">Nota: {card.caveat}</p>}
-      {warnings.length > 0 && (
+      {analysis && (
+        <details className="analysis">
+          <summary>Ver el análisis completo del modelo</summary>
+          <div className="analysis-text">
+            <SafeMarkdown>{analysis}</SafeMarkdown>
+          </div>
+        </details>
+      )}
+      {(warnings.length > 0 || incomplete.length > 0) && (
         <div className="card-warnings">
           <p className="error small">
             {retried ? "Le pedí al modelo que lo corrigiera y no lo logró del todo. " : ""}
-            Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}.
+            {warnings.length > 0 && <>Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}. </>}
+            {incomplete.length > 0 && <>La tarjeta quedó incompleta: {faltan(incomplete)}.</>}
           </p>
           {onRetry && (
             <button className="secondary" onClick={onRetry}>
