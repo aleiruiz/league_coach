@@ -1359,3 +1359,24 @@ a.inline-link {
   line-height: 1.5;
   color: var(--muted);
 }
+
+.answer-q {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-style: italic;
+}
+
+.analysis summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.analysis-text {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  font-size: 13.5px;
+  line-height: 1.5;
+}

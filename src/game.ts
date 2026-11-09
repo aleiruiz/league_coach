@@ -111,6 +111,12 @@ export const SHARD_ROWS: [string, string][][] = [
 export type Recommendation = {
   card: Card;
   warnings: string[];
+  /** Partes de la tarjeta que llegaron vacías, en palabras para el jugador. */
+  incomplete: string[];
+  /** Notas con las que se pidió la build. */
+  notes: string | null;
+  /** Análisis en texto libre del que sale la tarjeta. */
+  analysis: string;
   session_id: string | null;
   patch: string;
   version: string;

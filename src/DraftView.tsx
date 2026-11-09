@@ -333,6 +333,9 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
             card={rec.card}
             patch={rec.patch}
             warnings={rec.warnings}
+            incomplete={rec.incomplete}
+            notes={rec.notes}
+            analysis={rec.analysis}
             retried={rec.retried}
             onRetry={stale || busy ? undefined : recommend}
           />

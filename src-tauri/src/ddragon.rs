@@ -214,9 +214,16 @@ pub fn parse_champions(json: &str, version: &str) -> Result<Vec<Champion>, Strin
     Ok(out)
 }
 
-/// Ítems iniciales de ARAM (los «del Guardián») que Data Dragon también
-/// marca para la Grieta del Invocador.
-const ARAM_ONLY: [&str; 4] = ["2051", "3112", "3177", "3184"];
+/// Ítems de inicio de otros modos que Data Dragon también marca para la
+/// Grieta (p. ej. los «del Guardián» de ARAM): llevan la etiqueta de línea,
+/// no tienen receta ni se mejoran, pero cuestan más que un inicial normal.
+fn other_mode_starter(i: &Value) -> bool {
+    let empty = |k: &str| i[k].as_array().is_none_or(|a| a.is_empty());
+    let lane = i["tags"]
+        .as_array()
+        .is_some_and(|t| t.iter().any(|t| t == "Lane"));
+    lane && empty("from") && empty("into") && i["gold"]["total"].as_u64().unwrap_or(0) > 500
+}
 
 pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
@@ -232,7 +239,7 @@ pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
                 // Variantes de otros modos (Arena, etc.) con id de 6 cifras que
                 // Data Dragon marca también para la Grieta.
                 && id.len() <= 4
-                && !ARAM_ONLY.contains(&id.as_str())
+                && !other_mode_starter(i)
         })
         .collect();
     let buyable: std::collections::HashSet<&str> =
@@ -577,7 +584,7 @@ pub mod fixtures {
       "3123":{"name":"Llamado del Verdugo","plaintext":"Hiere gravemente","into":["6609"],"image":{"full":"3123.png"},"gold":{"base":400,"purchasable":true,"total":800,"sell":560},"tags":["Damage"],"maps":{"11":true}},
       "1054":{"name":"Escudo de Doran","plaintext":"","image":{"full":"1054.png"},"gold":{"base":450,"purchasable":true,"total":450,"sell":180},"tags":["Health","HealthRegen","Lane"],"maps":{"11":true}},
       "3865":{"name":"Mapamundi","plaintext":"","image":{"full":"3865.png"},"gold":{"base":400,"purchasable":true,"total":400,"sell":160},"tags":["Health","GoldPer","Lane"],"maps":{"11":true}},
-      "2003":{"name":"Poción de Vida","plaintext":"","image":{"full":"2003.png"},"gold":{"base":50,"purchasable":true,"total":50,"sell":20},"tags":["Consumable"],"maps":{"11":true}},
+      "2003":{"name":"Poción de Vida","plaintext":"","image":{"full":"2003.png"},"gold":{"base":50,"purchasable":true,"total":50,"sell":20},"tags":["HealthRegen","Consumable","Lane","Jungle"],"maps":{"11":true}},
       "3599":{"name":"Lanza Negra de Kalista","plaintext":"","image":{"full":"3599.png"},"gold":{"base":0,"purchasable":true,"total":0,"sell":0},"tags":[],"maps":{"11":true},"requiredChampion":"Kalista"},
       "4403":{"name":"Espátula Dorada","plaintext":"","image":{"full":"4403.png"},"gold":{"base":0,"purchasable":false,"total":0,"sell":0},"tags":[],"maps":{"11":true}},
       "3078B":{"name":"Fuerza de Trinidad","plaintext":"","image":{"full":"3078.png"},"gold":{"base":333,"purchasable":true,"total":3333,"sell":2333},"tags":["Damage"],"maps":{"11":true}},

@@ -217,6 +217,9 @@ type Props = {
   card: Card;
   patch: string;
   warnings: string[];
+  incomplete: string[];
+  notes: string | null;
+  analysis: string;
   retried: boolean;
   onRetry?: () => void;
   trees: RuneTree[];
@@ -226,7 +229,26 @@ type Props = {
   roleLabel: string;
 };
 
-function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, lane, role, roleLabel }: Props) {
+/** «a, b y c» */
+function listaHumana(xs: string[]): string {
+  return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
+}
+
+function BuildCard({
+  card,
+  patch,
+  warnings,
+  incomplete,
+  notes,
+  analysis,
+  retried,
+  onRetry,
+  trees,
+  champion,
+  lane,
+  role,
+  roleLabel,
+}: Props) {
   return (
     <article className="build-card">
       <header className="card-head">
@@ -248,9 +270,10 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
         <span className="badge patch">Parche {patch}</span>
       </header>
 
-      {card.answer && (
+      {notes && card.answer && (
         <section className="panel answer-panel" aria-label="Respuesta a tus notas">
           <h4 className="panel-title">Tu pregunta</h4>
+          <blockquote className="answer-q">{notes}</blockquote>
           <p>{card.answer}</p>
         </section>
       )}
@@ -415,11 +438,18 @@ function BuildCard({ card, patch, warnings, retried, onRetry, trees, champion, l
       )}
 
       {card.caveat && <p className="muted small">Nota: {card.caveat}</p>}
-      {warnings.length > 0 && (
+      {analysis && (
+        <details className="analysis">
+          <summary>Ver el análisis completo del modelo</summary>
+          <div className="analysis-text">{analysis}</div>
+        </details>
+      )}
+      {(warnings.length > 0 || incomplete.length > 0) && (
         <div className="card-warnings">
           <p className="error small">
             {retried ? "Le pedí al modelo que lo corrigiera y no lo logró del todo. " : ""}
-            Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}.
+            {warnings.length > 0 && <>Lo marcado en rojo no es válido en este parche: {warnings.join(". ")}. </>}
+            {incomplete.length > 0 && <>La tarjeta quedó incompleta: falta {listaHumana(incomplete)}.</>}
           </p>
           {onRetry && (
             <button className="secondary" onClick={onRetry}>
