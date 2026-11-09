@@ -391,7 +391,7 @@ pub fn team_profile(enemies: &[&Champion]) -> String {
 }
 
 const SCHEMA: &str = r#"{
-  "answer": "respuesta directa (1-3 líneas) a las NOTAS DEL JUGADOR, o \"\" si no hay notas",
+  "answer": "respuesta a las NOTAS DEL JUGADOR, tan larga como pida la pregunta (lo esencial del análisis), o \"\" si no hay notas",
   "summary": "UNA frase: la idea de la build para ESTA partida",
   "starting_items": ["ítem inicial", "..."],
   "core_items": ["ítem 1", "ítem 2", "ítem 3"],
@@ -437,8 +437,10 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
     let mut p = String::new();
     let _ = writeln!(
         p,
-        "PARCHE ACTUAL: {} (versión de Data Dragon {}). Todo lo que recomiendes debe ser válido en este parche.\n",
-        data.patch, data.version
+        "PARCHE ACTUAL: {} (versión de Data Dragon {}). Todo lo que recomiendes debe ser válido en este parche. Algunas webs muestran el parche con la versión del cliente ({}): es el mismo parche, no lo descartes.\n",
+        data.patch,
+        data.version,
+        data.version.rsplitn(2, '.').last().unwrap_or(&data.version)
     );
     let _ = writeln!(p, "TU CAMPEÓN: {} — rol {}", describe(me), draft.role);
     if let Some(l) = lane {
@@ -468,8 +470,9 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
         p,
         "\nINSTRUCCIONES:\n\
 - PRIMERO, si tienes búsqueda web, busca la build de {me} {role} en el parche {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) y, si hay rival de línea, el matchup. Usa solo datos del parche {patch}; descarta los de parches anteriores, y no escribas cifras (win rate, pick rate, partidas): las cifras van aparte, en la tarjeta, donde se comprueban contra tu búsqueda.\n\
-- Si hay NOTAS DEL JUGADOR, empieza respondiendo exactamente a lo que preguntan, en 1-3 líneas concretas.\n\
-- Después da UNA recomendación concreta y completa para ESTA partida, adaptada a estos rivales (daño, curación, CC, tanques): página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas, situacionales con cuándo comprarlos, orden de habilidades, plan early/mid/late, claves del matchup y amenazas. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
+- Si hay NOTAS DEL JUGADOR, lo primero y lo principal es responder a fondo lo que preguntan o lo que cambia por esa situación (minuto, oro, marcador…), como lo haría un coach en el chat.\n\
+- Después, más corta, la build para ESTA partida: página de runas entera con fragmentos, 2 hechizos, iniciales, 3 ítems principales en orden, botas y orden de habilidades. En situacionales, plan, claves del matchup y amenazas pon solo lo que cambia por ESTOS rivales (daño, curación, CC, tanques), no consejos genéricos. Nada de \"la que prefieras\" ni \"mira u.gg\".\n\
+- No afirmes nada de lo que no estés seguro: mejor menos ítems situacionales y bien elegidos.\n\
 - Usa los nombres en español del cliente (es_MX). Sé directo; nada de tablas largas.",
         me = me.name,
         role = draft.role,
@@ -596,6 +599,23 @@ fn row_in<'a>(tree: &'a RuneTree, name: &str) -> Option<(usize, &'a ddragon::Run
     })
 }
 
+/// Ítem ofensivo del tipo de daño contrario al del campeón (p. ej. un ítem de
+/// solo daño físico en un mago). Los mixtos y los defensivos no se juzgan.
+fn off_type(c: &Champion, i: &ddragon::Item) -> Option<&'static str> {
+    let has = |t: &str| i.tags.iter().any(|x| x == t);
+    let physical = has("Damage") || has("CriticalStrike");
+    // Solo campeones claramente de un tipo: los valores de Riot son gruesos y
+    // hay builds alternativas (Kog'Maw AP, Varus…).
+    let (a, m) = (c.attack as i8, c.magic as i8);
+    if m - a >= 5 && physical && !has("SpellDamage") {
+        Some("es de daño físico")
+    } else if a - m >= 5 && has("SpellDamage") && !physical {
+        Some("es de poder de habilidad")
+    } else {
+        None
+    }
+}
+
 /// Campos que la tarjeta necesita y llegaron vacíos (JSON cortado, o el
 /// modelo se quedó a medias). Disparan la ronda de corrección.
 /// Cada uno va como (instrucción para el modelo, nombre para el jugador).
@@ -672,6 +692,7 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
         Core,
         Boots,
     }
+    let me = data.champion(&draft.champion);
     let mut item = |name: &str, slot: Slot| {
         let found = data.item_by_name(name);
         let mut valid = found.is_some();
@@ -705,6 +726,17 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft) -> (Card, Vec<Str
                 warnings.push(format!(
                     "\"{}\" es el inicial de soporte y tu rol es {}",
                     i.name, draft.role
+                ));
+            }
+            Some(i) if slot == Slot::Core && me.and_then(|c| off_type(c, i)).is_some() => {
+                valid = false;
+                let c = me.unwrap();
+                warnings.push(format!(
+                    "\"{}\" {} y {} hace {}",
+                    i.name,
+                    off_type(c, i).unwrap(),
+                    c.name,
+                    damage(c)
                 ));
             }
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
@@ -1239,6 +1271,22 @@ mod tests {
 
         d.champion = "Cassiopeia".into();
         assert!(!missing(&empty, &d).iter().any(|w| w.0.contains("boots")));
+    }
+
+    #[test]
+    fn offensive_items_match_the_damage_type() {
+        let data = fixtures::data();
+        let mut ahri = draft();
+        ahri.champion = "Ahri".into();
+        let (c, w) = validate(&parse_card(GOOD).unwrap(), &data, &ahri);
+        assert!(!c.core_items[0].valid);
+        assert!(
+            w[0].contains("es de daño físico y Ahri hace daño mágico"),
+            "{w:?}"
+        );
+        // Jax (7/7) es mixto: no se juzga.
+        let (c, _) = validate(&parse_card(GOOD).unwrap(), &data, &draft());
+        assert!(c.core_items[0].valid);
     }
 
     #[test]

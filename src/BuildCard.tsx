@@ -281,7 +281,9 @@ function BuildCard({
         <section className="panel answer-panel" aria-label="Respuesta a tus notas">
           <h4 className="panel-title">Tu pregunta</h4>
           <blockquote className="answer-q">{notes}</blockquote>
-          <p>{card.answer}</p>
+          <div className="answer-text">
+            <SafeMarkdown>{card.answer}</SafeMarkdown>
+          </div>
         </section>
       )}
 

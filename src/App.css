@@ -1343,8 +1343,8 @@ a.inline-link {
   border-left-width: 3px;
 }
 
-.answer-panel p {
-  margin: 0;
+.answer-text p {
+  margin: 0 0 6px;
   font-size: 15px;
   line-height: 1.45;
 }
