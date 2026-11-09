@@ -399,8 +399,21 @@ fn model_gone(app: &AppHandle, kind: ProviderKind, model: Option<&str>, error: S
     )
 }
 
+/// The error names the chosen model *and* says it doesn't exist or isn't
+/// available. A limit error that names the model ("Opus limit reached")
+/// must not clear the user's pick.
 fn mentions_model(error: &str, model: &str) -> bool {
-    error.to_lowercase().contains(&model.to_lowercase())
+    let e = error.to_lowercase();
+    let gone = [
+        "may not exist",
+        "does not exist",
+        "not found",
+        "not supported",
+        "unrecognized model",
+        "unknown model",
+        "invalid model",
+    ];
+    e.contains(&model.to_lowercase()) && !e.contains("limit") && gone.iter().any(|g| e.contains(g))
 }
 
 /// Current patch, only if Data Dragon was already loaded this run (the main
@@ -463,6 +476,11 @@ mod tests {
             "gpt-9"
         ));
         assert!(!mentions_model("Usage limit reached", "opus"));
+        assert!(!mentions_model(
+            "You've hit your Opus limit · resets 5pm",
+            "opus"
+        ));
+        assert!(!mentions_model("Opus is overloaded, try again", "opus"));
     }
 
     #[test]
