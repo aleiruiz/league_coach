@@ -42,10 +42,11 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Frontend (tsc + vite build)
+      - name: Frontend (tsc + vite build + tests)
         run: |
           npm ci
           npm run build
+          npm test
 
       - name: Formato Rust
         working-directory: src-tauri
