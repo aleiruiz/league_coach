@@ -132,8 +132,9 @@ export function SummonerSearch({
         })
         .catch((e) => {
           const message = humanizeError(String(e));
-          // No API key: a hint, not an error (the search still saves the ID).
-          const soft = /API key/i.test(message);
+          // No API key yet: a hint, not an error (saving still works). A
+          // rejected or expired key needs action, so it stays an error.
+          const soft = /^(Paste your Riot API key|Pega tu API key)/.test(message);
           const failed: Lookup = { state: "error", message, soft };
           // Only remember "not found"; a network error should retry.
           if (/No player|Nadie se llama/.test(message)) cache.current.set(key, failed);
@@ -197,8 +198,8 @@ export function SummonerSearch({
             {t("Region", "Región")}
           </option>
           {regions.map((r) => (
-            <option key={r.id} value={r.id} title={r.label}>
-              {shortRegion(r)}
+            <option key={r.id} value={r.id}>
+              {shortRegion(r)} – {r.label.replace(/\s*\([^)]*\)\s*$/, "")}
             </option>
           ))}
         </select>
@@ -210,7 +211,7 @@ export function SummonerSearch({
             aria-controls={listId}
             aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
             aria-autocomplete="list"
-            placeholder={t("Game name + #TAG", "Nombre de invocador + #TAG")}
+            placeholder={t("Riot ID: name + #TAG", "Riot ID: nombre + #TAG")}
             autoComplete="off"
             spellCheck={false}
             value={riotId}
@@ -220,11 +221,21 @@ export function SummonerSearch({
               setActive(-1);
             }}
             onFocus={() => setOpen(true)}
-            onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+            onBlur={(e) => {
+              // Tabbing into the list (star / remove buttons) keeps it open.
+              if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setOpen(false);
+            }}
             onKeyDown={onKey}
           />
           {open && list.length > 0 && (
-            <ul className="search-suggestions" id={listId} role="listbox">
+            <ul
+              className="search-suggestions"
+              id={listId}
+              role="listbox"
+              onBlur={(e) => {
+                if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setOpen(false);
+              }}
+            >
               {list.map((s, i) => (
                 <li
                   key={`${s.region}|${s.riotId}`}
@@ -240,10 +251,17 @@ export function SummonerSearch({
                   <button
                     type="button"
                     className={s.saved ? "star on" : "star"}
-                    aria-label={s.saved ? t("Remove from saved", "Quitar de guardados") : t("Save", "Guardar")}
+                    aria-label={
+                      s.saved
+                        ? t(`Unstar ${s.riotId}`, `Quitar estrella a ${s.riotId}`)
+                        : t(`Star ${s.riotId}`, `Marcar ${s.riotId} con estrella`)
+                    }
                     title={s.saved ? t("Saved", "Guardado") : t("Save", "Guardar")}
                     onMouseDown={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
                       e.stopPropagation();
                       update(past.map((p) => (same(p, s) ? { ...p, saved: !p.saved } : p)));
                     }}
@@ -255,9 +273,12 @@ export function SummonerSearch({
                   <button
                     type="button"
                     className="remove"
-                    aria-label={t("Remove from history", "Quitar del historial")}
+                    aria-label={t(`Remove ${s.riotId} from history`, `Quitar ${s.riotId} del historial`)}
                     onMouseDown={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
                       e.stopPropagation();
                       update(past.filter((p) => !same(p, s)));
                     }}

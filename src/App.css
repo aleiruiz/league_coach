@@ -1820,7 +1820,10 @@ a.inline-link {
   border-color: var(--accent);
 }
 .search-bar select.search-region {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 15em;
+  min-width: 6em;
+  text-overflow: ellipsis;
   border: 0;
   padding-inline: 14px 8px;
   border-radius: 999px;
