@@ -64,14 +64,19 @@ def _mean(xs):
     return round(sum(xs) / len(xs), 2) if xs else None
 
 
-def averages(games):
+def cs_judged(g, v2: bool) -> bool:
+    """Since 354f3c6 supports are never judged on CS: their games stay out of every CS number."""
+    return not v2 or g["role"] != "UTILITY"
+
+
+def averages(games, v2: bool = False):
     m = lambda f: _mean([f(g) for g in games])  # noqa: E731
     return {
         "games": len(games),
         "win_rate": m(lambda g: 1.0 if g["win"] else 0.0),
-        "cs_per_min": m(lambda g: g["cs_per_min"]),
-        "cs_at_10": m(lambda g: g["cs_at_10"]),
-        "cs_diff_10": m(lambda g: g["cs_diff_10"]),
+        "cs_per_min": m(lambda g: g["cs_per_min"] if cs_judged(g, v2) else None),
+        "cs_at_10": m(lambda g: g["cs_at_10"] if cs_judged(g, v2) else None),
+        "cs_diff_10": m(lambda g: g["cs_diff_10"] if cs_judged(g, v2) else None),
         "gold_diff_15": m(lambda g: g["gold_diff_15"]),
         "kill_participation": m(lambda g: g["kill_participation"]),
         "deaths": m(lambda g: float(g["deaths"])),
@@ -128,32 +133,53 @@ def averages_line(a) -> str:
     )
 
 
-FIX = False  # --fix: proposed prompt changes (wins vs losses split, no CS for supports)
+# Which review_prompt to replicate:
+#   v1   a02b2a0 (first version of #9)
+#   fix  v1 + In wins/In losses lines + no CS for supports (the auditor's tested proposal)
+#   v2   354f3c6: fix + support CS out of every number, deterministic counts, caveat field,
+#        no-single-game rule, 1-2 points under 8 games, short evidence (default)
+PROMPT = "v2"
 
 
-def data_block(games, fix: bool | None = None) -> str:
+def data_block(games, version: str | None = None) -> str:
     """Everything after the rules in `review_prompt`: summary and per-game lines."""
-    fix = FIX if fix is None else fix
+    version = version or PROMPT
+    v2 = version == "v2"
+    no_support_cs = version in ("fix", "v2")
     s = summarize(games)
-    p = f"\nAverages over all games: {averages_line(s['all'])}\n"
-    if fix:
-        wins = [g for g in games if g["win"]]
-        losses = [g for g in games if not g["win"]]
-        if wins and losses:
-            p += f"In wins: {averages_line(averages(wins))}\n"
-            p += f"In losses: {averages_line(averages(losses))}\n"
+    av = lambda gs: averages_line(averages(gs, v2))  # noqa: E731
+    split = min(len(games), 5)
+    wins = [g for g in games if g["win"]]
+    losses = [g for g in games if not g["win"]]
+    p = f"\nAverages over all games: {av(games)}\n"
+    if version == "fix" and wins and losses:
+        p += f"In wins: {av(wins)}\nIn losses: {av(losses)}\n"
     if s["earlier"]["games"] > 0:
-        p += f"Last {s['recent']['games']} games: {averages_line(s['recent'])}\n"
-        p += f"Games before those: {averages_line(s['earlier'])}\n"
+        p += f"Last {split} games: {av(games[:split])}\n"
+        p += f"Games before those: {av(games[split:])}\n"
+    if v2 and wins and losses:
+        p += f"In wins: {av(wins)}\nIn losses: {av(losses)}\n"
     lst = lambda cs: ", ".join(f"{c['name']} ({c['games']} games, {c['wins']} wins)" for c in cs)  # noqa: E731
     p += f"Roles: {lst(s['roles'])}\n"
     p += f"Most played champions: {lst(s['champions'])}\n"
-    if fix:
+    if no_support_cs:
         laners = [g["cs_diff_10"] for g in games if g["role"] != "UTILITY" and g["cs_diff_10"] is not None]
         if laners:
             p += f"Behind the lane opponent in CS at 10: {sum(1 for d in laners if d < 0)} of {len(laners)} games (support games not counted)\n"
     else:
         p += f"Behind the lane opponent in CS at 10: {s['behind_at_10'][0]} of {s['behind_at_10'][1]} games\n"
+    if v2:
+        def count(label, f):
+            known = [x for x in (f(g) for g in games) if x is not None]
+            if known:
+                return f"Games with {label}: {sum(known)} of {len(known)}\n"
+            return ""
+        p += count("ahead of the lane opponent in CS at 10", lambda g: None if g["cs_diff_10"] is None or not cs_judged(g, True) else g["cs_diff_10"] > 0)
+        p += count("ahead of the lane opponent in gold at 15", lambda g: None if g["gold_diff_15"] is None else g["gold_diff_15"] > 0)
+        p += count("2+ deaths before 14:00", lambda g: None if g["early_deaths"] is None else g["early_deaths"] >= 2)
+        p += count("at least one solo death", lambda g: None if g["solo_deaths"] is None else g["solo_deaths"] >= 1)
+        p += count("0 control wards bought", lambda g: g["control_wards"] == 0)
+        p += count("kill participation under 50%", lambda g: g["kill_participation"] < 0.5)
     if s["thrown_leads"]:
         p += f"Lost after the team led by {THROWN_LEAD_GOLD}+ gold at 15:00: {', '.join(s['thrown_leads'])}\n"
     p += "\nGames:\n"
@@ -161,7 +187,7 @@ def data_block(games, fix: bool | None = None) -> str:
         deaths = ", ".join(num(m) for m in g["death_minutes"])
         fi = None if g["first_item_min"] is None else f"min {num(g['first_item_min'])}"
         cs = f"CS/min {num(g['cs_per_min'])} | CS@10 {opt(g['cs_at_10'])} (diff {signed(g['cs_diff_10'])})"
-        if fix and g["role"] == "UTILITY":
+        if no_support_cs and g["role"] == "UTILITY":
             cs = "CS not judged (support)"
         p += (
             f"G{i + 1} | {QUEUES.get(g['queue_id'], 'Other')} | {g['champion']} {g['role'] or '?'} vs {g['opponent'] or '?'} | "
@@ -191,6 +217,40 @@ RULES = (
     "- Also name one real strength, with its numbers.\n"
 )
 
+RULES_V2 = (
+    "\nFind the pain points that would most improve this player's results, ordered by impact: 3, or only "
+    "1-2 with fewer than 8 games (don't invent a third).\n"
+    "Rules:\n"
+    "- Use only the numbers below. Don't search the web.\n"
+    "- Don't compare with rank averages, pro players or benchmarks you don't have here. Compare only with "
+    "the player's own games (their trend, their best and worst games) and with their lane opponents in "
+    'these games (the "diff" numbers).\n'
+    "- Prefer patterns that repeat across several games. A pain point can't rest on a single game; if a "
+    "number comes from one game, say so.\n"
+    '- Compare the "In wins" and "In losses" lines: what differs most between them is what costs games.\n'
+    "- Use the counts given below instead of counting games yourself.\n"
+    "- Each pain point must cite the exact numbers and the games (G refs) that show it.\n"
+    "- The drill is something concrete to practice in the next games (one focus, how to do it). "
+    "The target uses the same metric, is measurable, and is reachable from their current numbers.\n"
+    "- Consider the role and champions: a support is never judged on CS (their CS is left out on purpose), "
+    "a jungler's CS diff is against the enemy jungler.\n"
+    "- Evidence and why: at most 2 short sentences each.\n"
+    '- If the sample is small, mixes roles, or one game skews a number, say it in "caveat".\n'
+    "- Also name one real strength, with its numbers.\n"
+)
+
+SHAPE_V2 = (
+    "\nReply with ONLY a JSON object, no text before or after, in this shape:\n"
+    '{"headline": "one sentence: the main thing to fix",\n '
+    '"strength": "one real strength, with its numbers",\n '
+    '"caveat": "optional, one line: small sample, one-off game, or what the data can\'t show",\n '
+    '"pain_points": [{"title": "short name", "metric": "the metric it\'s measured by", '
+    '"evidence": "the numbers and games that show it", "why": "why it costs games", '
+    '"drill": "what to practice in the next games", "target": "measurable goal", '
+    '"games": ["G1", "G4"]}]}\n'
+    "Keys in English; the text values in the answer language."
+)
+
 SHAPE = (
     "\nReply with ONLY a JSON object, no text before or after, in this shape:\n"
     '{"headline": "one sentence: the main thing to fix",\n '
@@ -208,6 +268,8 @@ def review_prompt(riot_id: str, games) -> str:
         f"Post-game review. These are the last {len(games)} finished Summoner's Rift games of the player {riot_id}, "
         "computed by the app from Riot's official match data (Match-V5). G1 is the most recent game.\n"
     )
+    if PROMPT == "v2":
+        return p + RULES_V2 + data_block(games) + SHAPE_V2
     return p + RULES + data_block(games) + SHAPE
 
 
@@ -215,7 +277,7 @@ def baseline_prompt(games) -> str:
     return (
         f"These are the numbers of my last {len(games)} League of Legends games (Summoner's Rift, G1 is the most "
         "recent), from Riot's match data. What are the 3 things I should work on to win more, and how do I "
-        "practice them?\n" + data_block(games, fix=False)
+        "practice them?\n" + data_block(games, "v1")
     )
 
 
@@ -244,6 +306,7 @@ def parse_report(text: str, games):
     return {
         "headline": str(obj.get("headline", "")).strip(),
         "strength": str(obj.get("strength", "")).strip(),
+        "caveat": str(obj.get("caveat", "") or "").strip(),
         "pain_points": pts,
         "n_points_raw": len(obj.get("pain_points") or []),
         "bad_refs": bad_refs,
@@ -253,7 +316,10 @@ def parse_report(text: str, games):
 
 def render_report(rep) -> str:
     """Text the judge sees, in the order the Progress screen shows it."""
-    out = [rep["headline"], "", f"Keep doing: {rep['strength']}", ""]
+    out = [rep["headline"], ""]
+    if rep.get("caveat"):
+        out += [f"Note: {rep['caveat']}", ""]
+    out += [f"Keep doing: {rep['strength']}", ""]
     for i, p in enumerate(rep["pain_points"], 1):
         out += [
             f"{i}. {p['title']} ({p['metric']})",
@@ -495,7 +561,7 @@ def judge_case(case, games) -> dict:
         "prompt": (
             "Post-game review. The player wants the 3 things to work on from their last games, with drills. "
             "The coach was given ONLY these numbers (computed from Riot's match data). Check every number and G ref "
-            "the answer cites against them.\n" + data_block(games, fix=False)
+            "the answer cites against them.\n" + data_block(games, "v1")
             + f"\n\n(Evaluator note, not shown to the coach: the data was generated with this planted pattern: {case['planted']})"
         ),
     }
@@ -545,10 +611,12 @@ def main():
     ap.add_argument("--prompts", type=Path, default=ROOT / "src-tauri/src/providers/prompts.rs")
     ap.add_argument("--print-prompt", action="store_true", help="print the harness prompt of each case and exit")
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--fix", action="store_true", help="harness with the proposed prompt changes (wins vs losses lines, no CS for supports)")
+    ap.add_argument("--prompt", choices=["v1", "fix", "v2"], default="v2",
+                    help="review_prompt to replicate: v1 = a02b2a0, fix = v1 + wins/losses + no support CS, v2 = 354f3c6 (default)")
+    ap.add_argument("--fix", action="store_true", help="same as --prompt fix")
     args = ap.parse_args()
-    global FIX
-    FIX = args.fix
+    global PROMPT
+    PROMPT = "fix" if args.fix else args.prompt
 
     cases = [c for c in CASES if not args.only or c["id"] in args.only.split(",")]
     if args.print_prompt:
@@ -556,7 +624,7 @@ def main():
             print(f"===== {c['id']}\n{review_prompt(RIOT_ID, player(c['id']))}\n")
         return
 
-    out_dir = ROOT / "eval/results" / ("history-" + ("fix-" if args.fix else "") + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    out_dir = ROOT / "eval/results" / ("history-" + PROMPT + "-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     system_file = out_dir / "coach_system.txt"
     system_file.write_text(R.load_coach_prompt(args.prompts, "en"), encoding="utf-8")
