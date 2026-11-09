@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Lang, LANGUAGES, t } from "./i18n";
+import { looksLikeRiotId, Region, riotAccount, riotIdOf, saveRiotAccount } from "./history";
+import { humanizeError } from "./providers";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
 type KeyStatus = { provider: string; state: KeyState; error: string | null };
@@ -9,7 +12,7 @@ const LABELS: Record<string, { name: string; hint: string }> = {
   anthropic: { name: "Anthropic (Claude)", hint: "sk-ant-..." },
   openai: { name: "OpenAI", hint: "sk-..." },
   openrouter: { name: "OpenRouter", hint: "sk-or-..." },
-  riot: { name: "Riot Games (Personal API key)", hint: "RGAPI-..." },
+  riot: { name: "Riot Games API key", hint: "RGAPI-..." },
 };
 
 const badge = (s: KeyState) =>
@@ -27,15 +30,125 @@ const INITIAL: KeyStatus[] = Object.keys(LABELS).map((provider) => ({
   error: null,
 }));
 
+/** Riot ID + region (server) for the post-game review in "My progress". */
+function RiotAccount({ onSaved }: { onSaved: () => void }) {
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [riotId, setRiotId] = useState("");
+  const [region, setRegion] = useState("");
+  const [auto, setAuto] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** The account as last saved: the auto-review toggle applies to it right away. */
+  const [saved, setSaved] = useState<{ riotId: string; region: string } | null>(null);
+
+  useEffect(() => {
+    riotAccount()
+      .then(({ profile, regions }) => {
+        setRegions(regions);
+        setRiotId(riotIdOf(profile));
+        setRegion(profile.region);
+        setAuto(profile.auto_analyze);
+        if (riotIdOf(profile) && profile.region) setSaved({ riotId: riotIdOf(profile), region: profile.region });
+      })
+      .catch((e) => setError(humanizeError(String(e))));
+  }, []);
+
+  async function save(id: string, reg: string, autoAnalyze: boolean, done: string) {
+    setMessage(null);
+    setError(null);
+    if (!looksLikeRiotId(id)) {
+      setError(t("Write your Riot ID as Name#TAG.", "Escribe tu Riot ID como Nombre#TAG."));
+      return;
+    }
+    try {
+      const p = await saveRiotAccount(id, reg, autoAnalyze);
+      setRiotId(riotIdOf(p));
+      setSaved({ riotId: riotIdOf(p), region: p.region });
+      setMessage(done);
+      onSaved();
+    } catch (e) {
+      setError(humanizeError(String(e)));
+    }
+  }
+
+  function toggleAuto(on: boolean) {
+    setAuto(on);
+    // Applies at once to the saved account; with no account yet, on the first save.
+    if (saved)
+      save(saved.riotId, saved.region, on, on ? t("Automatic review on.", "Revisión automática activada.") : t("Automatic review off.", "Revisión automática desactivada."));
+  }
+
+  return (
+    <>
+      <h3>{t("Riot account", "Cuenta de Riot")}</h3>
+      <p className="muted">
+        {t(
+          "Used only to read your finished games for \"My progress\". It also needs a Riot API key (below): get one at ",
+          "Solo se usa para leer tus partidas terminadas en «Mi progreso». También necesita una API key de Riot (abajo): consíguela en ",
+        )}
+        <button className="link-button" onClick={() => openUrl("https://developer.riotgames.com/")}>
+          developer.riotgames.com
+        </button>
+        {t(
+          ". Development keys expire every 24 hours; a Personal API key doesn't.",
+          ". Las development keys caducan cada 24 horas; una Personal API key no.",
+        )}
+      </p>
+      <form
+        className="key-form riot-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save(riotId, region, auto, t("Riot account saved.", "Cuenta de Riot guardada."));
+        }}
+      >
+        <input
+          aria-label="Riot ID"
+          placeholder={t("Name#TAG", "Nombre#TAG")}
+          autoComplete="off"
+          spellCheck={false}
+          value={riotId}
+          onChange={(e) => setRiotId(e.currentTarget.value)}
+        />
+        <select aria-label={t("Region", "Región")} value={region} onChange={(e) => setRegion(e.currentTarget.value)}>
+          <option value="" disabled>
+            {t("Region…", "Región…")}
+          </option>
+          {regions.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+        <button type="submit" disabled={!riotId.trim() || !region}>
+          {t("Save", "Guardar")}
+        </button>
+      </form>
+      <label className="check">
+        <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
+        {t(
+          "Review new games automatically while the app is open. Each review is one request to your Claude or ChatGPT plan (one per batch of new games, not per minute).",
+          "Revisar las partidas nuevas automáticamente mientras la app está abierta. Cada revisión es una consulta a tu plan de Claude o ChatGPT (una por tanda de partidas nuevas, no por minuto).",
+        )}
+      </label>
+      <p className="message" role="status" aria-live="polite">
+        {message}
+      </p>
+      {error && <p className="error">{error}</p>}
+    </>
+  );
+}
+
 function Settings({
   lang,
   onLanguage,
   locked,
+  onRiotAccount,
 }: {
   lang: Lang;
   onLanguage: (l: Lang) => Promise<void>;
   /** A request is running: the language can't change until it ends. */
   locked: boolean;
+  onRiotAccount: () => void;
 }) {
   const [keys, setKeys] = useState<KeyStatus[]>(INITIAL);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -62,6 +175,7 @@ function Settings({
       setDrafts((d) => ({ ...d, [provider]: "" }));
       setMessage(t(`${name(provider)} key saved.`, `Key de ${name(provider)} guardada.`));
       await refresh();
+      if (provider === "riot") onRiotAccount();
     } catch (e) {
       setMessage(`Error: ${e}`);
     }
@@ -114,6 +228,7 @@ function Settings({
               "Tu draft y tu conversación se conservan. Una build ya mostrada queda en su idioma hasta que pidas otra.",
             )}
       </p>
+      <RiotAccount onSaved={onRiotAccount} />
       <h3>{t("API keys (optional)", "API keys (opcional)")}</h3>
       <p className="muted">
         {t(

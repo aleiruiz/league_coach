@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Chat from "./Chat";
 import DraftView from "./DraftView";
+import Progress from "./Progress";
 import Models from "./Models";
 import Settings from "./Settings";
 import { NavIcon } from "./icons";
@@ -8,10 +9,11 @@ import { providerStatuses, ProviderStatus } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
-type View = "draft" | "coach" | "models" | "settings";
+type View = "draft" | "progress" | "coach" | "models" | "settings";
 
 const nav = (): { view: View; label: string }[] => [
   { view: "draft", label: t("Game", "Partida") },
+  { view: "progress", label: t("My progress", "Mi progreso") },
   { view: "coach", label: t("Ask", "Preguntar") },
   { view: "models", label: t("Models", "Modelos") },
   { view: "settings", label: t("Settings", "Ajustes") },
@@ -31,9 +33,12 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<Lang>(currentLang());
   // Views with a request in flight: the language can't change mid-request.
-  const [busy, setBusy] = useState({ draft: false, coach: false });
+  const [busy, setBusy] = useState({ draft: false, coach: false, progress: false });
+  const [accountVersion, setAccountVersion] = useState(0);
+  const accountSaved = useCallback(() => setAccountVersion((v) => v + 1), []);
   const draftBusy = useCallback((b: boolean) => setBusy((s) => (s.draft === b ? s : { ...s, draft: b })), []);
   const coachBusy = useCallback((b: boolean) => setBusy((s) => (s.coach === b ? s : { ...s, coach: b })), []);
+  const progressBusy = useCallback((b: boolean) => setBusy((s) => (s.progress === b ? s : { ...s, progress: b })), []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -92,6 +97,16 @@ function App() {
         <div hidden={view !== "draft"}>
           <DraftView providers={providers} lang={lang} onBusy={draftBusy} onGoToModels={() => setView("models")} />
         </div>
+        <div hidden={view !== "progress"}>
+          <Progress
+            providers={providers}
+            lang={lang}
+            accountVersion={accountVersion}
+            onBusy={progressBusy}
+            onGoToSettings={() => setView("settings")}
+            onGoToModels={() => setView("models")}
+          />
+        </div>
         <div hidden={view !== "coach"}>
           <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("models")} />
         </div>
@@ -99,7 +114,12 @@ function App() {
           <Models providers={providers} />
         </div>
         <div hidden={view !== "settings"}>
-          <Settings lang={lang} onLanguage={changeLanguage} locked={busy.draft || busy.coach} />
+          <Settings
+            lang={lang}
+            onLanguage={changeLanguage}
+            locked={busy.draft || busy.coach || busy.progress}
+            onRiotAccount={accountSaved}
+          />
         </div>
         <footer className="legal">
           League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or

@@ -34,7 +34,7 @@ pub struct Draft {
 
 /// `#[serde(default)]` solo cubre campos ausentes; los modelos a veces mandan
 /// `null` (p. ej. `"boots": null` con Cassiopeia). Eso no debe tumbar la tarjeta.
-fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+pub(crate) fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Default + Deserialize<'de>,
@@ -1040,7 +1040,7 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 /// de formato, que solo convierten texto ya escrito.
 const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
 
-async fn ask(
+pub(crate) async fn ask(
     app: &AppHandle,
     kind: ProviderKind,
     prompt: &str,
