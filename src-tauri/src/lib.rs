@@ -5,6 +5,7 @@ mod providers;
 mod recommend;
 mod riot;
 mod secrets;
+mod usage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -13,6 +14,7 @@ pub fn run() {
         .manage(providers::Running::default())
         .manage(ddragon::Cache::default())
         .manage(history::Lock::default())
+        .manage(usage::Store::default())
         .setup(|app| {
             i18n::load(app.handle());
             Ok(())
@@ -26,6 +28,9 @@ pub fn run() {
             providers::send_prompt,
             providers::cancel_prompt,
             providers::test_provider,
+            providers::models::provider_models,
+            providers::models::set_provider_model,
+            usage::usage_overview,
             ddragon::game_data,
             recommend::recommend_build,
             i18n::get_language,

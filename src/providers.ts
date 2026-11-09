@@ -122,3 +122,41 @@ export function humanizeError(raw: string): string {
   }
   return raw;
 }
+
+export type LimitWindow = {
+  id: string;
+  used_percent: number;
+  window_minutes: number | null;
+  resets_at: number | null;
+};
+
+export type UsageBucket = { hour: number; input: number; cached: number; output: number; queries: number };
+
+export type ProviderUsage = {
+  kind: ProviderKind;
+  buckets: UsageBucket[];
+  limits: { windows: LimitWindow[]; seen_at: number } | null;
+  limits_source: "answer" | "live" | null;
+  limits_error: string | null;
+};
+
+export type ModelOption = { id: string; name: string; description: string };
+
+export type ProviderModels = {
+  selected: string | null;
+  options: ModelOption[];
+  default_name: string | null;
+  error: string | null;
+};
+
+export function usageOverview(kind: ProviderKind) {
+  return invoke<ProviderUsage>("usage_overview", { kind });
+}
+
+export function providerModels(kind: ProviderKind) {
+  return invoke<ProviderModels>("provider_models", { kind });
+}
+
+export function setProviderModel(kind: ProviderKind, model: string | null) {
+  return invoke<void>("set_provider_model", { kind, model });
+}

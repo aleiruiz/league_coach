@@ -4,6 +4,7 @@
 
 pub mod claude_code;
 pub mod codex;
+pub mod models;
 mod process;
 pub use process::{DEFAULT_TIMEOUT, is_stopped};
 pub mod prompts;
@@ -93,6 +94,20 @@ pub enum ChatEvent {
     Sources {
         urls: Vec<String>,
     },
+    /// Tokens of the answer, as the CLI reports them. Recorded in the usage
+    /// store by `run`, never sent to the UI.
+    Usage {
+        /// Prompt tokens not read from the cache.
+        input_tokens: u64,
+        /// Prompt tokens read back from the provider's cache.
+        cached_tokens: u64,
+        output_tokens: u64,
+    },
+    /// Plan limits the CLI reported with the answer (Claude Code). Recorded
+    /// like `Usage`.
+    Limits {
+        windows: Vec<crate::usage::LimitWindow>,
+    },
     Done,
 }
 
@@ -147,6 +162,11 @@ async fn status(kind: ProviderKind) -> ProviderStatus {
     st.logged_in = logged_in;
     st.detail = detail;
     st
+}
+
+/// Path of the provider's CLI, if it is installed.
+pub fn resolve(kind: ProviderKind) -> Option<std::path::PathBuf> {
+    process::resolve(kind.binary())
 }
 
 fn not_installed(kind: ProviderKind) -> String {
@@ -301,6 +321,8 @@ pub async fn run(
     // build, review), so the model never has to guess it.
     let system = prompts::coach(lang, live_patch(app).await.as_ref());
 
+    let model = models::selected(app, kind);
+    let model = model.as_deref();
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
@@ -309,12 +331,12 @@ pub async fn run(
             let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
             std::fs::write(&prompt_file, &system).map_err(|e| e.to_string())?;
             (
-                claude_code::args(&prompt_file, session_id),
+                claude_code::args(&prompt_file, session_id, model),
                 prompt.to_string(),
             )
         }
         ProviderKind::Codex => (
-            codex::args(session_id),
+            codex::args(session_id, model),
             codex::stdin_prompt(prompt, session_id.is_none().then_some(system.as_str())),
         ),
     };
@@ -328,7 +350,73 @@ pub async fn run(
         timeout,
         cancel,
     };
-    process::stream(&bin, &args, opts, parse, send).await
+    // Usage and limits go to the usage store, not to the UI.
+    let store = app.state::<crate::usage::Store>();
+    let send = |ev: ChatEvent| match ev {
+        ChatEvent::Usage {
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+        } => store.record_tokens(
+            app,
+            kind,
+            crate::usage::Tokens {
+                input: input_tokens,
+                cached: cached_tokens,
+                output: output_tokens,
+            },
+        ),
+        ChatEvent::Limits { windows } => store.record_limits(app, kind, windows),
+        ChatEvent::Error { message } => send(ChatEvent::Error {
+            message: model_gone(app, kind, model, message),
+        }),
+        ev => send(ev),
+    };
+    process::stream(&bin, &args, opts, parse, &send)
+        .await
+        .map_err(|e| model_gone(app, kind, model, e))
+}
+
+/// If the CLI rejected the chosen model (it no longer exists, or the plan
+/// lost access to it), go back to the default so the next question works,
+/// and say so instead of the CLI's error.
+fn model_gone(app: &AppHandle, kind: ProviderKind, model: Option<&str>, error: String) -> String {
+    let Some(m) = model.filter(|m| mentions_model(&error, m)) else {
+        return error;
+    };
+    if models::clear(app, kind).is_err() {
+        return error;
+    }
+    tr(
+        format!(
+            "{} didn't accept the model “{m}” ({error}). I switched back to its default model: ask again.",
+            kind.label()
+        ),
+        format!(
+            "{} no aceptó el modelo «{m}» ({error}). Volví a su modelo predeterminado: pregunta de nuevo.",
+            kind.label()
+        ),
+    )
+}
+
+/// The error names the chosen model *and* says it doesn't exist or isn't
+/// available. A limit error that names the model ("Opus limit reached")
+/// must not clear the user's pick.
+fn mentions_model(error: &str, model: &str) -> bool {
+    let e = error.to_lowercase();
+    let gone = [
+        "may not exist",
+        "does not exist",
+        "not found",
+        "not supported",
+        "unrecognized model",
+        "unknown model",
+        "invalid model",
+    ];
+    e.contains(&model.to_lowercase())
+        && e.contains("model")
+        && !e.contains("limit")
+        && gone.iter().any(|g| e.contains(g))
 }
 
 /// Current patch, only if Data Dragon was already loaded this run (the main
@@ -378,6 +466,26 @@ impl Collected {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spots_a_rejected_model() {
+        // Real wording of Claude Code and Codex errors for an unknown model.
+        assert!(mentions_model(
+            "There's an issue with the selected model (claude-old). It may not exist or you may not have access to it.",
+            "claude-old"
+        ));
+        assert!(mentions_model(
+            "The 'GPT-9' model is not supported",
+            "gpt-9"
+        ));
+        assert!(!mentions_model("Usage limit reached", "opus"));
+        assert!(!mentions_model(
+            "You've hit your Opus limit · resets 5pm",
+            "opus"
+        ));
+        assert!(!mentions_model("Opus is overloaded, try again", "opus"));
+        assert!(!mentions_model("Session not found (opus)", "opus"));
+    }
 
     #[test]
     fn session_id_validation() {
