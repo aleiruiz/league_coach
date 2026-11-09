@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { ProvidersState } from "./App";
 import { ProviderSetup, modelsIntro } from "./Models";
 import { RiotAccount } from "./Settings";
@@ -42,6 +42,7 @@ function Onboarding({
   onDone: () => void;
 }) {
   const ready = aiReady && accountReady;
+  const [langError, setLangError] = useState<string | null>(null);
   return (
     <div className="setup">
       <header className="setup-head">
@@ -58,13 +59,16 @@ function Onboarding({
               role="radio"
               aria-checked={lang === l.value}
               className={lang === l.value ? "chip on" : "chip"}
-              onClick={() => l.value !== lang && onLanguage(l.value)}
+              onClick={() => {
+                if (l.value !== lang) onLanguage(l.value).catch((e) => setLangError(String(e)));
+              }}
             >
               {l.label}
             </button>
           ))}
         </div>
       </header>
+      {langError && <p className="error small">{langError}</p>}
       <h2>{t("Let's get you set up", "Vamos a configurarlo")}</h2>
       <p className="muted">
         {t(
@@ -89,6 +93,12 @@ function Onboarding({
           )}
         </p>
         <RiotAccount compact onSaved={onAccountSaved} />
+        <p className="muted small">
+          {t(
+            "New games are reviewed automatically in “My progress” using your AI plan (one request per batch of new games); you can turn it off in Settings. Reading your games also needs a Riot API key, which you can add later in Settings.",
+            "Las partidas nuevas se revisan automáticamente en «Mi progreso» usando tu plan de IA (una consulta por tanda de partidas nuevas); puedes desactivarlo en Ajustes. Para leer tus partidas también hace falta una API key de Riot, que puedes añadir después en Ajustes.",
+          )}
+        </p>
       </Step>
 
       <div className="setup-actions">

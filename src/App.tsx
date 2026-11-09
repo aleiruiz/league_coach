@@ -94,7 +94,9 @@ function App() {
     return (
       <div className="app setup-app">
         <main className="content">
-          {checking && firstCheck.current ? (
+          {/* While the first check runs, and in the frame before the effect lets an
+              already set-up player in, show the splash instead of flashing setup. */}
+          {firstCheck.current && (checking || (aiReady && accountReady)) ? (
             <p className="muted setup-checking">{t("Checking your setup…", "Comprobando tu configuración…")}</p>
           ) : (
             <Onboarding
