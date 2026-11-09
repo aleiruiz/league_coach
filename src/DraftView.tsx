@@ -2,16 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES } from "./game";
+import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES, RuneTree, Shard } from "./game";
 import { RoleIcon } from "./icons";
 import { damageProfile } from "./draft";
 import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
-import { t } from "./i18n";
+import { Lang, t } from "./i18n";
 
 /** Build received, with the model and the draft that produced it. */
-type Result = Recommendation & { kind: ProviderKind; draft: Draft };
+type Result = Recommendation & {
+  kind: ProviderKind;
+  draft: Draft;
+  /** Rune trees and shards in the language the card was built in. */
+  trees: RuneTree[];
+  shards: Shard[][];
+};
 
 /** Why the card failed, in the player's words. */
 function cardFailure(e: string): string {
@@ -103,7 +109,17 @@ function DamageBar({ champs }: { champs: Champion[] }) {
   );
 }
 
-function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onGoToModels: () => void }) {
+function DraftView({
+  providers,
+  lang,
+  onBusy,
+  onGoToModels,
+}: {
+  providers: ProvidersState;
+  lang: Lang;
+  onBusy: (busy: boolean) => void;
+  onGoToModels: () => void;
+}) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
   const [data, setData] = useState<GameData | null>(null);
@@ -128,8 +144,18 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
   }, [rec]);
 
   useEffect(() => {
-    gameData().then(setData).catch((e) => setDataError(String(e)));
-  }, []);
+    // Reloads when the language changes: names come in the new locale.
+    let current = true;
+    setDataError(null);
+    gameData()
+      .then((g) => current && setData(g))
+      .catch((e) => current && setDataError(String(e)));
+    return () => {
+      current = false;
+    };
+  }, [lang]);
+
+  useEffect(() => onBusy(busy), [busy, onBusy]);
 
   useEffect(() => {
     if (!ready.some((p) => p.kind === kind)) setKind(ready[0]?.kind ?? null);
@@ -177,7 +203,7 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       const r = await recommendBuild(usedKind, draft, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
       });
-      setRec({ ...r, kind: usedKind, draft });
+      setRec({ ...r, kind: usedKind, draft, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
     } catch (e) {
       setError(humanizeError(String(e)));
     } finally {
@@ -392,8 +418,8 @@ function DraftView({ providers, onGoToModels }: { providers: ProvidersState; onG
       {rec && !rec.card_error && (
         <div className={stale ? "stale" : undefined}>
           <BuildCard
-            trees={data?.rune_trees ?? []}
-            shards={data?.shards ?? []}
+            trees={rec.trees}
+            shards={rec.shards}
             champion={byId.get(rec.draft.champion)}
             lane={rec.draft.lane_opponent ? byId.get(rec.draft.lane_opponent) : undefined}
             role={rec.draft.role}

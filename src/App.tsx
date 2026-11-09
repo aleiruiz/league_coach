@@ -30,6 +30,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<Lang>(currentLang());
+  // Views with a request in flight: the language can't change mid-request.
+  const [busy, setBusy] = useState({ draft: false, coach: false });
+  const draftBusy = useCallback((b: boolean) => setBusy((s) => (s.draft === b ? s : { ...s, draft: b })), []);
+  const coachBusy = useCallback((b: boolean) => setBusy((s) => (s.coach === b ? s : { ...s, coach: b })), []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -60,8 +64,9 @@ function App() {
   const providers: ProvidersState = { list, loading, error, refresh };
 
   // Views stay mounted (only hidden) so switching tabs doesn't lose the
-  // conversation or an answer in progress. Changing the language remounts
-  // them (key) so every text and the game data reload in that language.
+  // conversation or an answer in progress. Changing the language re-renders
+  // them in place: the draft and the chat are kept, and the draft view
+  // reloads the game data in the new language (champion ids don't change).
   return (
     <div className="app">
       <nav className="sidebar">
@@ -83,18 +88,18 @@ function App() {
           </button>
         ))}
       </nav>
-      <main className="content" key={lang}>
+      <main className="content">
         <div hidden={view !== "draft"}>
-          <DraftView providers={providers} onGoToModels={() => setView("models")} />
+          <DraftView providers={providers} lang={lang} onBusy={draftBusy} onGoToModels={() => setView("models")} />
         </div>
         <div hidden={view !== "coach"}>
-          <Chat providers={providers} onGoToModels={() => setView("models")} />
+          <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("models")} />
         </div>
         <div hidden={view !== "models"}>
           <Models providers={providers} />
         </div>
         <div hidden={view !== "settings"}>
-          <Settings lang={lang} onLanguage={changeLanguage} />
+          <Settings lang={lang} onLanguage={changeLanguage} locked={busy.draft || busy.coach} />
         </div>
         <footer className="legal">
           League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or

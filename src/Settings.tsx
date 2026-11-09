@@ -27,7 +27,16 @@ const INITIAL: KeyStatus[] = Object.keys(LABELS).map((provider) => ({
   error: null,
 }));
 
-function Settings({ lang, onLanguage }: { lang: Lang; onLanguage: (l: Lang) => Promise<void> }) {
+function Settings({
+  lang,
+  onLanguage,
+  locked,
+}: {
+  lang: Lang;
+  onLanguage: (l: Lang) => Promise<void>;
+  /** A request is running: the language can't change until it ends. */
+  locked: boolean;
+}) {
   const [keys, setKeys] = useState<KeyStatus[]>(INITIAL);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
@@ -84,6 +93,7 @@ function Settings({ lang, onLanguage }: { lang: Lang; onLanguage: (l: Lang) => P
             key={l.value}
             role="radio"
             aria-checked={lang === l.value}
+            disabled={locked}
             className={lang === l.value ? "chip on" : "chip"}
             onClick={() => {
               if (l.value !== lang) onLanguage(l.value).catch((e) => setMessage(`Error: ${e}`));
@@ -93,6 +103,17 @@ function Settings({ lang, onLanguage }: { lang: Lang; onLanguage: (l: Lang) => P
           </button>
         ))}
       </div>
+      <p className="muted small">
+        {locked
+          ? t(
+              "Wait for the current request to finish (or stop it) to change the language.",
+              "Espera a que termine la consulta en curso (o detenla) para cambiar el idioma.",
+            )
+          : t(
+              "Your draft and conversation are kept. A build already shown stays in its language until you ask for another.",
+              "Tu draft y tu conversación se conservan. Una build ya mostrada queda en su idioma hasta que pidas otra.",
+            )}
+      </p>
       <h3>{t("API keys (optional)", "API keys (opcional)")}</h3>
       <p className="muted">
         {t(

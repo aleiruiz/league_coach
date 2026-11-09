@@ -7,7 +7,7 @@ import { t } from "./i18n";
 
 type Msg = { role: "user" | "assistant"; text: string; error?: string };
 
-type Props = { providers: ProvidersState; onGoToModels: () => void };
+type Props = { providers: ProvidersState; onBusy: (busy: boolean) => void; onGoToModels: () => void };
 
 const examples = () =>
   t(
@@ -40,7 +40,7 @@ const markdownComponents = {
 
 const safeUrl = (url: string) => (url.startsWith("https://") ? url : "");
 
-function Chat({ providers, onGoToModels }: Props) {
+function Chat({ providers, onBusy, onGoToModels }: Props) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -49,6 +49,7 @@ function Chat({ providers, onGoToModels }: Props) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
+  useEffect(() => onBusy(busy), [busy, onBusy]);
   const bottom = useRef<HTMLDivElement>(null);
 
   // If the chosen model stops being available, switch to the first one that is.
