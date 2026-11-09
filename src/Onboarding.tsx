@@ -95,8 +95,8 @@ function Onboarding({
         <RiotAccount compact onSaved={onAccountSaved} />
         <p className="muted small">
           {t(
-            "New games are reviewed automatically in “My progress” using your AI plan (one request per batch of new games); you can turn it off in Settings. Reading your games also needs a Riot API key, which you can add later in Settings.",
-            "Las partidas nuevas se revisan automáticamente en «Mi progreso» usando tu plan de IA (una consulta por tanda de partidas nuevas); puedes desactivarlo en Ajustes. Para leer tus partidas también hace falta una API key de Riot, que puedes añadir después en Ajustes.",
+            "Reading your games in “My progress” also needs a Riot API key, which you can add later in Settings.",
+            "Para leer tus partidas en «Mi progreso» también hace falta una API key de Riot, que puedes añadir después en Ajustes.",
           )}
         </p>
       </Step>

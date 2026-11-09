@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asSyncError, looksLikeRiotId, riotIdOf, roleName, signed, trend } from "./history";
+import { asSyncError, looksLikeRiotId, riotIdOf, riotIdProblem, roleName, signed, trend } from "./history";
 import { setLangForTests } from "./i18n";
 
 describe("trend", () => {
@@ -48,5 +48,10 @@ describe("sync errors and Riot IDs", () => {
     expect(looksLikeRiotId(" Faker Fan#LAN1 ")).toBe(true);
     expect(looksLikeRiotId("NoTag")).toBe(false);
     expect(looksLikeRiotId("ab#LAN")).toBe(false);
+    expect(riotIdProblem("Faker#KR1234")).toMatch(/tag after # has 3 to 5 characters \(yours has 6\)/);
+    expect(riotIdProblem("Faker")).toMatch(/Add your tag/);
+    expect(riotIdProblem("ab#LAN")).toMatch(/name before # has 3 to 16 characters \(yours has 2\)/);
+    expect(riotIdProblem("Faker#K-R")).toMatch(/only have letters and numbers/);
+    expect(riotIdProblem("Faker#KR1")).toBeNull();
   });
 });

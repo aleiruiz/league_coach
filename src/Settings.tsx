@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Lang, LANGUAGES, t } from "./i18n";
-import { looksLikeRiotId, Region, riotAccount, riotIdOf, saveRiotAccount } from "./history";
+import { Region, riotAccount, riotIdOf, riotIdProblem, saveRiotAccount } from "./history";
 import { humanizeError } from "./providers";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
@@ -59,8 +59,9 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
   async function save(id: string, reg: string, autoAnalyze: boolean, done: string) {
     setMessage(null);
     setError(null);
-    if (!looksLikeRiotId(id)) {
-      setError(t("Write your Riot ID as Name#TAG.", "Escribe tu Riot ID como Nombre#TAG."));
+    const problem = riotIdProblem(id);
+    if (problem) {
+      setError(problem);
       return;
     }
     try {
@@ -128,7 +129,6 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
           {t("Save", "Guardar")}
         </button>
       </form>
-      {!compact && (
       <label className="check">
         <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
         {t(
@@ -136,7 +136,6 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
           "Revisar las partidas nuevas automáticamente mientras la app está abierta. Cada revisión es una consulta a tu plan de Claude o ChatGPT (una por tanda de partidas nuevas, no por minuto).",
         )}
       </label>
-      )}
       <p className="message" role="status" aria-live="polite">
         {message}
       </p>

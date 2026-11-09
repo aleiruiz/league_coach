@@ -28,18 +28,26 @@ export function ProviderSetup({ providers }: { providers: ProvidersState }) {
       await openLogin(p.kind);
       setMessage(
         t(
-          `A terminal opened with the ${p.label} sign-in. Finish signing in in your browser; the app will notice on its own.`,
-          `Se abrió una terminal con el login de ${p.label}. Completa el inicio de sesión en tu navegador; la app lo detectará sola.`,
+          `A terminal opened with the ${p.label} sign-in. Finish signing in in your browser; the app will notice on its own for the next few minutes.`,
+          `Se abrió una terminal con el login de ${p.label}. Completa el inicio de sesión en tu navegador; la app lo detectará sola durante los próximos minutos.`,
         ),
       );
-      // Checks the status every 4 s for a minute.
+      // Checks the status every 4 s for 3 minutes; after that, says so.
       stopPolling();
       waitingFor.current = p.kind;
       let ticks = 0;
       poll.current = window.setInterval(async () => {
         ticks += 1;
         await refresh();
-        if (ticks >= 15) stopPolling();
+        if (ticks >= 45 && waitingFor.current === p.kind) {
+          stopPolling();
+          setMessage(
+            t(
+              `I haven't detected the ${p.label} sign-in yet. When you finish it, press Check.`,
+              `Todavía no detecto el inicio de sesión de ${p.label}. Cuando lo completes, pulsa Verificar.`,
+            ),
+          );
+        }
       }, 4000);
     } catch (e) {
       setMessage(`Error: ${e}`);
@@ -64,7 +72,11 @@ export function ProviderSetup({ providers }: { providers: ProvidersState }) {
   }
 
   useEffect(() => {
-    if (list.some((p) => p.kind === waitingFor.current && p.logged_in)) stopPolling();
+    const done = list.find((p) => p.kind === waitingFor.current && p.logged_in);
+    if (done) {
+      stopPolling();
+      setMessage(t(`${done.label} connected.`, `${done.label} conectado.`));
+    }
   }, [list]);
 
   return (

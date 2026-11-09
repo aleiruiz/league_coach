@@ -178,9 +178,48 @@ export function trend(recent: number | null, earlier: number | null, higher: boo
   return { arrow: rose ? "▲" : "▼", verdict: rose === higher ? "better" : "worse" };
 }
 
+/**
+ * What's wrong with a Riot ID ("Name#TAG"), in words the player can act on,
+ * or null if it looks right. Same rules as `parse_riot_id` in riot.rs.
+ */
+export function riotIdProblem(raw: string): string | null {
+  const s = raw.trim();
+  const hash = s.lastIndexOf("#");
+  if (hash < 0) {
+    return t(
+      "Add your tag after a #, like Name#TAG (you can see it in your League client profile).",
+      "Añade tu tag después de un #, como Nombre#TAG (lo ves en tu perfil del cliente de League).",
+    );
+  }
+  const name = s.slice(0, hash).trim();
+  const tag = s.slice(hash + 1).trim();
+  const nameLen = [...name].length;
+  const tagLen = [...tag].length;
+  if (name.includes("#")) return t("Use a single # between name and tag.", "Usa un solo # entre el nombre y el tag.");
+  if (nameLen < 3 || nameLen > 16) {
+    return t(
+      `The name before # has 3 to 16 characters (yours has ${nameLen}).`,
+      `El nombre antes del # tiene de 3 a 16 caracteres (el tuyo tiene ${nameLen}).`,
+    );
+  }
+  if (tagLen < 3 || tagLen > 5) {
+    return t(
+      `The tag after # has 3 to 5 characters (yours has ${tagLen}).`,
+      `El tag después del # tiene de 3 a 5 caracteres (el tuyo tiene ${tagLen}).`,
+    );
+  }
+  if (!/^[\p{L}\p{N}]+$/u.test(tag)) {
+    return t(
+      "The tag after # can only have letters and numbers.",
+      "El tag después del # solo puede tener letras y números.",
+    );
+  }
+  return null;
+}
+
 /** Client-side shape check before saving: "Name#TAG". */
 export function looksLikeRiotId(s: string): boolean {
-  return /^[^#]{3,16}#[^#\s]{3,5}$/u.test(s.trim());
+  return riotIdProblem(s) === null;
 }
 
 const ROLE_NAMES: Record<string, [string, string]> = {
