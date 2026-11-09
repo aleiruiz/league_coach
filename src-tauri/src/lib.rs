@@ -35,6 +35,7 @@ pub fn run() {
             recommend::recommend_build,
             i18n::get_language,
             i18n::set_language,
+            riot::lookup_summoner,
             history::riot_account,
             history::save_riot_account,
             history::match_history,

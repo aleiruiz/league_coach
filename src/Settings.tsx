@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Lang, LANGUAGES, t } from "./i18n";
 import { Region, riotAccount, riotIdOf, riotIdProblem, saveRiotAccount } from "./history";
 import { humanizeError } from "./providers";
+import { SummonerSearch } from "./SummonerSearch";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
 type KeyStatus = { provider: string; state: KeyState; error: string | null };
@@ -100,35 +101,31 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
         )}
       </p>
       )}
-      <form
-        className="key-form riot-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save(riotId, region, auto, t("Riot account saved.", "Cuenta de Riot guardada."));
+      <SummonerSearch
+        regions={regions}
+        riotId={riotId}
+        region={region}
+        onChange={(id, reg) => {
+          setRiotId(id);
+          setRegion(reg);
         }}
-      >
-        <input
-          aria-label="Riot ID"
-          placeholder={t("Name#TAG", "Nombre#TAG")}
-          autoComplete="off"
-          spellCheck={false}
-          value={riotId}
-          onChange={(e) => setRiotId(e.currentTarget.value)}
-        />
-        <select aria-label={t("Region", "Región")} value={region} onChange={(e) => setRegion(e.currentTarget.value)}>
-          <option value="" disabled>
-            {t("Region…", "Región…")}
-          </option>
-          {regions.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-        <button type="submit" disabled={!riotId.trim() || !region}>
-          {t("Save", "Guardar")}
-        </button>
-      </form>
+        onSubmit={(id, reg) => save(id, reg, auto, t("Riot account saved.", "Cuenta de Riot guardada."))}
+        submitLabel={t("Use as my account", "Usar como mi cuenta")}
+      />
+      {saved && (
+        <p className="small">
+          {t("Your account:", "Tu cuenta:")} <strong>{saved.riotId}</strong>{" "}
+          <span className="muted">
+            ({regions.find((r) => r.id === saved.region)?.label ?? saved.region})
+          </span>
+        </p>
+      )}
+      <p className="muted small">
+        {t(
+          "Riot only finds exact Riot IDs (Name#TAG, as in your client profile), so suggestions come from your own past searches. The preview needs your Riot API key.",
+          "Riot solo encuentra Riot IDs exactos (Nombre#TAG, como en tu perfil del cliente), así que las sugerencias salen de tus búsquedas anteriores. La vista previa necesita tu API key de Riot.",
+        )}
+      </p>
       <label className="check">
         <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
         {t(

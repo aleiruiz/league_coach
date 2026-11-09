@@ -239,3 +239,26 @@ export function roleName(role: string): string {
 export function riotIdOf(p: RiotProfile): string {
   return p.game_name && p.tag_line ? `${p.game_name}#${p.tag_line}` : "";
 }
+
+export type RankEntry = {
+  queue_type: string;
+  tier: string;
+  rank: string;
+  league_points: number;
+  wins: number;
+  losses: number;
+};
+
+export type SummonerPreview = {
+  game_name: string;
+  tag_line: string;
+  region: string;
+  level: number;
+  icon_url: string | null;
+  /** null: Riot didn't return the rank this time (not the same as unranked). */
+  ranks: RankEntry[] | null;
+};
+
+/** Exact Riot ID lookup (Riot has no name search). */
+export const lookupSummoner = (riotId: string, region: string) =>
+  invoke<SummonerPreview>("lookup_summoner", { riotId, region });

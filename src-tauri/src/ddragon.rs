@@ -127,6 +127,10 @@ fn shard_rows(lang: Lang) -> Vec<Vec<Shard>> {
         .collect()
 }
 
+pub fn profile_icon(version: &str, id: i64) -> String {
+    format!("{BASE}/cdn/{version}/img/profileicon/{id}.png")
+}
+
 pub fn shard_icon(file: &str) -> String {
     format!("{BASE}/cdn/img/perk-images/StatMods/{file}")
 }
