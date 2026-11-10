@@ -323,7 +323,18 @@ function Abilities({ card, champion }: { card: Card; champion?: Champion }) {
 }
 
 /** One line under the sheet: patch and where any figure comes from. */
-function SourcesLine({ card, patch, champion }: { card: Card; patch: string; champion?: Champion }) {
+function SourcesLine({
+  card,
+  patch,
+  champion,
+  retry,
+}: {
+  card: Card;
+  patch: string;
+  champion?: Champion;
+  /** "Get a different build", beside the line. */
+  retry?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const sites = [...new Map(card.stats.map((s) => [s.site, s])).values()];
   const link = (site: string, url: string) => (
@@ -344,6 +355,7 @@ function SourcesLine({ card, patch, champion }: { card: Card; patch: string; cha
   const n = card.stats.length;
   return (
     <div className="sources">
+      <div className="sources-line">
       <p className="muted small">
         {t(`Checked against patch ${patch}.`, `Comprobado con el parche ${patch}.`)}{" "}
         {n > 0 ? (
@@ -372,6 +384,12 @@ function SourcesLine({ card, patch, champion }: { card: Card; patch: string; cha
           </>
         )}
       </p>
+      {retry && (
+        <button type="button" className="secondary" onClick={retry}>
+          {t("Get a different build", "Pedir otra build")}
+        </button>
+      )}
+      </div>
       {open && n > 0 && (
         <>
           <ul className="stats">
@@ -448,7 +466,6 @@ function BuildCard({
     const el = answerRef.current;
     if (el && !answerOpen) setAnswerLong(el.scrollHeight > el.clientHeight + 2);
   }, [card.answer, answerOpen]);
-  const items = card.boots.name ? [...card.core_items, card.boots] : card.core_items;
   return (
     <article className="build-card sheet">
       <header className="sheet-head">
@@ -508,13 +525,24 @@ function BuildCard({
             <h4 className="panel-title">{t("During the game", "Durante la partida")}</h4>
             <div className="sheet-block">
               <h5>{t("Items, in this order", "Objetos, en este orden")}</h5>
-              <ol className="item-order">
-                {items.map((r, i) => (
-                  <li key={i}>
-                    <Icon r={r} size={48} />
-                  </li>
-                ))}
-              </ol>
+              <div className="item-order-row">
+                <ol className="item-order">
+                  {card.core_items.map((r, i) => (
+                    <li key={i}>
+                      <Icon r={r} size={48} />
+                    </li>
+                  ))}
+                </ol>
+                {/* Boots fit in whenever they're needed: no place in the order. */}
+                {card.boots.name && (
+                  <div className="item-boots">
+                    <span className="muted" aria-hidden="true">
+                      +
+                    </span>
+                    <Icon r={card.boots} size={48} />
+                  </div>
+                )}
+              </div>
             </div>
             <Abilities card={card} champion={champion} />
             {card.situational.length > 0 && (
@@ -615,12 +643,7 @@ function BuildCard({
       )}
 
       <footer className="sheet-foot">
-        <SourcesLine card={card} patch={patch} champion={champion} />
-        {onRetry && (
-          <button type="button" className="secondary" onClick={onRetry}>
-            {t("Get a different build", "Pedir otra build")}
-          </button>
-        )}
+        <SourcesLine card={card} patch={patch} champion={champion} retry={onRetry} />
       </footer>
     </article>
   );

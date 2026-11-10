@@ -2868,8 +2868,45 @@ button.tab.on {
   min-width: 0;
 }
 
-.sources > p {
+.sources-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sources-line p {
   margin: 0;
+}
+
+/* The answer on this screen: names readable at a glance. */
+.sheet .icon figcaption {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.item-order-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.item-boots {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 100px;
+}
+
+.item-boots > span {
+  margin-top: 14px;
+  font-size: 18px;
+}
+
+.sheet .plan dt {
+  color: var(--muted);
 }
 
 @media (max-width: 900px) {

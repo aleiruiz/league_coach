@@ -91,7 +91,8 @@ function MiniPick({ champ, label, onClick, onClear }: {
 
 /** Estimated split of enemy damage (from Riot's ratings, not from stats). */
 function DamageBar({ champs }: { champs: Champion[] }) {
-  if (champs.length === 0) return null;
+  // One champion says nothing about a team.
+  if (champs.length < 2) return null;
   const p = damageProfile(champs);
   return (
     <div className="dmg" title={t("Estimated from each champion's damage ratings", "Estimado con las valoraciones de daño de cada campeón")}>
@@ -101,6 +102,7 @@ function DamageBar({ champs }: { champs: Champion[] }) {
         <span className="mixed" style={{ flexGrow: p.mixed }} />
       </div>
       <p className="dmg-legend small">
+        <span className="muted">{t("Enemy damage:", "Daño rival:")}</span>{" "}
         <span className="ad-t">
           {t("Physical", "Físico")} {p.adPct}%
         </span>{" "}
