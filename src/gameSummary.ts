@@ -23,6 +23,14 @@ export function gameValue(g: GameStats, key: MetricKey): number | null {
   }
 }
 
+/** Stats counted in whole numbers per game. */
+export const COUNTS: ReadonlySet<MetricKey> = new Set<MetricKey>([
+  "deaths",
+  "early_deaths",
+  "solo_deaths",
+  "control_wards",
+]);
+
 /** Fewer than this many other games in the role: no comparison (too noisy). */
 export const MIN_PEERS = 3;
 
@@ -38,7 +46,8 @@ function mean(xs: number[]): number | null {
 /**
  * What stood out in this game against the player's other games in the same
  * role: the biggest gaps first, at least 15% away from usual (smaller gaps
- * are noise from one game). Nothing if there are too few games to compare.
+ * are noise from one game). Nothing if there are too few games to compare;
+ * each stat also needs MIN_PEERS games that have it.
  */
 export function standouts(
   g: GameStats,
@@ -50,12 +59,15 @@ export function standouts(
   for (const m of METRICS) {
     const value = gameValue(g, m.key);
     if (value === null) continue;
-    const usual = mean(
-      peers
-        .map((p) => gameValue(p, m.key))
-        .filter((v): v is number => v !== null),
-    );
-    if (usual === null) continue;
+    // Each stat needs its own MIN_PEERS games (CS vs opponent is missing
+    // when Riot couldn't pair a lane opponent, for example).
+    const known = peers
+      .map((p) => gameValue(p, m.key))
+      .filter((v): v is number => v !== null);
+    if (known.length < MIN_PEERS) continue;
+    const usual = mean(known)!;
+    // Whole-number counts: 1 death vs 0.8 usual is not a real difference.
+    if (COUNTS.has(m.key) && Math.abs(value - usual) < 1) continue;
     // Differences (CS/gold vs opponent) sit around 0: compare against a
     // floor so +3 vs +1 isn't "200% better". Counts (deaths) get a floor of 1.
     const floor =

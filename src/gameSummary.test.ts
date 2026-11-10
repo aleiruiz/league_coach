@@ -88,3 +88,38 @@ describe("game summary", () => {
     expect(gameValue(game("x"), "win_rate")).toBeNull();
   });
 });
+
+describe("game summary noise guards", () => {
+  setLangForTests("en");
+
+  it("ignores count stats less than one whole unit away", () => {
+    const peers = [
+      game("a", { early_deaths: 1 }),
+      game("b", { early_deaths: 1 }),
+      game("c", { early_deaths: 0 }),
+      game("d", { early_deaths: 1 }),
+      game("e", { early_deaths: 1 }),
+    ];
+    // 1 vs usual 0.8 would be a 25% gap, but it's the same game for a count.
+    const g = game("x", { early_deaths: 1 });
+    expect(standouts(g, [g, ...peers]).worse.map((c) => c.key)).not.toContain(
+      "early_deaths",
+    );
+    const bad = game("y", { early_deaths: 2 });
+    expect(standouts(bad, [bad, ...peers]).worse.map((c) => c.key)).toContain(
+      "early_deaths",
+    );
+  });
+
+  it("needs enough games with each stat, not just enough games", () => {
+    const peers = [
+      game("a", { cs_diff_10: 0 }),
+      game("b", { cs_diff_10: null }),
+      game("c", { cs_diff_10: null }),
+    ];
+    const g = game("x", { cs_diff_10: 40 });
+    expect(standouts(g, [g, ...peers]).better.map((c) => c.key)).not.toContain(
+      "cs_diff_10",
+    );
+  });
+});

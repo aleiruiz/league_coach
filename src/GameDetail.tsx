@@ -1,5 +1,6 @@
 import {
   clock,
+  COUNTS,
   Compared,
   kda,
   MIN_PEERS,
@@ -14,7 +15,9 @@ const EARLY_MIN = 14;
 /** Team gold lead at 15:00 that counts as thrown when lost (THROWN_LEAD_GOLD in history.rs). */
 const LEAD_GOLD = 1500;
 
-function format(c: Compared, v: number): string {
+/** This game's own count is a whole number ("2", not "2.0"); averages keep a decimal. */
+function format(c: Compared, v: number, own = false): string {
+  if (own && COUNTS.has(c.key)) return String(Math.round(v));
   return METRICS.find((m) => m.key === c.key)?.format(v) ?? String(v);
 }
 
@@ -22,7 +25,7 @@ function Standout({ c }: { c: Compared }) {
   return (
     <li>
       <span className="muted">{c.label}:</span>{" "}
-      <strong>{format(c, c.value)}</strong>{" "}
+      <strong>{format(c, c.value, true)}</strong>{" "}
       <span className="muted small">
         ({t("usually", "normalmente")} {format(c, c.usual)})
       </span>
