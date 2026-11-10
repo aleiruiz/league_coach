@@ -2416,6 +2416,14 @@ button.small-button {
 
 /* ---------- Next game: three picks ---------- */
 
+.moment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .moment-head h2 {
   margin: 0;
 }
@@ -2915,4 +2923,14 @@ button.tab.on {
   .rest-teams {
     grid-template-columns: 1fr;
   }
+}
+
+/* Above an outdated build sheet: the note and the way to fix it. */
+.draft > .stale-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
 }

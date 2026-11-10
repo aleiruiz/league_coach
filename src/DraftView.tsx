@@ -36,6 +36,11 @@ function cardFailure(e: string): string {
   return t(`I couldn't build the card: ${humanizeError(e)}`, `No pude armar la tarjeta: ${humanizeError(e)}`);
 }
 
+/** Step 3's title: a jungler has no lane, it faces the other jungler. */
+function laneTitle(role: string): string {
+  return role === "jungle" ? t("Enemy jungler", "Jungla rival") : t("Who you lane against", "Contra quién vas en línea");
+}
+
 /** Steps 1 and 3: a big card with the champion, or a call to pick one. */
 function BigPick({ champ, empty, tone, onClick, onClear }: {
   champ: Champion | undefined;
@@ -349,9 +354,27 @@ function DraftView({
       {data && !showSheet && (
         <>
           <header className="moment-head">
-            <h2>{t("Next game", "Próxima partida")}</h2>
-            <p className="muted">{t("Three picks and you get your build.", "Tres elecciones y tienes tu build.")}</p>
+            <div>
+              <h2>{t("Next game", "Próxima partida")}</h2>
+              <p className="muted">{t("Three picks and you get your build.", "Tres elecciones y tienes tu build.")}</p>
+            </div>
+            <button
+              className="secondary"
+              onClick={refreshFromGame}
+              disabled={busy || syncing}
+              title={t(
+                "Fill the champions from your champ select (League client on this computer) or your game in progress (Riot API). It doesn't ask the coach anything.",
+                "Rellena los campeones con tu selección de campeones (cliente de League en esta computadora) o tu partida en curso (API de Riot). No le pregunta nada al coach.",
+              )}
+            >
+              {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
+            </button>
           </header>
+          {liveNote && (
+            <p className={liveNote.error ? "error small" : "muted small"} role="status">
+              {liveNote.text}
+            </p>
+          )}
           {data.notice && <p className="muted small">{data.notice}</p>}
 
           <div className="picks">
@@ -386,11 +409,11 @@ function DraftView({
             </div>
             <div className="pick-step">
               <h3 className="step-title">
-                <span className="step-num">3</span> {t("Who you lane against", "Contra quién vas en línea")}
+                <span className="step-num">3</span> {laneTitle(d.role)}
               </h3>
               <BigPick
                 champ={champ(d.lane)}
-                empty={t("Pick your lane opponent", "Elige a tu rival de línea")}
+                empty={d.role === "jungle" ? t("Pick the enemy jungler", "Elige al jungla rival") : t("Pick your lane opponent", "Elige a tu rival de línea")}
                 tone="enemy"
                 onClick={() => openPicker({ team: "lane", index: 0 })}
                 onClear={d.lane ? () => setD((s) => setLane(s, null)) : undefined}
@@ -426,27 +449,12 @@ function DraftView({
                 <p className="muted small">{t("The build adapts to who else is in the game.", "La build se adapta a quién más está en la partida.")}</p>
               </div>
               <div className="rest-actions">
-                <button
-                  className="secondary"
-                  onClick={refreshFromGame}
-                  disabled={busy || syncing}
-                  title={t(
-                    "Fill the champions from your champ select (League client on this computer) or your game in progress (Riot API). It doesn't ask the coach anything.",
-                    "Rellena los campeones con tu selección de campeones (cliente de League en esta computadora) o tu partida en curso (API de Riot). No le pregunta nada al coach.",
-                  )}
-                >
-                  {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
-                </button>
                 <button type="button" className="link-button" onClick={reset} disabled={busy}>
                   {t("Clear all", "Borrar todo")}
                 </button>
               </div>
             </div>
-            {liveNote && (
-              <p className={liveNote.error ? "error small" : "muted small"} role="status">
-                {liveNote.text}
-              </p>
-            )}
+
             <div className="rest-teams">
               <div>
                 <h4 className="ally-t">{t("Your team", "Tu equipo")}</h4>
@@ -499,6 +507,21 @@ function DraftView({
 
       {showSheet && (
         <>
+          {stale && (
+            <div className="stale-note" role="status">
+              <span>
+                {t(
+                  "Your picks changed since this build, so it may not fit anymore.",
+                  "Tus picks cambiaron desde esta build, así que puede que ya no encaje.",
+                )}
+              </span>
+              {!busy && (
+                <button type="button" className="primary" onClick={recommend} disabled={!draft || !kind}>
+                  {t("Get new build", "Pedir build nueva")}
+                </button>
+              )}
+            </div>
+          )}
           <div aria-live="polite">
             {busy && status && <p className="muted small">{status}</p>}
             {error && <p className="error">⚠ {error}</p>}
@@ -541,12 +564,12 @@ function DraftView({
               notes={rec.notes}
               analysis={rec.analysis}
               retried={rec.retried}
-              onRetry={busy ? undefined : recommend}
+              onRetry={busy || stale ? undefined : recommend}
               onChangePicks={() => setEditing(true)}
             />
           )}
 
-          {rec.session_id && (
+          {rec.session_id && !stale && (
             <section className="follow-up">
               <h4>{t("Ask more about this game", "Preguntar más sobre esta partida")}</h4>
               {answers.map((x, i) => (
@@ -599,12 +622,17 @@ function DraftView({
       {picking && data && (
         <ChampionPicker
           champions={data.champions}
-          taken={takenIds(d)}
+          taken={
+            picking.team === "lane"
+              ? // An enemy already in the team can become the lane opponent.
+                new Set([d.me, ...d.allies].filter((x): x is string => !!x))
+              : takenIds(d)
+          }
           title={
             picking.team === "me"
               ? t("Your champion", "Tu campeón")
               : picking.team === "lane"
-                ? t("Who you lane against", "Contra quién vas en línea")
+                ? laneTitle(d.role)
                 : picking.team === "ally"
                   ? t("Ally", "Aliado")
                   : t("Enemy", "Rival")
