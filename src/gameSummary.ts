@@ -23,6 +23,12 @@ export function gameValue(g: GameStats, key: MetricKey): number | null {
   }
 }
 
+/** CS stats: not a support's job, so never compared for one. */
+export const CS_KEYS: ReadonlySet<MetricKey> = new Set<MetricKey>([
+  "cs_per_min",
+  "cs_diff_10",
+]);
+
 /** Stats counted in whole numbers per game. */
 export const COUNTS: ReadonlySet<MetricKey> = new Set<MetricKey>([
   "deaths",
@@ -57,6 +63,8 @@ export function standouts(
   if (peers.length < MIN_PEERS) return { better: [], worse: [] };
   const all: Compared[] = [];
   for (const m of METRICS) {
+    // A support is never judged on CS (same rule as the review).
+    if (g.role === "UTILITY" && CS_KEYS.has(m.key)) continue;
     const value = gameValue(g, m.key);
     if (value === null) continue;
     // Each stat needs its own MIN_PEERS games (CS vs opponent is missing

@@ -73,6 +73,7 @@ function DeathTimeline({ g }: { g: GameStats }) {
             key={i}
             className={m < EARLY_MIN ? "gd-death early" : "gd-death"}
             style={{ left: at(m) }}
+            title={clock(m)}
           />
         ))}
       </div>
@@ -142,19 +143,24 @@ export function GameDetail({
             "Parte del daño a campeones de tu equipo",
           )}
         />
-        <Stat label="CS/min" value={g.cs_per_min.toFixed(1)} />
-        <Stat
-          label={t("CS @10", "CS @10")}
-          value={
-            g.cs_at_10 !== null
-              ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${signed(g.cs_diff_10)})` : ""}`
-              : "—"
-          }
-          hint={t(
-            "In brackets: vs your lane opponent",
-            "Entre paréntesis: vs tu rival de línea",
-          )}
-        />
+        {/* A support isn't judged on CS: the tiles would hint at farming more. */}
+        {g.role !== "UTILITY" && (
+          <>
+            <Stat label="CS/min" value={g.cs_per_min.toFixed(1)} />
+            <Stat
+              label={t("CS @10", "CS @10")}
+              value={
+                g.cs_at_10 !== null
+                  ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${signed(g.cs_diff_10)})` : ""}`
+                  : "—"
+              }
+              hint={t(
+                "In brackets: vs your lane opponent",
+                "Entre paréntesis: vs tu rival de línea",
+              )}
+            />
+          </>
+        )}
         <Stat
           label={t("Gold diff @15", "Dif. oro @15")}
           value={g.gold_diff_15 !== null ? signed(g.gold_diff_15) : "—"}

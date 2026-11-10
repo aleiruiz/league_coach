@@ -123,3 +123,20 @@ describe("game summary noise guards", () => {
     );
   });
 });
+
+describe("support games", () => {
+  it("are never compared on CS", () => {
+    const sup = (id: string, cs: number) =>
+      game(id, { role: "UTILITY", cs_per_min: cs, cs_diff_10: -20 });
+    const g = game("x", { role: "UTILITY", cs_per_min: 3, cs_diff_10: 10 });
+    const { better, worse } = standouts(g, [
+      g,
+      sup("a", 1),
+      sup("b", 1),
+      sup("c", 1),
+    ]);
+    const keys = [...better, ...worse].map((c) => c.key);
+    expect(keys).not.toContain("cs_per_min");
+    expect(keys).not.toContain("cs_diff_10");
+  });
+});
