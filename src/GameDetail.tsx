@@ -7,7 +7,7 @@ import {
   peersOf,
   standouts,
 } from "./gameSummary";
-import { GameStats, METRICS, pct, roleName, signed } from "./history";
+import { aheadBehind, GameStats, METRICS, pct, roleName, signed } from "./history";
 import { t } from "./i18n";
 
 /** Deaths before this minute count as early (same line the review uses). */
@@ -132,11 +132,11 @@ export function GameDetail({
           hint={`${g.kills}/${g.deaths}/${g.assists}`}
         />
         <Stat
-          label={t("Kill participation", "Participación en kills")}
+          label={t("Kills you were in", "Kills en las que participaste")}
           value={pct(g.kill_participation)}
         />
         <Stat
-          label={t("Damage share", "% del daño")}
+          label={t("Share of team damage", "Parte del daño del equipo")}
           value={pct(g.damage_share)}
           hint={t(
             "Share of your team's damage to champions",
@@ -146,12 +146,12 @@ export function GameDetail({
         {/* A support isn't judged on CS: the tiles would hint at farming more. */}
         {g.role !== "UTILITY" && (
           <>
-            <Stat label="CS/min" value={g.cs_per_min.toFixed(1)} />
+            <Stat label={t("Minions per minute", "Súbditos por minuto")} value={g.cs_per_min.toFixed(1)} />
             <Stat
-              label={t("CS @10", "CS @10")}
+              label={t("Minions at 10 min", "Súbditos al minuto 10")}
               value={
                 g.cs_at_10 !== null
-                  ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${signed(g.cs_diff_10)})` : ""}`
+                  ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${aheadBehind(g.cs_diff_10, 0.5, "")})` : ""}`
                   : "—"
               }
               hint={t(
@@ -162,30 +162,29 @@ export function GameDetail({
           </>
         )}
         <Stat
-          label={t("Gold diff @15", "Dif. oro @15")}
-          value={g.gold_diff_15 !== null ? signed(g.gold_diff_15) : "—"}
+          label={t("Gold vs opponent at 15 min", "Oro vs rival al minuto 15")}
+          value={g.gold_diff_15 !== null ? aheadBehind(g.gold_diff_15, 50, "") : "—"}
           hint={t("You vs your lane opponent", "Tú vs tu rival de línea")}
         />
         <Stat
-          label={t("Team gold @15", "Oro equipo @15")}
+          label={t("Team gold lead at 15 min", "Ventaja de oro del equipo al minuto 15")}
           value={
-            g.team_gold_diff_15 !== null ? signed(g.team_gold_diff_15) : "—"
+            g.team_gold_diff_15 !== null ? aheadBehind(g.team_gold_diff_15, 50, "") : "—"
           }
         />
         <Stat
-          label={t("Vision/min", "Visión/min")}
+          label={t("Vision score per minute", "Visión por minuto")}
           value={g.vision_per_min.toFixed(2)}
         />
         <Stat
           label={t("Wards", "Wards")}
-          value={`${g.wards_placed} / ${g.wards_killed} / ${g.control_wards}`}
-          hint={t(
-            "Placed / cleared / control wards bought",
-            "Puestas / destruidas / control wards compradas",
+          value={t(
+            `${g.wards_placed} placed, ${g.wards_killed} cleared, ${g.control_wards} control`,
+            `${g.wards_placed} puestas, ${g.wards_killed} destruidas, ${g.control_wards} de control`,
           )}
         />
         <Stat
-          label={t("First item", "Primer ítem")}
+          label={t("First item done at", "Primer ítem terminado al")}
           value={g.first_item_min !== null ? clock(g.first_item_min) : "—"}
         />
       </div>

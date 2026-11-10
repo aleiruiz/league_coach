@@ -138,20 +138,28 @@ export type MetricKey = Exclude<keyof Averages, "games">;
 
 /** Metrics shown on the "Improve" board. `higher`: is a bigger number better? */
 export const METRICS: { key: MetricKey; label: () => string; higher: boolean; format: (v: number) => string }[] = [
-  { key: "win_rate", label: () => t("Win rate", "Victorias"), higher: true, format: pct },
-  { key: "cs_per_min", label: () => t("CS/min", "CS/min"), higher: true, format: (v) => v.toFixed(1) },
-  { key: "cs_diff_10", label: () => t("CS diff @10", "Dif. CS @10"), higher: true, format: signed },
-  { key: "gold_diff_15", label: () => t("Gold diff @15", "Dif. oro @15"), higher: true, format: signed },
-  { key: "kill_participation", label: () => t("Kill participation", "Participación en kills"), higher: true, format: pct },
-  { key: "early_deaths", label: () => t("Deaths before 14:00", "Muertes antes del 14:00"), higher: false, format: (v) => v.toFixed(1) },
-  { key: "solo_deaths", label: () => t("Solo deaths", "Muertes en solitario"), higher: false, format: (v) => v.toFixed(1) },
-  { key: "vision_per_min", label: () => t("Vision/min", "Visión/min"), higher: true, format: (v) => v.toFixed(2) },
-  { key: "control_wards", label: () => t("Control wards", "Control wards"), higher: true, format: (v) => v.toFixed(1) },
-  { key: "first_item_min", label: () => t("First item (min)", "Primer ítem (min)"), higher: false, format: (v) => v.toFixed(1) },
+  { key: "win_rate", label: () => t("Games won", "Partidas ganadas"), higher: true, format: pct },
+  { key: "cs_per_min", label: () => t("Minions per minute", "Súbditos por minuto"), higher: true, format: (v) => v.toFixed(1) },
+  { key: "cs_diff_10", label: () => t("Minions vs your opponent at 10 min", "Súbditos vs tu rival al minuto 10"), higher: true, format: (v) => aheadBehind(v, 0.5, "") },
+  { key: "gold_diff_15", label: () => t("Gold vs your opponent at 15 min", "Oro vs tu rival al minuto 15"), higher: true, format: (v) => aheadBehind(v, 50, t(" gold", " de oro")) },
+  { key: "kill_participation", label: () => t("Share of your team's kills you were in", "Parte de las kills de tu equipo en las que participaste"), higher: true, format: pct },
+  { key: "early_deaths", label: () => t("Deaths before minute 14", "Muertes antes del minuto 14"), higher: false, format: (v) => v.toFixed(1) },
+  { key: "solo_deaths", label: () => t("Deaths to a single enemy", "Muertes contra un solo rival"), higher: false, format: (v) => v.toFixed(1) },
+  { key: "vision_per_min", label: () => t("Vision score per minute", "Puntuación de visión por minuto"), higher: true, format: (v) => v.toFixed(2) },
+  { key: "control_wards", label: () => t("Control wards per game", "Control wards por partida"), higher: true, format: (v) => v.toFixed(1) },
+  { key: "first_item_min", label: () => t("Minute of your first item", "Minuto de tu primer ítem"), higher: false, format: (v) => v.toFixed(1) },
 ];
 
 export function pct(v: number): string {
   return `${Math.round(v * 100)}%`;
+}
+
+/** "6 behind", "250 gold ahead", "even": a difference in plain words. */
+export function aheadBehind(v: number, even: number, unit: string): string {
+  const n = Math.round(Math.abs(v)).toLocaleString();
+  if (v <= -even) return t(`${n}${unit} behind`, `${n}${unit} por detrás`);
+  if (v >= even) return t(`${n}${unit} ahead`, `${n}${unit} por delante`);
+  return t("even", "parejo");
 }
 
 export function signed(v: number): string {
