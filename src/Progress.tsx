@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProvidersState } from "./App";
 import { Champion, gameData } from "./game";
+import { GameDetail } from "./GameDetail";
 import {
   GameStats,
   HistoryView,
@@ -174,49 +175,69 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
 
 function GameRow({
   g,
+  games,
   byId,
   lang,
   gref,
   highlighted,
+  open,
+  onToggle,
 }: {
   g: GameStats;
+  games: GameStats[];
   byId: Map<string, Champion>;
   lang: Lang;
   gref: string | null;
   highlighted: boolean;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const name = byId.get(g.champion.toLowerCase())?.name ?? g.champion;
   const opp = g.opponent ? (byId.get(g.opponent.toLowerCase())?.name ?? g.opponent) : null;
   const date = gameDate(g, lang);
+  const detailId = `game-detail-${g.id}`;
   return (
-    <li className={`game-row ${g.win ? "win" : "loss"}${highlighted ? " highlight" : ""}`}>
-      <ChampIcon id={g.champion} byId={byId} />
-      <div className="game-main">
-        <strong>
-          {gref && <span className="game-ref">{gref}</span>}
-          {name}
-        </strong>
-        <span className="muted small">
-          {roleName(g.role)}
-          {opp && ` · vs ${opp}`}
+    <li className={`game-row ${g.win ? "win" : "loss"}${highlighted ? " highlight" : ""}${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="game-row-head"
+        aria-expanded={open}
+        aria-controls={open ? detailId : undefined}
+        title={open ? t("Hide the summary", "Ocultar el resumen") : t("Show the game summary", "Ver el resumen de la partida")}
+        onClick={onToggle}
+      >
+        <ChampIcon id={g.champion} byId={byId} />
+        <span className="game-main">
+          <strong>
+            {gref && <span className="game-ref">{gref}</span>}
+            {name}
+          </strong>
+          <span className="muted small">
+            {roleName(g.role)}
+            {opp && ` · vs ${opp}`}
+          </span>
         </span>
-      </div>
-      <span className="game-result">{g.win ? t("Win", "Victoria") : t("Loss", "Derrota")}</span>
-      <span className="num">
-        {g.kills}/{g.deaths}/{g.assists}
-      </span>
-      <span className="num" title={t("CS per minute", "CS por minuto")}>
-        {g.cs_per_min.toFixed(1)} CS/m
-      </span>
-      <span className="num" title={t("CS difference at 10 vs lane opponent", "Diferencia de CS al 10 vs rival de línea")}>
-        {g.cs_diff_10 !== null ? `${signed(g.cs_diff_10)} @10` : "—"}
-      </span>
-      <span className="num" title={t("Kill participation", "Participación en kills")}>
-        {pct(g.kill_participation)} KP
-      </span>
-      <span className="muted small">
-        {date} · {Math.round(g.minutes)} min
-      </span>
+        <span className="game-result">{g.win ? t("Win", "Victoria") : t("Loss", "Derrota")}</span>
+        <span className="num">
+          {g.kills}/{g.deaths}/{g.assists}
+        </span>
+        <span className="num" title={t("CS per minute", "CS por minuto")}>
+          {g.cs_per_min.toFixed(1)} CS/m
+        </span>
+        <span className="num" title={t("CS difference at 10 vs lane opponent", "Diferencia de CS al 10 vs rival de línea")}>
+          {g.cs_diff_10 !== null ? `${signed(g.cs_diff_10)} @10` : "—"}
+        </span>
+        <span className="num" title={t("Kill participation", "Participación en kills")}>
+          {pct(g.kill_participation)} KP
+        </span>
+        <span className="muted small">
+          {date} · {Math.round(g.minutes)} min
+        </span>
+        <span className="game-chev" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open && <GameDetail g={g} games={games} id={detailId} />}
     </li>
   );
 }
@@ -377,6 +398,8 @@ function Progress({
   const refs = useMemo(() => new Map((latest?.game_refs ?? []).map((id, i) => [id, `G${i + 1}`])), [latest]);
   const refOf = (id: string) => refs.get(id) ?? null;
   const [highlight, setHighlight] = useState<string[] | null>(null);
+  /** Game whose summary is open in the list (one at a time). */
+  const [openGame, setOpenGame] = useState<string | null>(null);
   // Show at least every game the latest review cites, even after newer ones arrive.
   const listed = Math.max(20, ...view.games.map((g, i) => (refs.has(g.id) ? i + 1 : 0)));
 
@@ -549,8 +572,11 @@ function Progress({
                 g={g}
                 byId={byId}
                 lang={lang}
+                games={view.games}
                 gref={refOf(g.id)}
                 highlighted={!!highlight?.includes(g.id)}
+                open={openGame === g.id}
+                onToggle={() => setOpenGame((o) => (o === g.id ? null : g.id))}
               />
             ))}
           </ul>

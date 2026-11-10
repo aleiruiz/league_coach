@@ -1659,14 +1659,43 @@ a.inline-link {
 }
 
 .game-row {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1.4fr) 64px 60px 78px 70px 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
   border-radius: 6px;
   background: var(--panel-2);
   border-left: 3px solid var(--line-2);
+}
+
+.game-row-head {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1.4fr) 64px 60px 78px 70px 64px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-row-head:hover {
+  background: color-mix(in srgb, var(--text, #fff) 4%, transparent);
+}
+
+.game-row-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.game-chev {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.game-row.open .game-chev {
+  transform: rotate(180deg);
 }
 
 .game-row.win {
@@ -1693,7 +1722,7 @@ a.inline-link {
   min-width: 0;
 }
 
-.game-row > * {
+.game-row-head > * {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1701,11 +1730,139 @@ a.inline-link {
 }
 
 @media (max-width: 1000px) {
-  .game-row {
-    grid-template-columns: 28px 1fr auto auto;
+  .game-row-head {
+    grid-template-columns: 28px 1fr auto auto 14px;
   }
-  .game-row > :nth-child(n + 5) {
+  .game-row-head > :nth-child(n + 5):not(.game-chev) {
     display: none;
+  }
+}
+
+.game-detail {
+  padding: 8px 12px 12px 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--line-2);
+}
+
+.gd-note {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gd-note.bad,
+.gd-bad {
+  color: var(--enemy);
+}
+
+.gd-note.good,
+.gd-good {
+  color: var(--ally);
+}
+
+.gd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.gd-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--line-2) 35%, transparent);
+}
+
+.gd-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.gd-stat-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gd-deaths-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.gd-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-2);
+}
+
+.gd-early {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px 0 0 4px;
+  background: color-mix(in srgb, var(--enemy) 18%, transparent);
+}
+
+.gd-death {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--muted);
+  border: 2px solid var(--panel-2);
+}
+
+.gd-death.early {
+  background: var(--enemy);
+}
+
+.gd-bar-scale {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.gd-bar-scale > span[style] {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.gd-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.gd-compare h4 {
+  margin: 4px 0;
+  font-size: 12.5px;
+}
+
+.gd-compare ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+}
+
+.gd-compare p {
+  margin: 0 0 4px;
+}
+
+@media (max-width: 1000px) {
+  .game-detail {
+    padding-left: 12px;
   }
 }
 
