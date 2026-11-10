@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyEvent, humanizeError } from "./providers";
+import { applyEvent, humanizeError, pickKind } from "./providers";
 import { missingText, setLangForTests } from "./i18n";
 
 describe("applyEvent", () => {
@@ -62,5 +62,15 @@ describe("missingText", () => {
     expect(missingText(["el resumen"])).toBe("falta el resumen");
     expect(missingText(["las botas"])).toBe("faltan las botas");
     expect(missingText(["el resumen", "las botas"])).toBe("faltan el resumen y las botas");
+  });
+});
+
+describe("default AI", () => {
+  it("starts on the chosen AI when signed in, else the first signed-in one", () => {
+    const both = [{ kind: "claude_code" as const }, { kind: "codex" as const }];
+    expect(pickKind(both, "codex")).toBe("codex");
+    expect(pickKind(both, null)).toBe("claude_code");
+    expect(pickKind([{ kind: "claude_code" as const }], "codex")).toBe("claude_code");
+    expect(pickKind([], "codex")).toBeNull();
   });
 });

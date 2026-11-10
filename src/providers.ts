@@ -160,3 +160,29 @@ export function providerModels(kind: ProviderKind) {
 export function setProviderModel(kind: ProviderKind, model: string | null) {
   return invoke<void>("set_provider_model", { kind, model });
 }
+
+const PREFERRED = "lc.defaultProvider";
+
+/** The AI the Game, Ask and My progress screens start on (set in Models). Kept on this computer. */
+export function loadPreferred(): ProviderKind | null {
+  try {
+    const v = localStorage.getItem(PREFERRED);
+    return v === "claude_code" || v === "codex" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePreferred(kind: ProviderKind | null) {
+  try {
+    if (kind) localStorage.setItem(PREFERRED, kind);
+    else localStorage.removeItem(PREFERRED);
+  } catch {
+    // Without storage the choice lasts until the app closes.
+  }
+}
+
+/** The default AI if it is signed in, else the first one that is. */
+export function pickKind(ready: { kind: ProviderKind }[], preferred: ProviderKind | null): ProviderKind | null {
+  return ready.find((p) => p.kind === preferred)?.kind ?? ready[0]?.kind ?? null;
+}

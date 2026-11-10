@@ -1929,6 +1929,7 @@ a.inline-link {
     flex-basis: 100%;
     order: 3;
   }
+}
 
 /* Models: model picker, plan limits, token use */
 .usage {
@@ -2025,4 +2026,13 @@ a.inline-link {
   color: var(--muted);
   text-align: center;
   line-height: 1;
+}
+
+.default-choice {
+  margin-top: 12px;
+}
+
+.default-choice button {
+  padding: 5px 11px;
+  font-size: 13px;
 }
