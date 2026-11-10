@@ -330,13 +330,10 @@ mod tests {
 
     #[test]
     fn reads_the_lockfile() {
-        assert_eq!(
-            parse_lockfile("LeagueClient:1234:54321:s3cr3t:https\n"),
-            Some(Lockfile {
-                port: 54321,
-                password: "s3cr3t".into()
-            })
-        );
+        // The fourth field is the client's per-session token; any text works here.
+        let lock = parse_lockfile("LeagueClient:1234:54321:token-field:https\n").unwrap();
+        assert_eq!(lock.port, 54321);
+        assert_eq!(lock.password, "token-field");
         assert_eq!(parse_lockfile("LeagueClient:1234:x:pw:https"), None);
         assert_eq!(parse_lockfile("garbage"), None);
     }
