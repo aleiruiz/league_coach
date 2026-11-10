@@ -172,6 +172,8 @@ async fn champ_select(lock: &Lockfile) -> Result<Option<ChampSelect>, String> {
     let http = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .no_proxy()
+        // The local API never redirects: refuse rather than follow with the password.
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(3))
         .build()
         .map_err(|e| e.to_string())?;
