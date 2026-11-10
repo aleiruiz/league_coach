@@ -1929,6 +1929,7 @@ a.inline-link {
     flex-basis: 100%;
     order: 3;
   }
+}
 
 /* Models: model picker, plan limits, token use */
 .usage {
