@@ -99,6 +99,28 @@ export function hasReset(w: LimitWindow, now = Date.now()): boolean {
   return w.resets_at !== null && w.resets_at * 1000 <= now;
 }
 
+/**
+ * The one limit that matters most right now: the most-used window that
+ * hasn't reset since it was reported. Null when nothing is known.
+ */
+export function mainLimit(windows: LimitWindow[] | undefined, now = Date.now()): LimitWindow | null {
+  const live = (windows ?? []).filter((w) => !hasReset(w, now));
+  return live.reduce<LimitWindow | null>((top, w) => (!top || w.used_percent > top.used_percent ? w : top), null);
+}
+
+/** "84% of the weekly limit used. Resets in 2 h." / "Limit reached. Back in 25 min." */
+export function limitSentence(w: LimitWindow, now = Date.now()): string {
+  const pct = Math.round(w.used_percent);
+  const reset = resetText(w.resets_at, now);
+  if (pct >= 100) {
+    return reset
+      ? t(`Limit reached (${windowLabel(w).toLowerCase()}), ${reset}.`, `Límite alcanzado (${windowLabel(w).toLowerCase()}), ${reset}.`)
+      : t("Limit reached.", "Límite alcanzado.");
+  }
+  const base = t(`${pct}% used (${windowLabel(w).toLowerCase()})`, `${pct}% usado (${windowLabel(w).toLowerCase()})`);
+  return reset ? `${base}, ${reset}.` : `${base}.`;
+}
+
 function Meter({ w }: { w: LimitWindow }) {
   if (hasReset(w)) {
     const at = new Date((w.resets_at ?? 0) * 1000).toLocaleString(currentLang() === "es" ? "es-MX" : "en-US", {
@@ -249,7 +271,7 @@ function Tokens({ usage }: { usage: ProviderUsage | undefined }) {
   );
 }
 
-function ModelPicker({ kind }: { kind: ProviderKind }) {
+export function ModelPicker({ kind }: { kind: ProviderKind }) {
   const [models, setModels] = useState<ProviderModels | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);

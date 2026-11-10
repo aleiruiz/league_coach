@@ -2,23 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./Chat";
 import DraftView from "./DraftView";
 import Progress from "./Progress";
-import Models from "./Models";
-import Settings from "./Settings";
+import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
 import { NavIcon } from "./icons";
-import { loadPreferred, ProviderKind, providerStatuses, ProviderStatus, savePreferred } from "./providers";
+import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus, savePreferred } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
-type View = "draft" | "progress" | "coach" | "models" | "settings";
+type View = "draft" | "progress" | "coach" | "settings";
 
-const nav = (): { view: View; label: string }[] => [
-  { view: "draft", label: t("Game", "Partida") },
-  { view: "progress", label: t("My progress", "Mi progreso") },
-  { view: "coach", label: t("Ask", "Preguntar") },
-  { view: "models", label: t("Models", "Modelos") },
-  { view: "settings", label: t("Settings", "Ajustes") },
+/** "Claude (Claude Code)" → "Claude": the program name is in Settings. */
+const shortName = (label: string) => label.replace(/\s*\(.*\)\s*$/, "");
+
+/** The two moments the app is for: before a game and after it. */
+const nav = (): { view: "draft" | "progress"; label: string; hint: string }[] => [
+  { view: "draft", label: t("Next game", "Próxima partida"), hint: t("Build and matchup plan", "Build y plan de la línea") },
+  { view: "progress", label: t("Improve", "Mejorar"), hint: t("What to work on", "En qué trabajar") },
 ];
 
 export type ProvidersState = {
@@ -76,7 +76,10 @@ function App() {
     savePreferred(kind);
     setPreferredState(kind);
   }, []);
+  const [patch, setPatch] = useState<string | null>(null);
   const providers: ProvidersState = { list, loading, error, refresh, preferred, setPreferred };
+  const signedIn = list.filter((p) => p.logged_in);
+  const aiInUse = signedIn.find((p) => p.kind === pickKind(signedIn, preferred)) ?? null;
 
   // First-run setup: nothing else shows until an AI CLI is connected and the
   // Riot ID + region are saved. Checked once at startup; after that, signing
@@ -144,13 +147,48 @@ function App() {
             onClick={() => setView(n.view)}
           >
             <NavIcon name={n.view} />
-            {n.label}
+            <span className="nav-text">
+              <span>{n.label}</span>
+              <span className="nav-hint">{n.hint}</span>
+            </span>
           </button>
         ))}
+        <button
+          className={view === "coach" ? "nav active" : "nav"}
+          aria-current={view === "coach" ? "page" : undefined}
+          onClick={() => setView("coach")}
+        >
+          <NavIcon name="coach" />
+          {t("Ask the coach", "Preguntar al coach")}
+        </button>
+        <div className="nav-spacer" />
+        <div className="nav-status" aria-live="polite">
+          <span className="nav-status-line">
+            <span className={aiInUse ? "dot ok" : "dot"} aria-hidden="true" />
+            {aiInUse
+              ? t(`${shortName(aiInUse.label)} connected`, `${shortName(aiInUse.label)} conectado`)
+              : t("No AI connected", "Ninguna IA conectada")}
+          </span>
+          {patch && <span>{t(`Patch ${patch}`, `Parche ${patch}`)}</span>}
+        </div>
+        <button
+          className={view === "settings" ? "nav active" : "nav"}
+          aria-current={view === "settings" ? "page" : undefined}
+          onClick={() => setView("settings")}
+        >
+          <NavIcon name="settings" />
+          {t("Settings", "Ajustes")}
+        </button>
       </nav>
       <main className="content">
         <div hidden={view !== "draft"}>
-          <DraftView providers={providers} lang={lang} onBusy={draftBusy} onGoToModels={() => setView("models")} />
+          <DraftView
+            providers={providers}
+            lang={lang}
+            onBusy={draftBusy}
+            onGoToModels={() => setView("settings")}
+            onPatch={setPatch}
+          />
         </div>
         <div hidden={view !== "progress"}>
           <Progress
@@ -159,14 +197,11 @@ function App() {
             accountVersion={accountVersion}
             onBusy={progressBusy}
             onGoToSettings={() => setView("settings")}
-            onGoToModels={() => setView("models")}
+            onGoToModels={() => setView("settings")}
           />
         </div>
         <div hidden={view !== "coach"}>
-          <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("models")} />
-        </div>
-        <div hidden={view !== "models"}>
-          <Models providers={providers} active={view === "models"} lang={lang} />
+          <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("settings")} />
         </div>
         <div hidden={view !== "settings"}>
           <Settings
@@ -174,28 +209,20 @@ function App() {
             onLanguage={changeLanguage}
             locked={busy.draft || busy.coach || busy.progress}
             onRiotAccount={accountSaved}
+            providers={providers}
+            active={view === "settings"}
           />
         </div>
-        <Legal lang={lang} />
       </main>
     </div>
   );
 }
 
+/** First-run setup keeps Riot's notice visible (the app proper has it in Settings › About). */
 function Legal({ lang }: { lang: Lang }) {
   return (
-    <footer className="legal">
-      League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or
-      anyone officially involved in producing or managing Riot Games properties. Riot Games, and all
-      associated properties are trademarks or registered trademarks of Riot Games, Inc.
-      {lang === "es" && (
-        <>
-          <br />
-          League Coach no está respaldado por Riot Games y no refleja las opiniones de Riot Games ni de
-          nadie involucrado oficialmente en producir o gestionar sus propiedades. Riot Games y todas sus
-          propiedades asociadas son marcas comerciales o registradas de Riot Games, Inc.
-        </>
-      )}
+    <footer>
+      <LegalNotice lang={lang} />
     </footer>
   );
 }

@@ -86,22 +86,22 @@ const knownErrors = (): [RegExp, string][] => [
   [
     /usage limit|rate limit|quota|too many requests|429/i,
     t(
-      "You reached your plan's usage limit. Wait a while or switch models in Models.",
-      "Llegaste al límite de uso de tu plan. Espera un rato o cambia de modelo en Modelos.",
+      "You reached your plan's usage limit. Wait a while or switch models in Settings › Your AI.",
+      "Llegaste al límite de uso de tu plan. Espera un rato o cambia de modelo en Ajustes › Tu IA.",
     ),
   ],
   [
     /not logged in|unauthori[sz]ed|authentication|401|expired|invalid api key|log ?in again/i,
     t(
-      "The session isn't valid or has expired. Sign in again in Models.",
-      "La sesión no es válida o caducó. Vuelve a iniciar sesión en Modelos.",
+      "The session isn't valid or has expired. Sign in again in Settings › Your AI.",
+      "La sesión no es válida o caducó. Vuelve a iniciar sesión en Ajustes › Tu IA.",
     ),
   ],
   [
     /is not installed|no está instalado|not found|enoent/i,
     t(
-      "I can't find the model's program. Check the installation in Models.",
-      "No encuentro el programa del modelo. Revisa la instalación en Modelos.",
+      "I can't find the model's program. Check the installation in Settings › Your AI.",
+      "No encuentro el programa del modelo. Revisa la instalación en Ajustes › Tu IA.",
     ),
   ],
   [

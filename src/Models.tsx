@@ -213,7 +213,6 @@ function Models({ providers, active, lang }: { providers: ProvidersState; active
 
   return (
     <section>
-      <h2>{t("Models", "Modelos")}</h2>
       <p className="muted">{modelsIntro()}</p>
       <ProviderSetup
         providers={providers}
