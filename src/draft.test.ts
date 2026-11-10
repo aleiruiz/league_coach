@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane } from "./draft";
+import { applyLive, damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -83,5 +83,31 @@ describe("damageProfile", () => {
     expect([p.ad, p.ap, p.mixed, p.tanks]).toEqual([2, 1, 1, 2]);
     expect(p.adPct).toBe(63);
     expect(p.apPct).toBe(38);
+  });
+});
+
+describe("applyLive", () => {
+  const known = (id: string) => id !== "Unknown";
+  const base = { ...EMPTY_DRAFT, notes: "jungle camps my lane" };
+
+  it("fills role, me and both teams, keeping notes and never guessing the lane opponent", () => {
+    const s = applyLive(base, { source: "game", role: null, me: "Kayn", allies: ["Darius", "Ahri"], enemies: ["Khazix", "Unknown"] }, known);
+    expect(s.role).toBe(base.role);
+    expect(s.me).toBe("Kayn");
+    expect(s.allies).toEqual(["Darius", "Ahri", null, null]);
+    expect(s.enemies).toEqual(["Khazix", null, null, null, null]);
+    expect(s.lane).toBeNull();
+    expect(s.notes).toBe("jungle camps my lane");
+  });
+
+  it("keeps typed enemies until champ select reveals them, and the lane star if it's still there", () => {
+    const typed = { ...base, enemies: ["Zed", null, null, null, null], lane: "Zed" };
+    const early = applyLive(typed, { source: "champ_select", role: "mid", me: "Ahri", allies: [], enemies: [] }, known);
+    expect(early.role).toBe("mid");
+    expect(early.enemies[0]).toBe("Zed");
+    expect(early.lane).toBe("Zed");
+    const later = applyLive(early, { source: "champ_select", role: "mid", me: "Ahri", allies: [], enemies: ["Yasuo"] }, known);
+    expect(later.enemies[0]).toBe("Yasuo");
+    expect(later.lane).toBeNull();
   });
 });

@@ -95,3 +95,34 @@ export function damageProfile(champs: Champion[]) {
   const tanks = champs.filter((c) => c.defense >= 7 || c.tags.includes("Tank")).length;
   return { ad, ap, mixed, adPct, apPct, tanks };
 }
+
+/** Champions of the current champ select or game, as `current_game` returns them. */
+export type LiveDraft = {
+  source: "champ_select" | "game";
+  role: Role | null;
+  me: string | null;
+  allies: string[];
+  enemies: string[];
+};
+
+/**
+ * Fills the draft with what the client or Riot reports. A team the game
+ * doesn't show yet (enemies early in champ select) keeps what was typed;
+ * the lane opponent stays only if it's still among the enemies (it's never
+ * guessed). Notes are kept. Unknown champion ids (a champion newer than the
+ * loaded patch data) are left out.
+ */
+export function applyLive(s: DraftState, live: LiveDraft, known: (id: string) => boolean): DraftState {
+  const ok = (l: string[]) => l.filter(known);
+  const fill = (l: string[], n: number) => Array.from({ length: n }, (_, i) => l[i] ?? null);
+  const allies = ok(live.allies);
+  const enemies = ok(live.enemies);
+  const next: DraftState = {
+    ...s,
+    role: live.role ?? s.role,
+    me: live.me && known(live.me) ? live.me : s.me,
+    allies: allies.length ? fill(allies, s.allies.length) : s.allies,
+    enemies: enemies.length ? fill(enemies, s.enemies.length) : s.enemies,
+  };
+  return { ...next, lane: next.lane && next.enemies.includes(next.lane) ? next.lane : null };
+}

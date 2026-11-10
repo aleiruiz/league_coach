@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES, RuneTree, Shard } from "./game";
+import { Champion, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES, RuneTree, Shard } from "./game";
 import { RoleIcon } from "./icons";
 import { damageProfile } from "./draft";
-import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
+import { applyLive, DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
 import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
 import { Lang, t } from "./i18n";
@@ -131,6 +131,9 @@ function DraftView({
   const opener = useRef<HTMLElement | null>(null);
 
   const [busy, setBusy] = useState(false);
+  /** Reading champ select / the live game (Refresh). */
+  const [syncing, setSyncing] = useState(false);
+  const [liveNote, setLiveNote] = useState<{ text: string; error: boolean } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rec, setRec] = useState<Result | null>(null);
@@ -182,8 +185,35 @@ function DraftView({
     closePicker();
   }
 
+  /** Refresh: fill the slots from champ select or the game in progress. Never asks the model. */
+  async function refreshFromGame() {
+    if (!data || syncing) return;
+    setSyncing(true);
+    setLiveNote(null);
+    try {
+      const live = await currentGame();
+      const ids = new Set(data.champions.map((c) => c.id));
+      setD((s) => applyLive(s, live, (id) => ids.has(id)));
+      setLiveNote({
+        text:
+          live.source === "champ_select"
+            ? t(
+                "Filled from your champ select. Press again as more picks lock in.",
+                "Rellenado con tu selección de campeones. Vuelve a pulsar cuando se bloqueen más picks.",
+              )
+            : t("Filled from your game in progress.", "Rellenado con tu partida en curso."),
+        error: false,
+      });
+    } catch (e) {
+      setLiveNote({ text: humanizeError(String(e)), error: true });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   function reset() {
     setD(EMPTY_DRAFT);
+    setLiveNote(null);
     setRec(null);
     setAnswers([]);
     setError(null);
@@ -276,10 +306,26 @@ function DraftView({
             ))}
           </select>
         )}
+        <button
+          className="secondary"
+          onClick={refreshFromGame}
+          disabled={busy || syncing || !data}
+          title={t(
+            "Fill the champions from your champ select (League client on this computer) or your game in progress (Riot API). It doesn't ask the coach anything.",
+            "Rellena los campeones con tu selección de campeones (cliente de League en esta computadora) o tu partida en curso (API de Riot). No le pregunta nada al coach.",
+          )}
+        >
+          {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
+        </button>
         <button className="secondary" onClick={reset} disabled={busy}>
           {t("New game", "Nueva partida")}
         </button>
       </header>
+      {liveNote && (
+        <p className={liveNote.error ? "error small" : "muted small"} role="status">
+          {liveNote.text}
+        </p>
+      )}
 
       {data?.notice && <p className="muted small">{data.notice}</p>}
       {dataError && (

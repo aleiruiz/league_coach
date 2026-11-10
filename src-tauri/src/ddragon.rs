@@ -141,6 +141,10 @@ const SUMMONERS_RIFT: &str = "11";
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Champion {
     pub id: String,
+    /// Riot's numeric champion id (`key` in Data Dragon), as the League
+    /// client and Spectator-V5 send it. Not needed by the UI.
+    #[serde(skip)]
+    pub key: u32,
     pub name: String,
     pub title: String,
     pub tags: Vec<String>,
@@ -289,6 +293,7 @@ pub fn parse_champions(json: &str, version: &str) -> Result<Vec<Champion>, Strin
         .values()
         .map(|c| Champion {
             id: c["id"].as_str().unwrap_or_default().into(),
+            key: c["key"].as_str().and_then(|k| k.parse().ok()).unwrap_or(0),
             name: c["name"].as_str().unwrap_or_default().into(),
             title: c["title"].as_str().unwrap_or_default().into(),
             tags: str_vec(&c["tags"]),

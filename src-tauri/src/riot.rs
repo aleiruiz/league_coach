@@ -233,6 +233,23 @@ pub struct Client {
     region: &'static Region,
 }
 
+/// Spectator-V5 game, only the fields the Game screen needs.
+#[derive(Debug, Deserialize)]
+pub struct ActiveGame {
+    #[serde(default)]
+    pub participants: Vec<ActiveParticipant>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActiveParticipant {
+    #[serde(rename = "teamId")]
+    pub team_id: u32,
+    #[serde(rename = "championId")]
+    pub champion_id: u32,
+    #[serde(default)]
+    pub puuid: Option<String>,
+}
+
 impl Client {
     pub fn new(region: &'static Region) -> Result<Self, RiotError> {
         let key = secrets::get_key(&secrets::Keyring, "riot")
@@ -338,6 +355,26 @@ impl Client {
             &["lol", "league", "v4", "entries", "by-puuid", puuid],
         );
         self.get(url).await
+    }
+
+    /// Spectator-V5: the game this player is in right now, if any (Riot
+    /// answers 404 when they aren't in one).
+    pub async fn active_game(&self, puuid: &str) -> Result<Option<ActiveGame>, RiotError> {
+        let url = Self::url(
+            self.region.id,
+            &[
+                "lol",
+                "spectator",
+                "v5",
+                "active-games",
+                "by-summoner",
+                puuid,
+            ],
+        );
+        match self.get(url).await {
+            Err(RiotError::NotFound) => Ok(None),
+            other => other.map(Some),
+        }
     }
 
     /// Match-V5: ids of the most recent games, newest first.
