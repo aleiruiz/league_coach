@@ -1,6 +1,7 @@
 mod ddragon;
 mod history;
 mod i18n;
+mod live;
 mod providers;
 mod recommend;
 mod riot;
@@ -38,6 +39,7 @@ pub fn run() {
             riot::lookup_summoner,
             history::riot_account,
             history::save_riot_account,
+            live::current_game,
             history::match_history,
             history::sync_matches,
             history::review_matches,

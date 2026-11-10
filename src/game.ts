@@ -138,3 +138,8 @@ export function searchChampions(list: Champion[], query: string): Champion[] {
   if (!q) return list;
   return list.filter((c) => norm(c.name).includes(q));
 }
+
+/** Champ select (from the League client) or the game in progress (from Riot). Only on request. */
+export function currentGame() {
+  return invoke<import("./draft").LiveDraft>("current_game");
+}
