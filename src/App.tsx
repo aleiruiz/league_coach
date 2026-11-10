@@ -7,7 +7,7 @@ import Settings from "./Settings";
 import Onboarding from "./Onboarding";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
 import { NavIcon } from "./icons";
-import { providerStatuses, ProviderStatus } from "./providers";
+import { loadPreferred, ProviderKind, providerStatuses, ProviderStatus, savePreferred } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
@@ -26,6 +26,9 @@ export type ProvidersState = {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Default AI chosen in Models (null: the first signed-in one). */
+  preferred: ProviderKind | null;
+  setPreferred: (kind: ProviderKind | null) => void;
 };
 
 function App() {
@@ -68,7 +71,12 @@ function App() {
     [refresh],
   );
 
-  const providers: ProvidersState = { list, loading, error, refresh };
+  const [preferred, setPreferredState] = useState<ProviderKind | null>(loadPreferred);
+  const setPreferred = useCallback((kind: ProviderKind | null) => {
+    savePreferred(kind);
+    setPreferredState(kind);
+  }, []);
+  const providers: ProvidersState = { list, loading, error, refresh, preferred, setPreferred };
 
   // First-run setup: nothing else shows until an AI CLI is connected and the
   // Riot ID + region are saved. Checked once at startup; after that, signing

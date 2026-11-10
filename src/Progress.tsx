@@ -23,7 +23,7 @@ import {
   trend,
 } from "./history";
 import { Lang, t } from "./i18n";
-import { cancelPrompt, humanizeError, ProviderKind } from "./providers";
+import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 
 const EMPTY: HistoryView = { configured: false, games: [], summary: null, latest: null, previous: null, needs_review: false };
 
@@ -281,8 +281,15 @@ function Progress({
   useEffect(() => onBusy(reviewing), [reviewing, onBusy]);
 
   useEffect(() => {
-    if (!ready.some((p) => p.kind === kind)) setKind(ready[0]?.kind ?? null);
-  }, [ready, kind]);
+    if (!ready.some((p) => p.kind === kind)) setKind(pickKind(ready, providers.preferred));
+  }, [ready, kind, providers.preferred]);
+
+  // A new default chosen in Models applies here unless a request is running.
+  useEffect(() => {
+    const p = providers.preferred;
+    if (p && !(syncing || reviewing) && ready.some((r) => r.kind === p)) setKind(p);
+    // Only when the default itself changes.
+  }, [providers.preferred]);
 
   useEffect(() => {
     let current = true;
