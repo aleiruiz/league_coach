@@ -117,12 +117,17 @@ export function applyLive(s: DraftState, live: LiveDraft, known: (id: string) =>
   const fill = (l: string[], n: number) => Array.from({ length: n }, (_, i) => l[i] ?? null);
   const allies = ok(live.allies);
   const enemies = ok(live.enemies);
+  const me = live.me && known(live.me) ? live.me : s.me;
+  // A kept (typed) team drops any champion the game now places elsewhere:
+  // one champion can't be on both teams.
+  const placed = new Set([me, ...allies, ...enemies].filter(Boolean));
+  const keep = (l: (string | null)[]) => l.map((x) => (x && placed.has(x) ? null : x));
   const next: DraftState = {
     ...s,
     role: live.role ?? s.role,
-    me: live.me && known(live.me) ? live.me : s.me,
-    allies: allies.length ? fill(allies, s.allies.length) : s.allies,
-    enemies: enemies.length ? fill(enemies, s.enemies.length) : s.enemies,
+    me,
+    allies: allies.length ? fill(allies, s.allies.length) : keep(s.allies),
+    enemies: enemies.length ? fill(enemies, s.enemies.length) : keep(s.enemies),
   };
   return { ...next, lane: next.lane && next.enemies.includes(next.lane) ? next.lane : null };
 }

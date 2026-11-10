@@ -111,3 +111,12 @@ describe("applyLive", () => {
     expect(later.lane).toBeNull();
   });
 });
+
+describe("applyLive duplicates", () => {
+  it("drops a typed enemy that the game now shows on my team", () => {
+    const typed = { ...EMPTY_DRAFT, enemies: ["Zed", "Ahri", null, null, null] };
+    const s = applyLive(typed, { source: "champ_select", role: null, me: "Kayn", allies: ["Zed"], enemies: [] }, () => true);
+    expect(s.allies[0]).toBe("Zed");
+    expect(s.enemies).toEqual([null, "Ahri", null, null, null]);
+  });
+});
