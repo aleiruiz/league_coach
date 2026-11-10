@@ -114,11 +114,14 @@ function DraftView({
   lang,
   onBusy,
   onGoToModels,
+  onPatch,
 }: {
   providers: ProvidersState;
   lang: Lang;
   onBusy: (busy: boolean) => void;
   onGoToModels: () => void;
+  /** Tells the sidebar which patch the champion data is from. */
+  onPatch?: (patch: string) => void;
 }) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
@@ -151,7 +154,11 @@ function DraftView({
     let current = true;
     setDataError(null);
     gameData()
-      .then((g) => current && setData(g))
+      .then((g) => {
+        if (!current) return;
+        setData(g);
+        onPatch?.(g.patch);
+      })
       .catch((e) => current && setDataError(String(e)));
     return () => {
       current = false;
@@ -288,9 +295,9 @@ function DraftView({
   if (!ready.length && !providers.loading) {
     return (
       <section>
-        <h2>{t("Your game", "Tu partida")}</h2>
+        <h2>{t("Next game", "Próxima partida")}</h2>
         <p className="muted">{t("Connect Claude or ChatGPT to get builds.", "Conecta Claude o ChatGPT para recibir builds.")}</p>
-        <button onClick={onGoToModels}>{t("Connect models", "Conectar modelos")}</button>
+        <button onClick={onGoToModels}>{t("Connect an AI", "Conectar una IA")}</button>
       </section>
     );
   }
@@ -298,7 +305,7 @@ function DraftView({
   return (
     <section className="draft">
       <header className="draft-header">
-        <h2>{t("Your game", "Tu partida")}</h2>
+        <h2>{t("Next game", "Próxima partida")}</h2>
         {data && (
           <span className="badge">
             {t("Patch", "Parche")} {data.patch}

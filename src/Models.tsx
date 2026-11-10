@@ -3,7 +3,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   humanizeError,
   openLogin,
-  pickKind,
   ProviderKind,
   ProviderStatus,
   ProviderUsage,
@@ -157,37 +156,6 @@ export const modelsIntro = () =>
     "League Coach usa tus suscripciones a través de los programas oficiales (Claude Code y Codex CLI). El inicio de sesión ocurre en la página de cada proveedor: la app nunca ve ni guarda tus credenciales.",
   );
 
-/** Whether this AI is the one the other screens start on, and a way to make it so. */
-function DefaultChoice({
-  kind,
-  label,
-  isDefault,
-  only,
-  onChoose,
-}: {
-  kind: ProviderKind;
-  label: string;
-  isDefault: boolean;
-  /** The only signed-in AI: it's the default anyway, nothing to choose. */
-  only: boolean;
-  onChoose: () => void;
-}) {
-  if (only) return null;
-  return (
-    <div className="default-choice" data-kind={kind}>
-      {isDefault ? (
-        <span className="badge patch">
-          {t("Default for Game, Ask and My progress", "Predeterminado en Partida, Preguntar y Mi progreso")}
-        </span>
-      ) : (
-        <button type="button" className="secondary" onClick={onChoose}>
-          {t(`Use ${label} by default`, `Usar ${label} por defecto`)}
-        </button>
-      )}
-    </div>
-  );
-}
-
 function Models({ providers, active, lang }: { providers: ProvidersState; active: boolean; lang: Lang }) {
   // Per provider: `undefined` while loading, so a slow Codex read never
   // holds up (or blanks) Claude's card.
@@ -213,19 +181,11 @@ function Models({ providers, active, lang }: { providers: ProvidersState; active
 
   return (
     <section>
-      <h2>{t("Models", "Modelos")}</h2>
       <p className="muted">{modelsIntro()}</p>
       <ProviderSetup
         providers={providers}
         details={(p) => (
           <>
-            <DefaultChoice
-              kind={p.kind}
-              label={p.label}
-              isDefault={pickKind(signedInList, providers.preferred) === p.kind}
-              only={signedInList.length < 2}
-              onChoose={() => providers.setPreferred(p.kind)}
-            />
             <ProviderDetails
               key={`${p.kind}-${lang}`}
               kind={p.kind}

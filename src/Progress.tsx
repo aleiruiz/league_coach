@@ -413,7 +413,7 @@ function Progress({
   return (
     <section className="progress">
       <header className="draft-header">
-        <h2>{t("My progress", "Mi progreso")}</h2>
+        <h2>{t("Improve", "Mejorar")}</h2>
         {profile && configured && <span className="badge">{riotIdOf(profile)}</span>}
         {ready.length > 1 && (
           <select

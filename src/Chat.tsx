@@ -116,8 +116,8 @@ function Chat({ providers, onBusy, onGoToModels }: Props) {
             m.text.trim() || m.error ? m : {
                   ...m,
                   error: t(
-                    "The model returned no answer. Test the connection in Models.",
-                    "El modelo no devolvió respuesta. Prueba la conexión en Modelos.",
+                    "The model returned no answer. Test the connection in Settings › Your AI.",
+                    "El modelo no devolvió respuesta. Prueba la conexión en Ajustes › Tu IA.",
                   ),
                 },
           );
@@ -160,7 +160,7 @@ function Chat({ providers, onBusy, onGoToModels }: Props) {
                 "Todavía no hay ningún modelo conectado. Conecta Claude o ChatGPT para empezar.",
               )}
         </p>
-        <button onClick={onGoToModels}>{t("Connect models", "Conectar modelos")}</button>
+        <button onClick={onGoToModels}>{t("Connect an AI", "Conectar una IA")}</button>
       </section>
     );
   }

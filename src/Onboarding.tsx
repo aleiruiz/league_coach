@@ -72,8 +72,8 @@ function Onboarding({
       <h2>{t("Let's get you set up", "Vamos a configurarlo")}</h2>
       <p className="muted">
         {t(
-          "Two quick steps before you start. You can change both later in Models and Settings.",
-          "Dos pasos rápidos antes de empezar. Puedes cambiar ambos después en Modelos y Ajustes.",
+          "Two quick steps before you start. You can change both later in Settings.",
+          "Dos pasos rápidos antes de empezar. Puedes cambiar ambos después en Ajustes.",
         )}
       </p>
 
@@ -95,8 +95,8 @@ function Onboarding({
         <RiotAccount compact onSaved={onAccountSaved} />
         <p className="muted small">
           {t(
-            "Reading your games in “My progress” also needs a Riot API key, which you can add later in Settings.",
-            "Para leer tus partidas en «Mi progreso» también hace falta una API key de Riot, que puedes añadir después en Ajustes.",
+            "Reading your games in Improve also needs a Riot API key, which you can add later in Settings.",
+            "Para leer tus partidas en Mejorar también hace falta una API key de Riot, que puedes añadir después en Ajustes.",
           )}
         </p>
       </Step>

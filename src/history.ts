@@ -136,7 +136,7 @@ export const POLL_MS = 5 * 60 * 1000;
 
 export type MetricKey = Exclude<keyof Averages, "games">;
 
-/** Metrics shown on the "My progress" board. `higher`: is a bigger number better? */
+/** Metrics shown on the "Improve" board. `higher`: is a bigger number better? */
 export const METRICS: { key: MetricKey; label: () => string; higher: boolean; format: (v: number) => string }[] = [
   { key: "win_rate", label: () => t("Win rate", "Victorias"), higher: true, format: pct },
   { key: "cs_per_min", label: () => t("CS/min", "CS/min"), higher: true, format: (v) => v.toFixed(1) },
