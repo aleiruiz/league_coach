@@ -368,9 +368,54 @@ function Settings({
               <LegalNotice lang={lang} />
             </div>
           )}
+          <OldKeys />
         </div>
       </section>
     </section>
+  );
+}
+
+/** API keys earlier versions could save; nothing reads them anymore. */
+export const OLD_KEYS = ["anthropic", "openai", "openrouter"];
+
+/**
+ * Earlier versions let you save Anthropic, OpenAI and OpenRouter keys. They are
+ * unused now; shown only while one is still in the keychain, so it can be removed.
+ */
+function OldKeys() {
+  const [left, setLeft] = useState<string[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
+  async function refresh() {
+    try {
+      const keys = await invoke<KeyStatus[]>("list_api_keys");
+      setLeft(keys.filter((k) => OLD_KEYS.includes(k.provider) && k.state === "configured").map((k) => k.provider));
+    } catch {
+      setLeft([]);
+    }
+  }
+  useEffect(() => {
+    refresh();
+  }, []);
+  async function removeAll() {
+    try {
+      for (const provider of left) await invoke("delete_api_key", { provider });
+      setMessage(t("Old API keys deleted.", "API keys antiguas eliminadas."));
+    } catch (e) {
+      setMessage(`Error: ${e}`);
+    }
+    await refresh();
+  }
+  if (left.length === 0) return message ? <p className="muted small">{message}</p> : null;
+  return (
+    <p className="muted small">
+      {t(
+        "An earlier version saved API keys this app no longer uses.",
+        "Una versión anterior guardó API keys que la app ya no usa.",
+      )}{" "}
+      <button type="button" className="link-button" onClick={removeAll}>
+        {t("Delete old API keys", "Eliminar API keys antiguas")}
+      </button>
+    </p>
   );
 }
 
