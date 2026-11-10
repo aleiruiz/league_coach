@@ -132,11 +132,11 @@ export function GameDetail({
           hint={`${g.kills}/${g.deaths}/${g.assists}`}
         />
         <Stat
-          label={t("Kill participation", "Participación en kills")}
+          label={t("Kills you were in", "Kills en las que participaste")}
           value={pct(g.kill_participation)}
         />
         <Stat
-          label={t("Damage share", "% del daño")}
+          label={t("Share of team damage", "Parte del daño del equipo")}
           value={pct(g.damage_share)}
           hint={t(
             "Share of your team's damage to champions",
@@ -146,9 +146,9 @@ export function GameDetail({
         {/* A support isn't judged on CS: the tiles would hint at farming more. */}
         {g.role !== "UTILITY" && (
           <>
-            <Stat label="CS/min" value={g.cs_per_min.toFixed(1)} />
+            <Stat label={t("Minions per minute", "Súbditos por minuto")} value={g.cs_per_min.toFixed(1)} />
             <Stat
-              label={t("CS @10", "CS @10")}
+              label={t("Minions at 10 min", "Súbditos al minuto 10")}
               value={
                 g.cs_at_10 !== null
                   ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${signed(g.cs_diff_10)})` : ""}`
@@ -162,18 +162,18 @@ export function GameDetail({
           </>
         )}
         <Stat
-          label={t("Gold diff @15", "Dif. oro @15")}
+          label={t("Gold vs opponent at 15 min", "Oro vs rival al minuto 15")}
           value={g.gold_diff_15 !== null ? signed(g.gold_diff_15) : "—"}
           hint={t("You vs your lane opponent", "Tú vs tu rival de línea")}
         />
         <Stat
-          label={t("Team gold @15", "Oro equipo @15")}
+          label={t("Team gold lead at 15 min", "Ventaja de oro del equipo al minuto 15")}
           value={
             g.team_gold_diff_15 !== null ? signed(g.team_gold_diff_15) : "—"
           }
         />
         <Stat
-          label={t("Vision/min", "Visión/min")}
+          label={t("Vision score per minute", "Visión por minuto")}
           value={g.vision_per_min.toFixed(2)}
         />
         <Stat
@@ -185,7 +185,7 @@ export function GameDetail({
           )}
         />
         <Stat
-          label={t("First item", "Primer ítem")}
+          label={t("First item done at", "Primer ítem terminado al")}
           value={g.first_item_min !== null ? clock(g.first_item_min) : "—"}
         />
       </div>

@@ -8,7 +8,6 @@ import {
   matchHistory,
   METRICS,
   PainPoint,
-  pct,
   POLL_MS,
   reviewMatches,
   riotAccount,
@@ -16,12 +15,12 @@ import {
   RiotProfile,
   roleName,
   SavedReport,
-  signed,
   asSyncError,
   SyncError,
   syncMatches,
   trend,
 } from "./history";
+import { focusNumbers, metricFor, plainValue, worstGames } from "./improve";
 import { Lang, t } from "./i18n";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 
@@ -42,80 +41,100 @@ function gameDate(g: GameStats, lang: Lang): string {
     : "";
 }
 
-function gameTitle(g: GameStats, lang: Lang): string {
-  return `${gameDate(g, lang)} · ${g.win ? t("Win", "Victoria") : t("Loss", "Derrota")} · ${g.champion}${
-    g.opponent ? ` vs ${g.opponent}` : ""
-  }`;
+function champName(id: string, byId: Map<string, Champion>): string {
+  return byId.get(id.toLowerCase())?.name ?? id;
 }
 
-function PainCard({
-  n,
-  p,
-  games,
-  byId,
-  lang,
-  refOf,
-  onHighlight,
-}: {
-  n: number;
-  p: PainPoint;
-  games: GameStats[];
-  byId: Map<string, Champion>;
-  lang: Lang;
-  /** "G4" for a match id, as the review named it. */
-  refOf: (id: string) => string | null;
-  /** Highlights the cited games in the list (null clears). */
-  onHighlight: (ids: string[] | null) => void;
-}) {
-  const cited = p.games.map((id) => games.find((g) => g.id === id)).filter((g): g is GameStats => !!g);
-  // Drill and target first: that's what the player acts on. The numbers
-  // behind it come after, and the "why" is one click away.
+/** "Orianna vs Yasuo, Nov 9": a game named the way the player remembers it. */
+function gameName(g: GameStats, byId: Map<string, Champion>, lang: Lang, date = true): string {
+  const vs = g.opponent ? ` vs ${champName(g.opponent, byId)}` : "";
+  return `${champName(g.champion, byId)}${vs}${date && g.ended_at ? `, ${gameDate(g, lang)}` : ""}`;
+}
+
+/** The one thing to work on: what, the drill, the goal and how it's going. */
+function FocusCard({ p, view, byId, lang }: { p: PainPoint; view: HistoryView; byId: Map<string, Champion>; lang: Lang }) {
+  const key = metricFor(`${p.metric} ${p.title}`);
+  const nums = key ? focusNumbers(key, view.summary) : null;
+  const m = key ? METRICS.find((x) => x.key === key) : undefined;
+  const worst = key ? worstGames(key, p.games, view.games) : [];
+  const tr = m && nums && nums.recent !== null && view.summary && view.summary.earlier.games > 0
+    ? trend(nums.recent, view.summary.earlier[m.key], m.higher)
+    : null;
   return (
-    <article
-      className="panel pain"
-      tabIndex={cited.length ? 0 : undefined}
-      onMouseEnter={() => cited.length && onHighlight(p.games)}
-      onMouseLeave={() => onHighlight(null)}
-      onFocus={() => cited.length && onHighlight(p.games)}
-      onBlur={() => onHighlight(null)}
-    >
-      <header className="pain-head">
-        <span className="pain-n" aria-hidden="true">
-          {n}
-        </span>
-        <div className="pain-title">
-          <h4>{p.title}</h4>
-          {p.metric && <span className="pain-metric">{p.metric}</span>}
-        </div>
-      </header>
-      <div className="pain-drill">
-        <strong>{t("Practice", "Practica")}</strong>
-        <p>{p.drill}</p>
+    <article className="focus" aria-labelledby="focus-title">
+      <div className="focus-main">
+        <span className="focus-kicker">{t("Your focus", "Tu enfoque")}</span>
+        <h3 id="focus-title">{p.title}</h3>
+        {p.evidence && <p className="muted">{p.evidence}</p>}
+        <p className="focus-drill-label small">{t("Do this for your next 5 games", "Haz esto en tus próximas 5 partidas")}</p>
+        <p className="focus-drill">{p.drill}</p>
+        {p.why && (
+          <details className="pain-why">
+            <summary>{t("Why it matters", "Por qué importa")}</summary>
+            <p className="muted">{p.why}</p>
+          </details>
+        )}
       </div>
-      {p.target && (
-        <p className="pain-target">
-          <strong>{t("Target", "Meta")}:</strong> {p.target}
-        </p>
-      )}
-      {p.evidence && <p className="pain-evidence">{p.evidence}</p>}
-      {cited.length > 0 && (
-        <div className="pain-games" aria-label={t("Games that show it", "Partidas que lo muestran")}>
-          {cited.map((g) => (
-            <span key={g.id} className={g.win ? "game-chip win" : "game-chip loss"} title={gameTitle(g, lang)}>
-              <ChampIcon id={g.champion} byId={byId} size={18} />
-              {refOf(g.id) && <b>{refOf(g.id)}</b>}
-              {g.kills}/{g.deaths}/{g.assists}
-            </span>
-          ))}
+      <div className="focus-side">
+        <div className="focus-labels small muted">
+          <span>{m ? m.label() : p.metric}</span>
+          {p.target && <span>{t("Goal:", "Meta:")} {p.target}</span>}
+        </div>
+        {key && nums && (
+          <p className="focus-value">
+            <strong>{plainValue(key, nums.all)}</strong>
+            {nums.recent !== null && tr && (
+              <span className={`small ${tr.verdict}`}>
+                {plainValue(key, nums.recent)} {t("in your last 5", "en tus últimas 5")}
+              </span>
+            )}
+          </p>
+        )}
+        {worst.length > 0 && key && (
+          <>
+            <p className="small muted">{t("Where it showed most", "Donde más se notó")}</p>
+            <ul className="focus-games">
+              {worst.map(({ g, v }) => (
+                <li key={g.id}>
+                  <ChampIcon id={g.champion} byId={byId} />
+                  <span>{gameName(g, byId, lang)}</span>
+                  <strong>{plainValue(key, v)}</strong>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/** A smaller point: its number, its goal, and the drill on click. */
+function WatchRow({ p, view }: { p: PainPoint; view: HistoryView }) {
+  const [open, setOpen] = useState(false);
+  const key = metricFor(`${p.metric} ${p.title}`);
+  const nums = key ? focusNumbers(key, view.summary) : null;
+  const line = [key && nums ? plainValue(key, nums.all) : p.evidence, p.target ? t(`Goal: ${p.target}`, `Meta: ${p.target}`) : ""]
+    .filter(Boolean)
+    .join(". ");
+  return (
+    <li className="watch">
+      <div className="watch-head">
+        <div>
+          <strong>{p.title}</strong>
+          {line && <span className="muted small">{line}</span>}
+        </div>
+        <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? t("Hide drill", "Ocultar ejercicio") : t("See drill", "Ver ejercicio")}
+        </button>
+      </div>
+      {open && (
+        <div className="watch-body small">
+          <p>{p.drill}</p>
+          {p.evidence && !line.includes(p.evidence) && <p className="muted">{p.evidence}</p>}
         </div>
       )}
-      {p.why && (
-        <details className="pain-why">
-          <summary>{t("Why it matters", "Por qué importa")}</summary>
-          <p className="muted">{p.why}</p>
-        </details>
-      )}
-    </article>
+    </li>
   );
 }
 
@@ -165,8 +184,8 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
         {s.behind_at_10[1] > 0 &&
           " " +
             t(
-              `Behind your lane opponent in CS at 10 in ${s.behind_at_10[0]} of ${s.behind_at_10[1]} games.`,
-              `Por detrás de tu rival de línea en CS al 10 en ${s.behind_at_10[0]} de ${s.behind_at_10[1]} partidas.`,
+              `Behind your lane opponent in minions at 10 min in ${s.behind_at_10[0]} of ${s.behind_at_10[1]} games.`,
+              `Por detrás de tu rival de línea en súbditos al minuto 10 en ${s.behind_at_10[0]} de ${s.behind_at_10[1]} partidas.`,
             )}
       </p>
     </div>
@@ -178,8 +197,6 @@ function GameRow({
   games,
   byId,
   lang,
-  gref,
-  highlighted,
   open,
   onToggle,
 }: {
@@ -187,17 +204,12 @@ function GameRow({
   games: GameStats[];
   byId: Map<string, Champion>;
   lang: Lang;
-  gref: string | null;
-  highlighted: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
-  const name = byId.get(g.champion.toLowerCase())?.name ?? g.champion;
-  const opp = g.opponent ? (byId.get(g.opponent.toLowerCase())?.name ?? g.opponent) : null;
-  const date = gameDate(g, lang);
   const detailId = `game-detail-${g.id}`;
   return (
-    <li className={`game-row ${g.win ? "win" : "loss"}${highlighted ? " highlight" : ""}${open ? " open" : ""}`}>
+    <li className={`game-row ${g.win ? "win" : "loss"}${open ? " open" : ""}`}>
       <button
         type="button"
         className="game-row-head"
@@ -206,33 +218,22 @@ function GameRow({
         title={open ? t("Hide the summary", "Ocultar el resumen") : t("Show the game summary", "Ver el resumen de la partida")}
         onClick={onToggle}
       >
+        <span className="game-result">{g.win ? t("Win", "Victoria") : t("Loss", "Derrota")}</span>
         <ChampIcon id={g.champion} byId={byId} />
         <span className="game-main">
-          <strong>
-            {gref && <span className="game-ref">{gref}</span>}
-            {name}
-          </strong>
-          <span className="muted small">
-            {roleName(g.role)}
-            {opp && ` · vs ${opp}`}
-          </span>
+          <strong>{gameName(g, byId, lang, false)}</strong>
+          <span className="muted small">{roleName(g.role)}</span>
         </span>
-        <span className="game-result">{g.win ? t("Win", "Victoria") : t("Loss", "Derrota")}</span>
         <span className="num">
           {g.kills}/{g.deaths}/{g.assists}
         </span>
-        <span className="num" title={t("CS per minute", "CS por minuto")}>
-          {g.cs_per_min.toFixed(1)} CS/m
+        <span
+          className={g.cs_diff_10 !== null && g.cs_diff_10 <= -10 ? "num bad" : "num"}
+          title={t("Minions vs your opponent at 10 min", "Súbditos vs tu rival al minuto 10")}
+        >
+          {g.role !== "UTILITY" && g.cs_diff_10 !== null ? plainValue("cs_diff_10", g.cs_diff_10) : ""}
         </span>
-        <span className="num" title={t("CS difference at 10 vs lane opponent", "Diferencia de CS al 10 vs rival de línea")}>
-          {g.cs_diff_10 !== null ? `${signed(g.cs_diff_10)} @10` : "—"}
-        </span>
-        <span className="num" title={t("Kill participation", "Participación en kills")}>
-          {pct(g.kill_participation)} KP
-        </span>
-        <span className="muted small">
-          {date} · {Math.round(g.minutes)} min
-        </span>
+        <span className="muted small">{gameDate(g, lang)}</span>
         <span className="game-chev" aria-hidden="true">
           ▾
         </span>
@@ -348,9 +349,13 @@ function Progress({
     }
   }, [reload]);
 
-  /** `quiet`: background check; it only speaks up when something changed. */
+  /**
+   * `quiet`: background check; it only speaks up when something changed.
+   * `update`: the Update button, which also reviews new games even with the
+   * automatic review off.
+   */
   const sync = useCallback(
-    async (quiet: boolean) => {
+    async (quiet: boolean, update = false) => {
       if (live.current.busy) return;
       setSyncing(true);
       if (!quiet) {
@@ -366,8 +371,9 @@ function Progress({
         setSynced(true);
         setSyncError(null);
         setStatus(null);
-        if (!quiet && r.new_games === 0) setStatus(t("No new games.", "No hay partidas nuevas."));
-        if (r.needs_review && (r.new_games > 0 || !quiet) && live.current.profile?.auto_analyze && live.current.kind) {
+        if (!quiet && r.new_games === 0 && !r.needs_review) setStatus(t("Up to date: no new games.", "Al día: no hay partidas nuevas."));
+        const auto = live.current.profile?.auto_analyze && (r.new_games > 0 || !quiet);
+        if (r.needs_review && (auto || update) && live.current.kind) {
           await review();
         }
       } catch (e) {
@@ -401,76 +407,72 @@ function Progress({
   const tooFew = view.games.length < 3;
   const latest = view.latest;
   const newSince = latest ? view.games.findIndex((g) => g.id === latest.newest_game) : -1;
-  // G refs as the latest review numbered them (G1 = newest game it saw).
-  const refs = useMemo(() => new Map((latest?.game_refs ?? []).map((id, i) => [id, `G${i + 1}`])), [latest]);
-  const refOf = (id: string) => refs.get(id) ?? null;
-  const [highlight, setHighlight] = useState<string[] | null>(null);
+  const toReview = latest ? (newSince < 0 ? 0 : newSince) : view.games.length >= 3 ? view.games.length : 0;
   /** Game whose summary is open in the list (one at a time). */
   const [openGame, setOpenGame] = useState<string | null>(null);
-  // Show at least every game the latest review cites, even after newer ones arrive.
-  const listed = Math.max(20, ...view.games.map((g, i) => (refs.has(g.id) ? i + 1 : 0)));
+  const [allGames, setAllGames] = useState(false);
+  const [numbers, setNumbers] = useState(false);
+  const [focus, ...watch] = latest?.report.pain_points ?? [];
+  const shown = allGames ? view.games : view.games.slice(0, 5);
 
   return (
     <section className="progress">
-      <header className="draft-header">
-        <h2>{t("Improve", "Mejorar")}</h2>
-        {profile && configured && <span className="badge">{riotIdOf(profile)}</span>}
-        {ready.length > 1 && (
-          <select
-            aria-label={t("Model", "Modelo")}
-            value={kind ?? ""}
-            onChange={(e) => setKind(e.currentTarget.value as ProviderKind)}
-            disabled={busy}
-          >
-            {ready.map((p) => (
-              <option key={p.kind} value={p.kind}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        )}
+      <header className="moment-head">
+        <div>
+          <h2>{t("Improve", "Mejorar")}</h2>
+          {configured && profile && (
+            <p className="muted">
+              {latest
+                ? t(
+                    `From your last ${latest.averages.games} games as ${riotIdOf(profile)}.`,
+                    `De tus últimas ${latest.averages.games} partidas como ${riotIdOf(profile)}.`,
+                  )
+                : t(`Your games as ${riotIdOf(profile)}.`, `Tus partidas como ${riotIdOf(profile)}.`)}
+            </p>
+          )}
+        </div>
         {configured && (
-          <>
-            <button className="secondary" onClick={() => sync(false)} disabled={busy}>
-              {t("Check for new games", "Buscar partidas nuevas")}
-            </button>
+          <div className="update">
+            {toReview > 0 && !busy && (
+              <span className="warn-text small">
+                {toReview === 1
+                  ? t("1 new game to review", "1 partida nueva por revisar")
+                  : t(`${toReview} new games to review`, `${toReview} partidas nuevas por revisar`)}
+              </span>
+            )}
             {reviewing ? (
               <button className="danger" onClick={() => requestId.current && cancelPrompt(requestId.current)}>
                 {t("Stop", "Detener")}
               </button>
             ) : (
               <button
-                onClick={review}
-                disabled={busy || !kind || tooFew}
-                title={
-                  tooFew
-                    ? t("The review needs at least 3 Summoner's Rift games.", "La revisión necesita al menos 3 partidas en la Grieta.")
-                    : !kind
-                      ? t("Connect a model first.", "Conecta un modelo primero.")
-                      : undefined
-                }
+                onClick={() => sync(false, true)}
+                disabled={busy}
+                title={t(
+                  "Looks for finished games and, if there are new ones, reviews them with your AI.",
+                  "Busca partidas terminadas y, si hay nuevas, las revisa con tu IA.",
+                )}
               >
-                {t("Review my games", "Revisar mis partidas")}
+                {syncing ? t("Updating…", "Actualizando…") : t("Update", "Actualizar")}
               </button>
             )}
-          </>
+          </div>
         )}
       </header>
-
-      <p className="muted">
-        {t(
-          "After you play, the coach reads your finished games from Riot's official API and points out what to work on. It never reads a game in progress.",
-          "Después de jugar, el coach lee tus partidas terminadas desde la API oficial de Riot y te dice qué trabajar. Nunca lee una partida en curso.",
-        )}
-      </p>
 
       {!loaded && <p className="muted">{t("Loading…", "Cargando…")}</p>}
       {loaded && !configured && (
         <div className="panel">
           <p>
             {t(
-              "Add your Riot ID, region and Riot API key in Settings to get started.",
-              "Agrega tu Riot ID, tu región y tu API key de Riot en Ajustes para empezar.",
+              "After you play, the coach reads your finished games from Riot and tells you what to work on. It never reads a game in progress.",
+              "Después de jugar, el coach lee tus partidas terminadas desde Riot y te dice qué trabajar. Nunca lee una partida en curso.",
+            )}
+          </p>
+          <p className="muted">
+            {t(
+              "Add your Riot ID, region and Riot key in Settings to get started.",
+              "Agrega tu Riot ID, tu región y tu key de Riot en Ajustes para empezar.",
             )}
           </p>
           <button onClick={onGoToSettings}>{t("Open Settings", "Abrir Ajustes")}</button>
@@ -480,7 +482,7 @@ function Progress({
         <p className="muted">
           {t("Connect Claude or ChatGPT to get the review.", "Conecta Claude o ChatGPT para recibir la revisión.")}{" "}
           <button className="link-button" onClick={onGoToModels}>
-            {t("Connect models", "Conectar modelos")}
+            {t("Connect an AI", "Conectar una IA")}
           </button>
         </p>
       )}
@@ -509,53 +511,10 @@ function Progress({
             {!synced || syncing
               ? t("Looking for your games…", "Buscando tus partidas…")
               : t(
-                  "No Summoner's Rift games yet. Play one and it shows up here a few minutes after it ends, or press «Check for new games».",
-                  "Aún no hay partidas en la Grieta. Juega una y aparecerá aquí unos minutos después de terminar, o pulsa «Buscar partidas nuevas».",
+                  "No Summoner's Rift games yet. Play one and it shows up here a few minutes after it ends, or press Update.",
+                  "Aún no hay partidas en la Grieta. Juega una y aparecerá aquí unos minutos después de terminar, o pulsa Actualizar.",
                 )}
           </p>
-        </div>
-      )}
-
-      {latest && (
-        <div className="review">
-          <div className="review-head">
-            <h3>{latest.report.headline || t("What to work on", "Qué trabajar")}</h3>
-            <span className="muted small">
-              {new Date(latest.created_at).toLocaleString(lang === "es" ? "es-MX" : "en-US", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-              {" · "}
-              {t(`${latest.averages.games} games`, `${latest.averages.games} partidas`)}
-            </span>
-            {newSince > 0 && (
-              <span className="badge warn">
-                {newSince === 1
-                  ? t("1 new game since this review", "1 partida nueva desde esta revisión")
-                  : t(`${newSince} new games since this review`, `${newSince} partidas nuevas desde esta revisión`)}
-              </span>
-            )}
-          </div>
-          {latest.report.caveat && <p className="caveat">{latest.report.caveat}</p>}
-          <div className="pain-grid">
-            {latest.report.pain_points.map((p, i) => (
-              <PainCard
-                key={i}
-                n={i + 1}
-                p={p}
-                games={view.games}
-                byId={byId}
-                lang={lang}
-                refOf={refOf}
-                onHighlight={setHighlight}
-              />
-            ))}
-          </div>
-          {latest.report.strength && (
-            <p className="panel strength">
-              <strong>{t("Keep doing", "Sigue así")}:</strong> {latest.report.strength}
-            </p>
-          )}
         </div>
       )}
       {configured && !latest && view.games.length > 0 && tooFew && (
@@ -566,28 +525,66 @@ function Progress({
           )}
         </p>
       )}
+      {configured && !latest && !tooFew && !busy && (
+        <p className="muted">
+          {t("Press Update to get your first review.", "Pulsa Actualizar para recibir tu primera revisión.")}
+        </p>
+      )}
 
-      <Metrics view={view} latest={latest} previous={view.previous} />
+      {latest && focus && (
+        <>
+          {latest.report.caveat && <p className="caveat">{latest.report.caveat}</p>}
+          <FocusCard p={focus} view={view} byId={byId} lang={lang} />
+          {watch.length > 0 && (
+            <section className="also-watch" aria-labelledby="watch-title">
+              <h3 id="watch-title">{t("Also watch", "Vigila también")}</h3>
+              <ul>
+                {watch.map((p, i) => (
+                  <WatchRow key={i} p={p} view={view} />
+                ))}
+              </ul>
+            </section>
+          )}
+          {latest.report.strength && (
+            <p className="keep-doing">
+              <strong>{t("Keep doing", "Sigue así")}</strong> {latest.report.strength}
+            </p>
+          )}
+        </>
+      )}
 
       {view.games.length > 0 && (
-        <div className="panel">
-          <h3 className="panel-title">{t("Recent games", "Partidas recientes")}</h3>
+        <section className="recent" aria-labelledby="recent-title">
+          <div className="recent-head">
+            <h3 id="recent-title">{t("Recent games", "Partidas recientes")}</h3>
+            <div className="recent-links">
+              {view.games.length > 5 && (
+                <button type="button" className="link-button" aria-expanded={allGames} onClick={() => setAllGames((v) => !v)}>
+                  {allGames ? t("Fewer games", "Menos partidas") : t(`All ${view.games.length} games`, `Las ${view.games.length} partidas`)}
+                </button>
+              )}
+              {view.summary && (
+                <button type="button" className="link-button" aria-expanded={numbers} onClick={() => setNumbers((v) => !v)}>
+                  {numbers ? t("Hide your numbers", "Ocultar tus números") : t("All your numbers", "Todos tus números")}
+                </button>
+              )}
+            </div>
+          </div>
+          {numbers && <Metrics view={view} latest={latest} previous={view.previous} />}
           <ul className="game-list">
-            {view.games.slice(0, listed).map((g) => (
+            {shown.map((g) => (
               <GameRow
                 key={g.id}
                 g={g}
                 byId={byId}
                 lang={lang}
                 games={view.games}
-                gref={refOf(g.id)}
-                highlighted={!!highlight?.includes(g.id)}
                 open={openGame === g.id}
                 onToggle={() => setOpenGame((o) => (o === g.id ? null : g.id))}
               />
             ))}
           </ul>
-        </div>
+        </section>
       )}
     </section>
   );

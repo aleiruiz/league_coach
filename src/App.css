@@ -2934,3 +2934,200 @@ button.tab.on {
   flex-wrap: wrap;
   margin: 0 0 18px;
 }
+
+/* ---------- Improve ---------- */
+
+.update {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 32px;
+  margin-top: 20px;
+  padding: 26px 28px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+
+.focus-kicker {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.focus-main h3 {
+  margin: 8px 0 10px;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.focus-main > p {
+  margin: 0 0 10px;
+}
+
+.focus-drill-label {
+  margin-top: 16px !important;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.focus-drill {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.focus-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.focus-value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 6px 0 16px;
+}
+
+.focus-value strong {
+  font-size: 36px;
+  line-height: 1.1;
+}
+
+.focus-value .better {
+  color: var(--ok);
+}
+
+.focus-value .worse {
+  color: var(--danger);
+}
+
+.focus-value .flat {
+  color: var(--muted);
+}
+
+.focus-games {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+
+.focus-games li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+}
+
+.focus-games li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.also-watch h3,
+.recent-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.also-watch {
+  margin-top: 26px;
+}
+
+.also-watch ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+.watch {
+  padding: 14px 18px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+}
+
+.watch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.watch-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.watch-body p {
+  margin: 10px 0 0;
+}
+
+.keep-doing {
+  margin: 22px 0 0;
+}
+
+.keep-doing strong {
+  color: var(--ok);
+  margin-right: 8px;
+}
+
+.recent {
+  margin-top: 30px;
+}
+
+.recent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.recent-links {
+  display: flex;
+  gap: 18px;
+}
+
+.recent .panel {
+  margin-bottom: 12px;
+}
+
+.recent .game-row-head {
+  grid-template-columns: 52px 28px minmax(0, 1fr) 64px 90px 56px 14px;
+  padding: 10px 14px;
+}
+
+.recent .num.bad {
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .focus,
+  .also-watch ul {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1000px) {
+  .recent .game-row-head {
+    grid-template-columns: 52px 28px minmax(0, 1fr) 64px 14px;
+  }
+}
