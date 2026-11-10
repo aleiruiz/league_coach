@@ -2026,3 +2026,12 @@ a.inline-link {
   text-align: center;
   line-height: 1;
 }
+
+.default-choice {
+  margin-top: 12px;
+}
+
+.default-choice button {
+  padding: 5px 11px;
+  font-size: 13px;
+}

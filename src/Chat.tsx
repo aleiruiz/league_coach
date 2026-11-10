@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
+import { applyEvent, cancelPrompt, humanizeError, pickKind, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
 import { t } from "./i18n";
 
@@ -56,11 +56,19 @@ function Chat({ providers, onBusy, onGoToModels }: Props) {
   useEffect(() => {
     // The previous model's conversation is no use in another: start a new one.
     if (!ready.some((p) => p.kind === kind)) {
-      setKind(ready[0]?.kind ?? null);
+      setKind(pickKind(ready, providers.preferred));
       setSessionId(null);
       setMessages([]);
     }
-  }, [ready, kind]);
+  }, [ready, kind, providers.preferred]);
+
+  // A new default chosen in Models applies here only before a conversation
+  // starts: switching would throw the conversation away.
+  useEffect(() => {
+    const p = providers.preferred;
+    if (p && !busy && messages.length === 0 && ready.some((r) => r.kind === p)) setKind(p);
+    // Only when the default itself changes.
+  }, [providers.preferred]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });

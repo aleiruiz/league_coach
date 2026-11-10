@@ -6,7 +6,7 @@ import { Champion, Draft, gameData, GameData, recommendBuild, Recommendation, RO
 import { RoleIcon } from "./icons";
 import { damageProfile } from "./draft";
 import { DraftState, EMPTY_DRAFT, sameDraft, setSlot, Slot, taken as takenIds, toDraft, toggleLane } from "./draft";
-import { applyEvent, cancelPrompt, humanizeError, ProviderKind, sendPrompt } from "./providers";
+import { applyEvent, cancelPrompt, humanizeError, pickKind, ProviderKind, sendPrompt } from "./providers";
 import type { ProvidersState } from "./App";
 import { Lang, t } from "./i18n";
 
@@ -158,8 +158,15 @@ function DraftView({
   useEffect(() => onBusy(busy), [busy, onBusy]);
 
   useEffect(() => {
-    if (!ready.some((p) => p.kind === kind)) setKind(ready[0]?.kind ?? null);
-  }, [ready, kind]);
+    if (!ready.some((p) => p.kind === kind)) setKind(pickKind(ready, providers.preferred));
+  }, [ready, kind, providers.preferred]);
+
+  // A new default chosen in Models applies here unless a request is running.
+  useEffect(() => {
+    const p = providers.preferred;
+    if (p && !busy && ready.some((r) => r.kind === p)) setKind(p);
+    // Only when the default itself changes.
+  }, [providers.preferred]);
 
   const byId = useMemo(() => new Map(data?.champions.map((c) => [c.id, c]) ?? []), [data]);
   const draft = toDraft(d);
