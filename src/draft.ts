@@ -31,9 +31,8 @@ export function setSlot(s: DraftState, slot: Slot, id: string | null): DraftStat
   const old = s.enemies[slot.index];
   const enemies = put(s.enemies, slot.index, id);
   // Si se reemplaza o quita al rival de línea, la estrella se va con él.
-  let lane = old === s.lane ? null : s.lane;
-  // El primer rival que se elige queda como rival de línea (se puede cambiar).
-  if (id && !lane && s.enemies.every((e) => !e)) lane = id;
+  // The lane opponent is set only in step 3 (setLane), never guessed.
+  const lane = old === s.lane ? null : s.lane;
   return { ...s, enemies, lane };
 }
 
@@ -130,4 +129,28 @@ export function applyLive(s: DraftState, live: LiveDraft, known: (id: string) =>
     enemies: enemies.length ? fill(enemies, s.enemies.length) : keep(s.enemies),
   };
   return { ...next, lane: next.lane && next.enemies.includes(next.lane) ? next.lane : null };
+}
+
+/**
+ * Step 3 of Next game: who you lane against. The champion goes into the enemy
+ * team (in the old lane opponent's slot, or the first free one) and is marked
+ * as the lane opponent. `null` takes the lane opponent out of the enemy team.
+ */
+export function setLane(s: DraftState, id: string | null): DraftState {
+  const at = s.lane ? s.enemies.indexOf(s.lane) : -1;
+  if (id === null) {
+    return at < 0 ? { ...s, lane: null } : { ...s, enemies: put(s.enemies, at, null), lane: null };
+  }
+  if (s.enemies.includes(id)) return { ...s, lane: id };
+  const free = s.enemies.indexOf(null);
+  const i = at >= 0 ? at : free >= 0 ? free : s.enemies.length - 1;
+  return { ...s, enemies: put(s.enemies, i, id), lane: id };
+}
+
+/** The other enemy slots (all but the lane opponent's), with their index in `enemies`. */
+export function otherEnemies(s: DraftState): { id: string | null; index: number }[] {
+  const at = s.lane ? s.enemies.indexOf(s.lane) : -1;
+  // Without a lane opponent, the first slot is kept for step 3.
+  const skip = at >= 0 ? at : s.enemies.indexOf(null);
+  return s.enemies.map((id, index) => ({ id, index })).filter((x) => x.index !== skip);
 }

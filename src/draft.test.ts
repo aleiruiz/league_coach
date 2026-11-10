@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyLive, damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane } from "./draft";
+import { applyLive, damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane, setLane, otherEnemies } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -33,9 +33,11 @@ describe("draft", () => {
 
   it("reemplazar al rival de línea quita la estrella", () => {
     let s = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
-    s = setSlot(s, enemy(0), "Darius");
-    // El primer rival queda marcado solo.
+    s = setLane(s, "Darius");
     expect(toDraft(s)?.lane_opponent).toBe("Darius");
+    // Another enemy picked in the optional teams is never marked on its own.
+    expect(setSlot(s, enemy(1), "Ahri").lane).toBe("Darius");
+    expect(setSlot(EMPTY_DRAFT, enemy(0), "Ahri").lane).toBeNull();
     s = setSlot(s, enemy(0), "Garen");
     expect(s.lane).toBeNull();
     expect(toDraft(s)?.lane_opponent).toBeNull();
@@ -65,7 +67,7 @@ describe("draft", () => {
 
   it("detecta cambios del draft pero no el orden de las casillas", () => {
     let a = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
-    a = setSlot(setSlot(a, enemy(0), "Darius"), enemy(1), "Ahri");
+    a = setLane(setSlot(a, enemy(1), "Ahri"), "Darius");
     const b = setSlot(setSlot(setSlot(a, enemy(0), null), enemy(1), null), enemy(3), "Ahri");
     const c = toggleLane(setSlot(b, enemy(4), "Darius"), "Darius");
     expect(sameDraft(toDraft(a), toDraft(c))).toBe(true);
@@ -118,5 +120,31 @@ describe("applyLive duplicates", () => {
     const s = applyLive(typed, { source: "champ_select", role: null, me: "Kayn", allies: ["Zed"], enemies: [] }, () => true);
     expect(s.allies[0]).toBe("Zed");
     expect(s.enemies).toEqual([null, "Ahri", null, null, null]);
+  });
+});
+
+describe("lane opponent step", () => {
+  it("puts the lane opponent in the enemy team and swaps it in place", () => {
+    let s = setLane(EMPTY_DRAFT, "Darius");
+    expect(s.enemies[0]).toBe("Darius");
+    expect(s.lane).toBe("Darius");
+    s = setSlot(s, { team: "enemy", index: 1 }, "Soraka");
+    s = setLane(s, "Garen");
+    expect(s.enemies.slice(0, 2)).toEqual(["Garen", "Soraka"]);
+    expect(s.lane).toBe("Garen");
+    // An enemy already in the team just becomes the lane opponent.
+    s = setLane(s, "Soraka");
+    expect(s.enemies.slice(0, 2)).toEqual(["Garen", "Soraka"]);
+    expect(s.lane).toBe("Soraka");
+    s = setLane(s, null);
+    expect(s.enemies.slice(0, 2)).toEqual(["Garen", null]);
+    expect(s.lane).toBeNull();
+  });
+
+  it("lists the other enemy slots without the lane opponent's", () => {
+    const s = setLane(setSlot(EMPTY_DRAFT, { team: "enemy", index: 0 }, "Soraka"), "Darius");
+    expect(s.enemies[1]).toBe("Darius");
+    expect(otherEnemies(s).map((x) => x.index)).toEqual([0, 2, 3, 4]);
+    expect(otherEnemies(EMPTY_DRAFT).map((x) => x.index)).toEqual([1, 2, 3, 4]);
   });
 });

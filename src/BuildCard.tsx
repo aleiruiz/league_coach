@@ -1,10 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Card, Champion, Ref, Role, RuneTree, Shard, Stat } from "./game";
+import type { Card, Champion, Ref, RuneTree, Shard, Stat } from "./game";
 import { currentLang, missingText, t } from "./i18n";
-import { RoleIcon } from "./icons";
 import SafeMarkdown from "./SafeMarkdown";
-import { Key, skillPath, SPECIAL_R } from "./skills";
+import { Key, parseKeys, skillPath, SPECIAL_R } from "./skills";
 
 const norm = (s: string) =>
   s
@@ -24,15 +23,6 @@ function Icon({ r, size = 44, caption = true }: { r: Ref; size?: number; caption
       )}
       {caption && <figcaption>{r.name}</figcaption>}
     </figure>
-  );
-}
-
-function Section({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
-  return (
-    <section className={className ? `panel ${className}` : "panel"}>
-      <h4 className="panel-title">{title}</h4>
-      {children}
-    </section>
   );
 }
 
@@ -223,6 +213,189 @@ export function BuildCardSkeleton() {
   );
 }
 
+/* ---------- the sheet ---------- */
+
+/** "Precision, with Resolve second" */
+function treeLine(card: Card): string {
+  const p = card.runes.primary_tree.name;
+  const s = card.runes.secondary_tree.name;
+  if (!p) return "";
+  return s ? t(`${p}, with ${s} second`, `${p}, con ${s} de secundaria`) : p;
+}
+
+/** Runes as a keystone and a list of names; the full page is one click away. */
+function RunesSummary({ card, trees, shards }: { card: Card; trees: RuneTree[]; shards: Shard[][] }) {
+  const [full, setFull] = useState(false);
+  const r = card.runes;
+  const shardText = r.shards
+    .filter((s) => s.valid)
+    .map((s) => s.name)
+    .join(", ");
+  return (
+    <div className="sheet-block">
+      <h5>{t("Runes", "Runas")}</h5>
+      <div className="keystone">
+        <Icon r={r.keystone} size={56} caption={false} />
+        <div>
+          <strong className={r.keystone.valid ? undefined : "error"}>{r.keystone.name}</strong>
+          <span className="muted small">{treeLine(card)}</span>
+        </div>
+      </div>
+      <div className="rune-list">
+        <ul>
+          {r.primary.map((x, i) => (
+            <li key={i} className={x.valid ? undefined : "error"}>
+              {x.name}
+            </li>
+          ))}
+        </ul>
+        <ul>
+          {r.secondary.map((x, i) => (
+            <li key={i} className={x.valid ? undefined : "error"}>
+              {x.name}
+            </li>
+          ))}
+          {shardText && <li className="muted">{shardText}</li>}
+        </ul>
+      </div>
+      <button type="button" className="link-button" aria-expanded={full} onClick={() => setFull((v) => !v)}>
+        {full ? t("Hide the full rune page", "Ocultar la página de runas") : t("Show the full rune page", "Ver la página de runas completa")}
+      </button>
+      {full && <RunePage card={card} trees={trees} shardRows={shards} />}
+    </div>
+  );
+}
+
+function IconGroup({ title, refs }: { title: string; refs: Ref[] }) {
+  return (
+    <div className="sheet-block">
+      <h5>{title}</h5>
+      <div className="icon-row compact">
+        {refs.map((r, i) => (
+          <Icon key={i} r={r} size={44} />
+        ))}
+        {refs.length === 0 && <span className="muted small">{t("No data", "Sin datos")}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Abilities({ card, champion }: { card: Card; champion?: Champion }) {
+  const [grid, setGrid] = useState(false);
+  const { max, first_levels } = card.skill_order;
+  if (max.length === 0) return null;
+  const first = parseKeys(first_levels);
+  const special = champion && SPECIAL_R.has(champion.id);
+  return (
+    <div className="sheet-block">
+      <h5>{t("Abilities", "Habilidades")}</h5>
+      <p className="ability-order">
+        <span className="muted">{t("Level up first", "Sube primero")}</span>
+        {max.map((k, i) => (
+          <span key={i} className="ability-step">
+            {i > 0 && <span className="muted">{t("then", "luego")}</span>}
+            <span className={i === 0 ? "key first" : "key"}>{k}</span>
+          </span>
+        ))}
+      </p>
+      {first.length > 0 && (
+        <p className="muted small">
+          {t(`First levels: ${first.join(", ")}.`, `Primeros niveles: ${first.join(", ")}.`)}
+        </p>
+      )}
+      {special ? (
+        <p className="small muted">
+          {t(
+            `${champion!.name} doesn't follow the standard R order, so there is no level-by-level table.`,
+            `${champion!.name} no sigue el orden estándar de la R, así que no hay tabla por niveles.`,
+          )}
+        </p>
+      ) : (
+        <>
+          <button type="button" className="link-button" aria-expanded={grid} onClick={() => setGrid((v) => !v)}>
+            {grid ? t("Hide level by level", "Ocultar nivel por nivel") : t("Show level by level", "Ver nivel por nivel")}
+          </button>
+          {grid && <SkillGrid max={max} first={first_levels} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One line under the sheet: patch and where any figure comes from. */
+function SourcesLine({ card, patch, champion }: { card: Card; patch: string; champion?: Champion }) {
+  const [open, setOpen] = useState(false);
+  const sites = [...new Map(card.stats.map((s) => [s.site, s])).values()];
+  const link = (site: string, url: string) => (
+    <a
+      key={site}
+      className="inline-link"
+      href={url}
+      onClick={(e) => {
+        e.preventDefault();
+        openUrl(url);
+      }}
+    >
+      {site}
+    </a>
+  );
+  const join = (xs: React.ReactNode[]) =>
+    xs.flatMap((x, i) => (i === 0 ? [x] : [i === xs.length - 1 ? t(" and ", " y ") : ", ", x]));
+  const n = card.stats.length;
+  return (
+    <div className="sources">
+      <p className="muted small">
+        {t(`Checked against patch ${patch}.`, `Comprobado con el parche ${patch}.`)}{" "}
+        {n > 0 ? (
+          <>
+            {t(`${n} figure${n > 1 ? "s" : ""} cited:`, `${n} cifra${n > 1 ? "s" : ""} citada${n > 1 ? "s" : ""}:`)}{" "}
+            {join(sites.map((s) => link(s.site, s.url)))}.{" "}
+            <button type="button" className="link-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+              {open ? t("Hide figures", "Ocultar cifras") : t("Show figures", "Ver cifras")}
+            </button>
+          </>
+        ) : (
+          <>
+            {card.stats_verifiable
+              ? t("No figures cited.", "Sin cifras citadas.")
+              : t(
+                  "No figures cited: this AI doesn't show where its numbers come from.",
+                  "Sin cifras citadas: esta IA no muestra de dónde salen sus números.",
+                )}
+            {champion && (
+              <>
+                {" "}
+                {t("Check it yourself on", "Compruébalo en")}{" "}
+                {join(statLinks(champion).map((l) => link(l.site, l.url)))}.
+              </>
+            )}
+          </>
+        )}
+      </p>
+      {open && n > 0 && (
+        <>
+          <ul className="stats">
+            {card.stats.map((s, i) => (
+              <StatRow key={i} s={s} />
+            ))}
+          </ul>
+          <p className="small muted">
+            {t(
+              "Each page came up in the AI's search, but the number is reported by the AI: open it to confirm. League Coach doesn't calculate win rates.",
+              "Cada página salió en la búsqueda de la IA, pero el número lo reporta ella: ábrela para confirmarlo. League Coach no calcula win rates.",
+            )}
+            {card.stats_dropped > 0 &&
+              t(
+                ` ${card.stats_dropped} figure${card.stats_dropped > 1 ? "s" : ""} not found in that search ${card.stats_dropped > 1 ? "were" : "was"} dropped.`,
+                ` Se descartaron ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esa búsqueda.`,
+              )}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 type Props = {
   card: Card;
   patch: string;
@@ -231,15 +404,20 @@ type Props = {
   notes: string | null;
   analysis: string;
   retried: boolean;
+  /** "Get a different build"; missing while it can't be asked. */
   onRetry?: () => void;
+  onChangePicks: () => void;
   trees: RuneTree[];
   shards: Shard[][];
   champion?: Champion;
   lane?: Champion;
-  role: Role;
   roleLabel: string;
 };
 
+/**
+ * The build as one sheet: what to set before the game starts and what to do
+ * during it, with the plan and threats in a second tab.
+ */
 function BuildCard({
   card,
   patch,
@@ -249,105 +427,48 @@ function BuildCard({
   analysis,
   retried,
   onRetry,
+  onChangePicks,
   trees,
   shards,
   champion,
   lane,
-  role,
   roleLabel,
 }: Props) {
+  const [tab, setTab] = useState<"build" | "play">("build");
   const [answerOpen, setAnswerOpen] = useState(false);
   const [answerLong, setAnswerLong] = useState(false);
   const answerRef = useRef<HTMLDivElement>(null);
-  // A new build starts clamped again.
-  useEffect(() => setAnswerOpen(false), [card]);
+  // A new build starts on its Build tab, with the answer clamped.
+  useEffect(() => {
+    setAnswerOpen(false);
+    setTab("build");
+  }, [card]);
   // "Show more" only if the answer doesn't fit in the clamped height.
   useLayoutEffect(() => {
     const el = answerRef.current;
     if (el && !answerOpen) setAnswerLong(el.scrollHeight > el.clientHeight + 2);
   }, [card.answer, answerOpen]);
-  // Without figures, the panel goes last: it doesn't push the build out of view.
-  const statsPanel = (
-  <section className="panel stats-panel">
-    <h4 className="panel-title">{t("Quoted stats", "Estadísticas citadas")}</h4>
-    {card.stats.length > 0 ? (
-      <ul className="stats">
-        {card.stats.map((s, i) => (
-          <StatRow key={i} s={s} />
-        ))}
-      </ul>
-    ) : (
-      <p className="small">
-        {card.stats_verifiable
-          ? t(
-              "No quoted figures: the model brought no stats-site data that can be checked for this build.",
-              "Sin cifras citadas: el modelo no trajo datos de sitios de estadísticas que se puedan comprobar en esta build.",
-            )
-          : t(
-              "No quoted figures: this model doesn't expose its search sources, so I can't check where its numbers come from. With Claude they are shown.",
-              "Sin cifras citadas: este modelo no expone las fuentes de su búsqueda, así que no puedo comprobar de dónde salen sus números. Con Claude sí se muestran.",
-            )}
-      </p>
-    )}
-    <p className="small muted">
-      {card.stats.length > 0 &&
-        t(
-          "The page did come up in the model's search, but the number is reported by the model: open it to confirm. ",
-          "La página sí salió en la búsqueda del modelo, pero el número lo reporta él: ábrela para confirmarlo. ",
-        )}
-      {card.stats_verifiable &&
-        card.stats_dropped > 0 &&
-        t(
-          `I dropped ${card.stats_dropped} figure${card.stats_dropped > 1 ? "s" : ""} that ${card.stats_dropped > 1 ? "weren't" : "wasn't"} in those results. `,
-          `Descarté ${card.stats_dropped} cifra${card.stats_dropped > 1 ? "s" : ""} que no salía${card.stats_dropped > 1 ? "n" : ""} en esos resultados. `,
-        )}
-      {t("League Coach doesn't calculate win rates.", "League Coach no calcula win rates.")}
-      {champion && (
-        <>
-          {" "}
-          {t("Check it yourself:", "Ver por tu cuenta:")}{" "}
-          {statLinks(champion).map((l, i) => (
-            <span key={l.site}>
-              {i > 0 && " · "}
-              <a
-                className="inline-link"
-                href={l.url}
-                onClick={(e) => {
-                  e.preventDefault();
-                  openUrl(l.url);
-                }}
-              >
-                {l.site} ↗
-              </a>
-            </span>
-          ))}
-        </>
-      )}
-    </p>
-  </section>
-  );
+  const items = card.boots.name ? [...card.core_items, card.boots] : card.core_items;
   return (
-    <article className="build-card">
-      <header className="card-head">
+    <article className="build-card sheet">
+      <header className="sheet-head">
         {champion && <img className="card-champ" src={champion.image} alt="" />}
-        <div className="card-title">
+        <div>
           <h3>
-            {champion?.name ?? t("Your build", "Tu build")}
-            <span className="role-pill">
-              <RoleIcon role={role} size={14} /> {roleLabel}
-            </span>
+            {champion?.name ?? t("Your build", "Tu build")} <span className="role-word">{roleLabel.toLowerCase()}</span>
             {lane && (
-              <span className="vs-pill">
-                vs <img src={lane.image} alt="" /> {lane.name}
-              </span>
+              <>
+                {" "}
+                <span className="muted">{t("against", "contra")}</span> {lane.name}
+              </>
             )}
           </h3>
-          <p className="summary">{card.summary}</p>
+          <button type="button" className="link-button" onClick={onChangePicks}>
+            {t("Change picks", "Cambiar picks")}
+          </button>
         </div>
-        <span className="badge patch">
-          {t("Patch", "Parche")} {patch}
-        </span>
       </header>
+      <p className="sheet-summary">{card.summary}</p>
 
       {notes && card.answer && (
         <section className="panel answer-panel" aria-label={t("Answer to your notes", "Respuesta a tus notas")}>
@@ -364,175 +485,143 @@ function BuildCard({
         </section>
       )}
 
-      {card.stats.length > 0 && statsPanel}
-
-
-      <div className="card-grid">
-        <Section title={t("Runes", "Runas")} className="runes-panel">
-          <RunePage card={card} trees={trees} shardRows={shards} />
-        </Section>
-
-        <div className="card-col">
-          <Section title={t("Spells", "Hechizos")}>
-            <div className="icon-row compact">
-              {card.summoner_spells.map((r, i) => (
-                <Icon key={i} r={r} size={36} />
-              ))}
-              {card.summoner_spells.length === 0 && <span className="muted small">{t("No data", "Sin datos")}</span>}
-            </div>
-          </Section>
-          {card.starting_items.length > 0 && (
-            <Section title={t("Start", "Inicio")}>
-              <div className="icon-row compact">
-                {card.starting_items.map((r, i) => (
-                  <Icon key={i} r={r} size={36} />
-                ))}
-              </div>
-            </Section>
-          )}
-          <Section title={t("Core build", "Build principal")}>
-            <div className="item-path">
-              {card.core_items.map((r, i) => (
-                <div key={i} className="step">
-                  {i > 0 && <span className="arrow">›</span>}
-                  <Icon r={r} size={48} />
-                </div>
-              ))}
-              {card.boots.name && (
-                <div className="step">
-                  <span className="arrow">+</span>
-                  <Icon r={card.boots} size={48} />
-                </div>
-              )}
-            </div>
-          </Section>
-        </div>
+      <div className="tabs" role="tablist" aria-label={t("Build or how to play", "Build o cómo jugar")}>
+        <button type="button" role="tab" id="tab-build" aria-selected={tab === "build"} aria-controls="pane-build" className={tab === "build" ? "tab on" : "tab"} onClick={() => setTab("build")}>
+          {t("Build", "Build")}
+        </button>
+        <button type="button" role="tab" id="tab-play" aria-selected={tab === "play"} aria-controls="pane-play" className={tab === "play" ? "tab on" : "tab"} onClick={() => setTab("play")}>
+          {t("How to play", "Cómo jugarla")}
+        </button>
       </div>
 
-      {card.skill_order.max.length > 0 && (
-        <Section title={t("Skills", "Habilidades")}>
-          <p className="skills">
-            {card.skill_order.max.map((k, i) => (
-              <span key={i}>
-                {i > 0 && <span className="muted"> › </span>}
-                <span className="key">{k}</span>
-              </span>
-            ))}
-            <span className="muted small"> {t("max priority", "prioridad de maximización")}</span>
-          </p>
-          {champion && SPECIAL_R.has(champion.id) ? (
-            <p className="small muted">
-              {t(
-                `${champion.name} doesn't follow the standard R order, so I don't draw the per-level table.`,
-                `${champion.name} no sigue el orden estándar de la R, así que no dibujo la tabla por niveles.`,
-              )}
-            </p>
-          ) : (
-            <SkillGrid max={card.skill_order.max} first={card.skill_order.first_levels} />
-          )}
-        </Section>
-      )}
-
-      {card.situational.length > 0 && (
-        <Section title={t("Situational", "Situacionales")}>
-          <ul className="situational">
-            {card.situational.map((s, i) => (
-              <li key={i}>
-                <Icon r={s.item} size={36} caption={false} />
-                <div>
-                  <strong className={s.item.valid ? undefined : "error"}>{s.item.name}</strong>
-                  <p className="small muted">{s.when}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title={t("Game plan", "Plan de partida")} className="plan">
-        <dl>
-          <dt>Early</dt>
-          <dd>{card.game_plan.early}</dd>
-          <dt>Mid</dt>
-          <dd>{card.game_plan.mid}</dd>
-          <dt>Late</dt>
-          <dd>{card.game_plan.late}</dd>
-        </dl>
-      </Section>
-
-      {(card.threats.length > 0 || card.matchup_tips.length > 0) && (
-        <div className="two-col">
-          {card.threats.length > 0 && (
-            <Section title={t("Threats", "Amenazas")}>
-              <ul>
-                {card.threats.map((x, i) => (
+      {tab === "build" ? (
+        <div className="sheet-grid" role="tabpanel" id="pane-build" aria-labelledby="tab-build">
+          <section className="panel">
+            <h4 className="panel-title">{t("Set before the game starts", "Antes de que empiece la partida")}</h4>
+            <RunesSummary card={card} trees={trees} shards={shards} />
+            <div className="sheet-pair">
+              <IconGroup title={t("Summoner spells", "Hechizos de invocador")} refs={card.summoner_spells} />
+              {card.starting_items.length > 0 && <IconGroup title={t("Starting items", "Objetos iniciales")} refs={card.starting_items} />}
+            </div>
+          </section>
+          <section className="panel">
+            <h4 className="panel-title">{t("During the game", "Durante la partida")}</h4>
+            <div className="sheet-block">
+              <h5>{t("Items, in this order", "Objetos, en este orden")}</h5>
+              <ol className="item-order">
+                {items.map((r, i) => (
                   <li key={i}>
-                    <strong>{x.champion}:</strong> {x.why}
+                    <Icon r={r} size={48} />
                   </li>
                 ))}
-              </ul>
-            </Section>
+              </ol>
+            </div>
+            <Abilities card={card} champion={champion} />
+            {card.situational.length > 0 && (
+              <div className="sheet-block">
+                <h5>{t("Swap in if needed", "Cambia si hace falta")}</h5>
+                <ul className="situational">
+                  {card.situational.map((s, i) => (
+                    <li key={i}>
+                      <Icon r={s.item} size={36} caption={false} />
+                      <p>
+                        <strong className={s.item.valid ? undefined : "error"}>{s.item.name}</strong>{" "}
+                        <span className="muted">{s.when}</span>
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="sheet-play" role="tabpanel" id="pane-play" aria-labelledby="tab-play">
+          <section className="panel plan">
+            <h4 className="panel-title">{t("Game plan", "Plan de partida")}</h4>
+            <dl>
+              <dt>{t("Early", "Inicio")}</dt>
+              <dd>{card.game_plan.early}</dd>
+              <dt>{t("Mid", "Mitad")}</dt>
+              <dd>{card.game_plan.mid}</dd>
+              <dt>{t("Late", "Final")}</dt>
+              <dd>{card.game_plan.late}</dd>
+            </dl>
+          </section>
+          {(card.threats.length > 0 || card.matchup_tips.length > 0) && (
+            <div className="two-col">
+              {card.matchup_tips.length > 0 && (
+                <section className="panel">
+                  <h4 className="panel-title">{lane ? t(`Against ${lane.name}`, `Contra ${lane.name}`) : t("Matchup tips", "Claves del matchup")}</h4>
+                  <ul>
+                    {card.matchup_tips.map((x, i) => (
+                      <li key={i}>{x}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {card.threats.length > 0 && (
+                <section className="panel">
+                  <h4 className="panel-title">{t("Watch out for", "Cuidado con")}</h4>
+                  <ul>
+                    {card.threats.map((x, i) => (
+                      <li key={i}>
+                        <strong>{x.champion}:</strong> {x.why}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
           )}
-          {card.matchup_tips.length > 0 && (
-            <Section title={t("Matchup tips", "Claves del matchup")}>
-              <ul>
-                {card.matchup_tips.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
-            </Section>
+          {card.caveat && (
+            <p className="muted small">
+              {t("Note:", "Nota:")} {card.caveat}
+            </p>
+          )}
+          {analysis && (
+            <details className="analysis">
+              <summary>{t("See the AI's full analysis", "Ver el análisis completo de la IA")}</summary>
+              <p className="muted small">
+                {t(
+                  "Unverified AI text. Only the cited figures below the sheet were checked against its search.",
+                  "Texto de la IA sin verificar. Solo las cifras citadas bajo la hoja se comprobaron contra su búsqueda.",
+                )}
+              </p>
+              <div className="analysis-text">
+                <SafeMarkdown>{analysis}</SafeMarkdown>
+              </div>
+            </details>
           )}
         </div>
       )}
 
-      {card.caveat && (
-        <p className="muted small">
-          {t("Note:", "Nota:")} {card.caveat}
+      {(warnings.length > 0 || incomplete.length > 0) && (
+        <p className="error small">
+          {retried
+            ? t("I asked the AI to fix it and it didn't fully manage. ", "Le pedí a la IA que lo corrigiera y no lo logró del todo. ")
+            : ""}
+          {warnings.length > 0 && (
+            <>
+              {t("What's marked in red isn't valid on this patch:", "Lo marcado en rojo no es válido en este parche:")} {warnings.join(". ")}.{" "}
+            </>
+          )}
+          {incomplete.length > 0 && (
+            <>
+              {t("The build is incomplete:", "La build quedó incompleta:")} {missingText(incomplete)}.
+            </>
+          )}
         </p>
       )}
-      {card.stats.length === 0 && statsPanel}
-      {analysis && (
-        <details className="analysis">
-          <summary>{t("See the model's full analysis", "Ver el análisis completo del modelo")}</summary>
-          <p className="muted small">
-            {t(
-              "Unverified model text. Figures checked against its search are under “Quoted stats”.",
-              "Texto del modelo sin verificar. Las cifras comprobadas contra su búsqueda están en «Estadísticas citadas».",
-            )}
-          </p>
-          <div className="analysis-text">
-            <SafeMarkdown>{analysis}</SafeMarkdown>
-          </div>
-        </details>
-      )}
-      {(warnings.length > 0 || incomplete.length > 0) && (
-        <div className="card-warnings">
-          <p className="error small">
-            {retried
-              ? t(
-                  "I asked the model to fix it and it didn't fully manage. ",
-                  "Le pedí al modelo que lo corrigiera y no lo logró del todo. ",
-                )
-              : ""}
-            {warnings.length > 0 && (
-              <>
-                {t("What's marked in red isn't valid on this patch:", "Lo marcado en rojo no es válido en este parche:")}{" "}
-                {warnings.join(". ")}.{" "}
-              </>
-            )}
-            {incomplete.length > 0 && (
-              <>
-                {t("The card is incomplete:", "La tarjeta quedó incompleta:")} {missingText(incomplete)}.
-              </>
-            )}
-          </p>
-          {onRetry && (
-            <button className="secondary" onClick={onRetry}>
-              {t("Ask for another build", "Pedir otra build")}
-            </button>
-          )}
-        </div>
-      )}
+
+      <footer className="sheet-foot">
+        <SourcesLine card={card} patch={patch} champion={champion} />
+        {onRetry && (
+          <button type="button" className="secondary" onClick={onRetry}>
+            {t("Get a different build", "Pedir otra build")}
+          </button>
+        )}
+      </footer>
     </article>
   );
 }
