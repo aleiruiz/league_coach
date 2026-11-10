@@ -3048,6 +3048,7 @@ button.tab.on {
 
 .also-watch ul {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   list-style: none;
@@ -3107,7 +3108,7 @@ button.tab.on {
 }
 
 .recent .panel {
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .recent .game-row-head {

@@ -7,7 +7,7 @@ import {
   peersOf,
   standouts,
 } from "./gameSummary";
-import { GameStats, METRICS, pct, roleName, signed } from "./history";
+import { aheadBehind, GameStats, METRICS, pct, roleName, signed } from "./history";
 import { t } from "./i18n";
 
 /** Deaths before this minute count as early (same line the review uses). */
@@ -151,7 +151,7 @@ export function GameDetail({
               label={t("Minions at 10 min", "Súbditos al minuto 10")}
               value={
                 g.cs_at_10 !== null
-                  ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${signed(g.cs_diff_10)})` : ""}`
+                  ? `${g.cs_at_10}${g.cs_diff_10 !== null ? ` (${aheadBehind(g.cs_diff_10, 0.5, "")})` : ""}`
                   : "—"
               }
               hint={t(
@@ -163,13 +163,13 @@ export function GameDetail({
         )}
         <Stat
           label={t("Gold vs opponent at 15 min", "Oro vs rival al minuto 15")}
-          value={g.gold_diff_15 !== null ? signed(g.gold_diff_15) : "—"}
+          value={g.gold_diff_15 !== null ? aheadBehind(g.gold_diff_15, 50, "") : "—"}
           hint={t("You vs your lane opponent", "Tú vs tu rival de línea")}
         />
         <Stat
           label={t("Team gold lead at 15 min", "Ventaja de oro del equipo al minuto 15")}
           value={
-            g.team_gold_diff_15 !== null ? signed(g.team_gold_diff_15) : "—"
+            g.team_gold_diff_15 !== null ? aheadBehind(g.team_gold_diff_15, 50, "") : "—"
           }
         />
         <Stat
@@ -178,10 +178,9 @@ export function GameDetail({
         />
         <Stat
           label={t("Wards", "Wards")}
-          value={`${g.wards_placed} / ${g.wards_killed} / ${g.control_wards}`}
-          hint={t(
-            "Placed / cleared / control wards bought",
-            "Puestas / destruidas / control wards compradas",
+          value={t(
+            `${g.wards_placed} placed, ${g.wards_killed} cleared, ${g.control_wards} control`,
+            `${g.wards_placed} puestas, ${g.wards_killed} destruidas, ${g.control_wards} de control`,
           )}
         />
         <Stat

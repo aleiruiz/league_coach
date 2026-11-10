@@ -20,7 +20,7 @@ import {
   syncMatches,
   trend,
 } from "./history";
-import { focusNumbers, metricFor, plainValue, worstGames } from "./improve";
+import { focusNumbers, nameRefs, pointMetric, plainValue, worstGames } from "./improve";
 import { Lang, t } from "./i18n";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 
@@ -53,7 +53,7 @@ function gameName(g: GameStats, byId: Map<string, Champion>, lang: Lang, date = 
 
 /** The one thing to work on: what, the drill, the goal and how it's going. */
 function FocusCard({ p, view, byId, lang }: { p: PainPoint; view: HistoryView; byId: Map<string, Champion>; lang: Lang }) {
-  const key = metricFor(`${p.metric} ${p.title}`);
+  const key = pointMetric(p);
   const nums = key ? focusNumbers(key, view.summary) : null;
   const m = key ? METRICS.find((x) => x.key === key) : undefined;
   const worst = key ? worstGames(key, p.games, view.games) : [];
@@ -112,7 +112,7 @@ function FocusCard({ p, view, byId, lang }: { p: PainPoint; view: HistoryView; b
 /** A smaller point: its number, its goal, and the drill on click. */
 function WatchRow({ p, view }: { p: PainPoint; view: HistoryView }) {
   const [open, setOpen] = useState(false);
-  const key = metricFor(`${p.metric} ${p.title}`);
+  const key = pointMetric(p);
   const nums = key ? focusNumbers(key, view.summary) : null;
   const line = [key && nums ? plainValue(key, nums.all) : p.evidence, p.target ? t(`Goal: ${p.target}`, `Meta: ${p.target}`) : ""]
     .filter(Boolean)
@@ -341,7 +341,12 @@ function Progress({
       });
       await reload();
     } catch (e) {
-      setError(humanizeError(String(e)));
+      setError(
+        `${humanizeError(String(e))} ${t(
+          "The next Update tries the review again (one request to your AI).",
+          "El próximo Actualizar vuelve a intentar la revisión (una consulta a tu IA).",
+        )}`,
+      );
     } finally {
       requestId.current = null;
       setReviewing(false);
@@ -373,6 +378,9 @@ function Progress({
         setStatus(null);
         if (!quiet && r.new_games === 0 && !r.needs_review) setStatus(t("Up to date: no new games.", "Al día: no hay partidas nuevas."));
         const auto = live.current.profile?.auto_analyze && (r.new_games > 0 || !quiet);
+        if (r.needs_review && update && !live.current.kind) {
+          setStatus(t("New games to review: connect an AI in Settings › Your AI.", "Hay partidas por revisar: conecta una IA en Ajustes › Tu IA."));
+        }
         if (r.needs_review && (auto || update) && live.current.kind) {
           await review();
         }
@@ -412,7 +420,25 @@ function Progress({
   const [openGame, setOpenGame] = useState<string | null>(null);
   const [allGames, setAllGames] = useState(false);
   const [numbers, setNumbers] = useState(false);
-  const [focus, ...watch] = latest?.report.pain_points ?? [];
+  // The review cites games as G1, G2…; the screen names them instead.
+  const refNames = useMemo(
+    () =>
+      (latest?.game_refs ?? []).map((id, i) => {
+        const g = view.games.find((x) => x.id === id);
+        return g ? gameName(g, byId, lang) : `G${i + 1}`;
+      }),
+    [latest, view.games, byId, lang],
+  );
+  const named = (x: string) => nameRefs(x, refNames);
+  const points = (latest?.report.pain_points ?? []).map((p) => ({
+    ...p,
+    title: named(p.title),
+    evidence: named(p.evidence),
+    why: named(p.why),
+    drill: named(p.drill),
+    target: named(p.target),
+  }));
+  const [focus, ...watch] = points;
   const shown = allGames ? view.games : view.games.slice(0, 5);
 
   return (
@@ -424,8 +450,8 @@ function Progress({
             <p className="muted">
               {latest
                 ? t(
-                    `From your last ${latest.averages.games} games as ${riotIdOf(profile)}.`,
-                    `De tus últimas ${latest.averages.games} partidas como ${riotIdOf(profile)}.`,
+                    `From your last ${view.games.length} games as ${riotIdOf(profile)}.`,
+                    `De tus últimas ${view.games.length} partidas como ${riotIdOf(profile)}.`,
                   )
                 : t(`Your games as ${riotIdOf(profile)}.`, `Tus partidas como ${riotIdOf(profile)}.`)}
             </p>
@@ -533,7 +559,7 @@ function Progress({
 
       {latest && focus && (
         <>
-          {latest.report.caveat && <p className="caveat">{latest.report.caveat}</p>}
+          {latest.report.caveat && <p className="caveat">{named(latest.report.caveat)}</p>}
           <FocusCard p={focus} view={view} byId={byId} lang={lang} />
           {watch.length > 0 && (
             <section className="also-watch" aria-labelledby="watch-title">
@@ -547,7 +573,7 @@ function Progress({
           )}
           {latest.report.strength && (
             <p className="keep-doing">
-              <strong>{t("Keep doing", "Sigue así")}</strong> {latest.report.strength}
+              <strong>{t("Keep doing", "Sigue así")}</strong> {named(latest.report.strength)}
             </p>
           )}
         </>
@@ -560,7 +586,7 @@ function Progress({
             <div className="recent-links">
               {view.games.length > 5 && (
                 <button type="button" className="link-button" aria-expanded={allGames} onClick={() => setAllGames((v) => !v)}>
-                  {allGames ? t("Fewer games", "Menos partidas") : t(`All ${view.games.length} games`, `Las ${view.games.length} partidas`)}
+                  {allGames ? t("Show fewer", "Ver menos") : t(`Show all ${view.games.length}`, `Ver las ${view.games.length}`)}
                 </button>
               )}
               {view.summary && (
@@ -570,7 +596,6 @@ function Progress({
               )}
             </div>
           </div>
-          {numbers && <Metrics view={view} latest={latest} previous={view.previous} />}
           <ul className="game-list">
             {shown.map((g) => (
               <GameRow
@@ -584,6 +609,7 @@ function Progress({
               />
             ))}
           </ul>
+          {numbers && <Metrics view={view} latest={latest} previous={view.previous} />}
         </section>
       )}
     </section>

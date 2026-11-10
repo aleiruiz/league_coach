@@ -140,8 +140,8 @@ export type MetricKey = Exclude<keyof Averages, "games">;
 export const METRICS: { key: MetricKey; label: () => string; higher: boolean; format: (v: number) => string }[] = [
   { key: "win_rate", label: () => t("Games won", "Partidas ganadas"), higher: true, format: pct },
   { key: "cs_per_min", label: () => t("Minions per minute", "Súbditos por minuto"), higher: true, format: (v) => v.toFixed(1) },
-  { key: "cs_diff_10", label: () => t("Minions vs your opponent at 10 min", "Súbditos vs tu rival al minuto 10"), higher: true, format: signed },
-  { key: "gold_diff_15", label: () => t("Gold vs your opponent at 15 min", "Oro vs tu rival al minuto 15"), higher: true, format: signed },
+  { key: "cs_diff_10", label: () => t("Minions vs your opponent at 10 min", "Súbditos vs tu rival al minuto 10"), higher: true, format: (v) => aheadBehind(v, 0.5, "") },
+  { key: "gold_diff_15", label: () => t("Gold vs your opponent at 15 min", "Oro vs tu rival al minuto 15"), higher: true, format: (v) => aheadBehind(v, 50, t(" gold", " de oro")) },
   { key: "kill_participation", label: () => t("Share of your team's kills you were in", "Parte de las kills de tu equipo en las que participaste"), higher: true, format: pct },
   { key: "early_deaths", label: () => t("Deaths before minute 14", "Muertes antes del minuto 14"), higher: false, format: (v) => v.toFixed(1) },
   { key: "solo_deaths", label: () => t("Deaths to a single enemy", "Muertes contra un solo rival"), higher: false, format: (v) => v.toFixed(1) },
@@ -152,6 +152,14 @@ export const METRICS: { key: MetricKey; label: () => string; higher: boolean; fo
 
 export function pct(v: number): string {
   return `${Math.round(v * 100)}%`;
+}
+
+/** "6 behind", "250 gold ahead", "even": a difference in plain words. */
+export function aheadBehind(v: number, even: number, unit: string): string {
+  const n = Math.round(Math.abs(v)).toLocaleString();
+  if (v <= -even) return t(`${n}${unit} behind`, `${n}${unit} por detrás`);
+  if (v >= even) return t(`${n}${unit} ahead`, `${n}${unit} por delante`);
+  return t("even", "parejo");
 }
 
 export function signed(v: number): string {
