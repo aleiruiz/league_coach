@@ -7,6 +7,7 @@ import {
   ProviderKind,
   ProviderStatus,
   ProviderUsage,
+  shortName,
   usageOverview,
 } from "./providers";
 import { Lang, t } from "./i18n";
@@ -44,7 +45,7 @@ function AIRow({
     <div className={`ai-row${inUse ? " in-use" : ""}`}>
       <div className="ai-row-head">
         <span className="ai-name">
-          <strong>{p.label}</strong>
+          <strong>{shortName(p.label)}</strong>
           <span className={p.logged_in ? "ai-status ok" : "ai-status"}>
             {statusText(p, inUse)}
           </span>

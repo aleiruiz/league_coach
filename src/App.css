@@ -2406,3 +2406,10 @@ button.small-button {
 .set-block .message:empty {
   display: none;
 }
+
+/* Automatic review: a short label with a one-line hint under it. */
+.check.auto-review > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

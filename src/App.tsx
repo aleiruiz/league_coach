@@ -6,14 +6,13 @@ import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
 import { NavIcon } from "./icons";
-import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus, savePreferred } from "./providers";
+import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus, savePreferred, shortName } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
 type View = "draft" | "progress" | "coach" | "settings";
 
 /** "Claude (Claude Code)" → "Claude": the program name is in Settings. */
-const shortName = (label: string) => label.replace(/\s*\(.*\)\s*$/, "");
 
 /** The two moments the app is for: before a game and after it. */
 const nav = (): { view: "draft" | "progress"; label: string; hint: string }[] => [

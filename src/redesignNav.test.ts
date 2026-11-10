@@ -23,10 +23,10 @@ describe("Your AI row", () => {
 
   it("says the limit in one sentence", () => {
     expect(limitSentence(win("seven_day", 84.4, 45), now)).toBe(
-      "84% used (weekly), resets in 45 min.",
+      "84% of this week's limit used. Resets in 45 min.",
     );
     expect(limitSentence(win("five_hour", 100, 25), now)).toBe(
-      "Limit reached (5-hour window), resets in 25 min.",
+      "Limit reached. Back in 25 min.",
     );
     expect(limitSentence(win("five_hour", 100, null), now)).toBe(
       "Limit reached.",

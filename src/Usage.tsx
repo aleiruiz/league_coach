@@ -108,17 +108,28 @@ export function mainLimit(windows: LimitWindow[] | undefined, now = Date.now()):
   return live.reduce<LimitWindow | null>((top, w) => (!top || w.used_percent > top.used_percent ? w : top), null);
 }
 
-/** "84% of the weekly limit used. Resets in 2 h." / "Limit reached. Back in 25 min." */
+/** "this week's limit" / "the 5-hour limit": the window in plain words. */
+function limitName(w: LimitWindow): string {
+  const weekly = w.id.startsWith("seven_day") || w.window_minutes === 7 * 24 * 60;
+  if (weekly) return t("this week's limit", "el límite de esta semana");
+  const label = windowLabel(w)
+    .replace(/ window$/i, "")
+    .replace(/^Ventana de /, "");
+  return t(`the ${label.toLowerCase()} limit`, `el límite de ${label.toLowerCase()}`);
+}
+
+/** "84% of this week's limit used. Resets Fri 11:29 PM." / "Limit reached. Back in 25 min." */
 export function limitSentence(w: LimitWindow, now = Date.now()): string {
   const pct = Math.round(w.used_percent);
   const reset = resetText(w.resets_at, now);
   if (pct >= 100) {
-    return reset
-      ? t(`Limit reached (${windowLabel(w).toLowerCase()}), ${reset}.`, `Límite alcanzado (${windowLabel(w).toLowerCase()}), ${reset}.`)
+    const back = reset?.replace(/^resets /, "").replace(/^se reinicia /, "");
+    return back
+      ? t(`Limit reached. Back ${back}.`, `Límite alcanzado. Vuelve ${back}.`)
       : t("Limit reached.", "Límite alcanzado.");
   }
-  const base = t(`${pct}% used (${windowLabel(w).toLowerCase()})`, `${pct}% usado (${windowLabel(w).toLowerCase()})`);
-  return reset ? `${base}, ${reset}.` : `${base}.`;
+  const base = t(`${pct}% of ${limitName(w)} used.`, `${pct}% de ${limitName(w)} usado.`);
+  return reset ? `${base} ${reset[0].toUpperCase()}${reset.slice(1)}.` : base;
 }
 
 function Meter({ w }: { w: LimitWindow }) {
@@ -324,7 +335,7 @@ export function ModelPicker({ kind }: { kind: ProviderKind }) {
       </label>
       <p className="muted small" role="status">
         {current?.description ||
-          t("The model the CLI picks for you.", "El modelo que el CLI elige por ti.")}
+          t("The model your plan uses by default.", "El modelo que tu plan usa por defecto.")}
         {saved && ` ${t("Saved: new questions use it.", "Guardado: las preguntas nuevas lo usan.")}`}
       </p>
       {models.error && (
@@ -337,7 +348,7 @@ export function ModelPicker({ kind }: { kind: ProviderKind }) {
   );
 }
 
-/** Model picker, plan limits and token use of one signed-in provider. */
+/** Plan limits and token use of one signed-in provider (the model is picked on its Your AI row). */
 export function ProviderDetails({
   kind,
   usage,
@@ -351,7 +362,6 @@ export function ProviderDetails({
   const data = typeof usage === "object" ? usage : undefined;
   return (
     <div className="usage">
-      <ModelPicker kind={kind} />
       {data ? (
         <>
           <Limits kind={kind} usage={data} />

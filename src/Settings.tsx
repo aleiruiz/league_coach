@@ -15,7 +15,16 @@ type KeyStatus = { provider: string; state: KeyState; error: string | null };
  * Riot ID + region (server). In Settings it also explains the API key and the
  * automatic review; the first-run setup shows just the form (`compact`).
  */
-export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void; compact?: boolean }) {
+export function RiotAccount({
+  onSaved,
+  compact = false,
+  children,
+}: {
+  onSaved: () => void;
+  compact?: boolean;
+  /** Shown above the automatic-review option (the Riot key, which it needs). */
+  children?: React.ReactNode;
+}) {
   const [regions, setRegions] = useState<Region[]>([]);
   const [riotId, setRiotId] = useState("");
   const [region, setRegion] = useState("");
@@ -116,12 +125,15 @@ export function RiotAccount({ onSaved, compact = false }: { onSaved: () => void;
       </p>
         </>
       )}
-      <label className="check">
+      {children}
+      <label className="check auto-review">
         <input type="checkbox" checked={auto} onChange={(e) => toggleAuto(e.currentTarget.checked)} />
-        {t(
-          "Review new games automatically in Improve while the app is open. Each review is one request to your Claude or ChatGPT plan (one per batch of new games, not per minute).",
-          "Revisar las partidas nuevas automáticamente en Mejorar mientras la app está abierta. Cada revisión es una consulta a tu plan de Claude o ChatGPT (una por tanda de partidas nuevas, no por minuto).",
-        )}
+        <span>
+          {t("Review new games automatically", "Revisar las partidas nuevas automáticamente")}
+          <span className="muted small">
+            {t("Uses one AI request per batch of new games.", "Usa una consulta a la IA por tanda de partidas nuevas.")}
+          </span>
+        </span>
       </label>
       <p className="message" role="status" aria-live="polite">
         {message}
@@ -170,6 +182,8 @@ function RiotKey({ onSaved }: { onSaved: () => void }) {
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(keySavedAt);
+  /** A working key folds the steps away until "Replace key". */
+  const [replacing, setReplacing] = useState(false);
 
   async function refresh() {
     try {
@@ -194,6 +208,7 @@ function RiotKey({ onSaved }: { onSaved: () => void }) {
         // Only the age hint is lost.
       }
       setSavedAt(now);
+      setReplacing(false);
       setMessage(t("Riot key saved.", "Key de Riot guardada."));
       await refresh();
       onSaved();
@@ -231,40 +246,48 @@ function RiotKey({ onSaved }: { onSaved: () => void }) {
         </span>
       </div>
       {age && <p className={age.stale ? "warn-text small" : "muted small"}>{age.text}</p>}
-      <ol className="steps">
-        <li>
-          <span>{t("Sign in on Riot's developer site", "Inicia sesión en el sitio de desarrolladores de Riot")}</span>
-          <button type="button" className="secondary small-button" onClick={() => openUrl("https://developer.riotgames.com/")}>
-            {t("Open Riot's site", "Abrir el sitio de Riot")}
+      {state === "configured" && !age?.stale && !replacing ? (
+        <p className="small">
+          {t("Key saved.", "Key guardada.")}{" "}
+          <button type="button" className="link-button" onClick={() => setReplacing(true)}>
+            {t("Replace key", "Reemplazar la key")}
           </button>
-        </li>
-        <li>
-          <span>{t("Press “Regenerate API key” and copy it", "Pulsa «Regenerate API key» y cópiala")}</span>
-          <span className="muted small">{t("It starts with RGAPI-", "Empieza con RGAPI-")}</span>
-        </li>
-        <li>
-          <label htmlFor="riot-key">{t("Paste it here", "Pégala aquí")}</label>
-          <form
-            className="key-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              save();
-            }}
-          >
-            <input
-              id="riot-key"
-              type="password"
-              autoComplete="off"
-              placeholder="RGAPI-..."
-              value={draft}
-              onChange={(e) => setDraft(e.currentTarget.value)}
-            />
-            <button type="submit" disabled={!draft.trim()}>
-              {t("Save", "Guardar")}
+        </p>
+      ) : (
+        <ol className="steps">
+          <li>
+            <span>{t("Sign in on Riot's developer site", "Inicia sesión en el sitio de desarrolladores de Riot")}</span>
+            <button type="button" className="secondary small-button" onClick={() => openUrl("https://developer.riotgames.com/")}>
+              {t("Open Riot's site", "Abrir el sitio de Riot")}
             </button>
-          </form>
-        </li>
-      </ol>
+          </li>
+          <li>
+            <span>{t("Press “Regenerate API key” and copy it", "Pulsa «Regenerate API key» y cópiala")}</span>
+          </li>
+          <li>
+            <label htmlFor="riot-key">{t("Paste it here", "Pégala aquí")}</label>
+            <form
+              className="key-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                save();
+              }}
+            >
+              <input
+                id="riot-key"
+                type="password"
+                autoComplete="off"
+                placeholder="RGAPI-..."
+                value={draft}
+                onChange={(e) => setDraft(e.currentTarget.value)}
+              />
+              <button type="submit" disabled={!draft.trim()}>
+                {t("Save", "Guardar")}
+              </button>
+            </form>
+          </li>
+        </ol>
+      )}
       <p className="muted small">
         {t(
           "Stored in your operating system's keychain, never in an app file.",
@@ -309,8 +332,9 @@ function Settings({
 
       <section className="set-block" aria-labelledby="set-account">
         <h3 id="set-account">{t("Your League account", "Tu cuenta de League")}</h3>
-        <RiotAccount onSaved={onRiotAccount} />
-        <RiotKey onSaved={onRiotAccount} />
+        <RiotAccount onSaved={onRiotAccount}>
+          <RiotKey onSaved={onRiotAccount} />
+        </RiotAccount>
       </section>
 
       <section className="set-block" aria-labelledby="set-ai">
@@ -355,19 +379,19 @@ function Settings({
         <div>
           <h3>{t("About", "Acerca de")}</h3>
           <button type="button" className="link-button" aria-expanded={legal} onClick={() => setLegal((v) => !v)}>
-            {t("Legal notice and how your data is used", "Aviso legal y cómo se usan tus datos")}
+            {t("How your data is used", "Cómo se usan tus datos")}
           </button>
-          {legal && (
-            <div className="about-text small">
+          <div className="about-text small">
+            {legal && (
               <p>
                 {t(
                   "Everything stays on this computer. Your questions go to Claude or ChatGPT through their official apps, signed in with your own account; League Coach never sees your credentials. Your Riot key is kept in your system's keychain and is only sent to Riot. Champion select is read from the League client on this computer, and only when you press “Fill from my game”.",
                   "Todo se queda en esta computadora. Tus preguntas van a Claude o ChatGPT a través de sus apps oficiales, con tu propia cuenta; League Coach nunca ve tus credenciales. Tu key de Riot se guarda en el llavero del sistema y solo se envía a Riot. La selección de campeones se lee del cliente de League en esta computadora, y solo cuando pulsas «Rellenar con mi partida».",
                 )}
               </p>
-              <LegalNotice lang={lang} />
-            </div>
-          )}
+            )}
+            <LegalNotice lang={lang} />
+          </div>
           <OldKeys />
         </div>
       </section>

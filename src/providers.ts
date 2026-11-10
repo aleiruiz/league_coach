@@ -163,7 +163,7 @@ export function setProviderModel(kind: ProviderKind, model: string | null) {
 
 const PREFERRED = "lc.defaultProvider";
 
-/** The AI the Game, Ask and My progress screens start on (set in Models). Kept on this computer. */
+/** The AI Next game, Improve and Ask start on (set in Settings › Your AI). Kept on this computer. */
 export function loadPreferred(): ProviderKind | null {
   try {
     const v = localStorage.getItem(PREFERRED);
@@ -186,3 +186,6 @@ export function savePreferred(kind: ProviderKind | null) {
 export function pickKind(ready: { kind: ProviderKind }[], preferred: ProviderKind | null): ProviderKind | null {
   return ready.find((p) => p.kind === preferred)?.kind ?? ready[0]?.kind ?? null;
 }
+
+/** "Claude (Claude Code)" → "Claude": the AI, without the program behind it. */
+export const shortName = (label: string) => label.replace(/\s*\(.*\)\s*$/, "");
