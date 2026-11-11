@@ -28,6 +28,10 @@ pub struct LiveDraft {
     pub role: Option<&'static str>,
     pub me: Option<String>,
     pub allies: Vec<String>,
+    /// Champ select only: each ally's assigned role, in the order of
+    /// `allies` (None in blind pick). Empty for a game in progress, which
+    /// has no positions.
+    pub ally_roles: Vec<Option<&'static str>>,
     pub enemies: Vec<String>,
 }
 
@@ -139,6 +143,12 @@ fn role_of(position: &str) -> Option<&'static str> {
 
 fn from_champ_select(s: &ChampSelect, name: impl Fn(u32) -> Option<String>) -> LiveDraft {
     let me = s.my_team.iter().find(|p| p.cell == s.local_cell);
+    let allies: Vec<(String, Option<&'static str>)> = s
+        .my_team
+        .iter()
+        .filter(|p| p.cell != s.local_cell && p.champion != 0)
+        .filter_map(|p| name(p.champion).map(|c| (c, role_of(&p.position))))
+        .collect();
     LiveDraft {
         source: "champ_select",
         role: me.and_then(|p| role_of(&p.position)),
@@ -149,12 +159,8 @@ fn from_champ_select(s: &ChampSelect, name: impl Fn(u32) -> Option<String>) -> L
                 .find(|&k| k != 0)
                 .and_then(&name)
         }),
-        allies: s
-            .my_team
-            .iter()
-            .filter(|p| p.cell != s.local_cell && p.champion != 0)
-            .filter_map(|p| name(p.champion))
-            .collect(),
+        allies: allies.iter().map(|(c, _)| c.clone()).collect(),
+        ally_roles: allies.iter().map(|&(_, r)| r).collect(),
         enemies: s
             .their_team
             .iter()
@@ -216,6 +222,7 @@ fn from_game(
         role: None,
         me: name(me.champion_id),
         allies: team(true),
+        ally_roles: Vec::new(),
         enemies: team(false),
     })
 }
@@ -366,6 +373,8 @@ mod tests {
         // My own hover counts; an ally's hover doesn't (they may change it).
         assert_eq!(d.me.as_deref(), Some("Kayn"));
         assert_eq!(d.allies, vec!["Darius"]);
+        // Each ally comes with the role the client assigned them.
+        assert_eq!(d.ally_roles, vec![Some("top")]);
         assert_eq!(d.enemies, vec!["Khazix"]);
     }
 

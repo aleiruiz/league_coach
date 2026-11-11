@@ -7,7 +7,13 @@ type Props = {
   taken: Set<string>;
   title: string;
   onPick: (id: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  /** Part of the page (Next game's champ select) instead of a dialog over it. */
+  inline?: boolean;
+  /** The search field, for the page to focus when a slot is chosen. */
+  searchRef?: React.RefObject<HTMLInputElement | null>;
+  /** Shown next to the title (e.g. "Mark as your lane opponent"). */
+  extra?: React.ReactNode;
 };
 
 const TAGS: [string, string, string][] = [
@@ -19,27 +25,29 @@ const TAGS: [string, string, string][] = [
   ["Support", "Support", "Soporte"],
 ];
 
-function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
+function ChampionPicker({ champions, taken, title, onPick, onClose, inline, searchRef, extra }: Props) {
   const [query, setQuery] = useState("");
-  const input = useRef<HTMLInputElement>(null);
+  const own = useRef<HTMLInputElement>(null);
+  const input = searchRef ?? own;
   const [tag, setTag] = useState<string | null>(null);
   const results = searchChampions(champions, query).filter((c) => !tag || c.tags.includes(tag));
 
   useEffect(() => {
-    input.current?.focus();
+    if (!inline) input.current?.focus();
   }, []);
 
   useEffect(() => {
+    if (inline || !onClose) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-      <div className="picker" onClick={(e) => e.stopPropagation()}>
+  const body = (
+    <>
         <header className="picker-header">
-          <h3>{title}</h3>
+          <h3 id={inline ? "picker-title" : undefined}>{title}</h3>
+          {extra}
           <input
             ref={input}
             aria-label={t("Search champion", "Buscar campeón")}
@@ -50,12 +58,17 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
               if (e.key !== "Enter" || !query.trim()) return;
               // Enter elige el primer libre solo si ya se escribió algo.
               const first = results.find((c) => !taken.has(c.id));
-              if (first) onPick(first.id);
+              if (first) {
+                onPick(first.id);
+                setQuery("");
+              }
             }}
           />
-          <button className="secondary" onClick={onClose}>
-            {t("Close", "Cerrar")}
-          </button>
+          {!inline && onClose && (
+            <button className="secondary" onClick={onClose}>
+              {t("Close", "Cerrar")}
+            </button>
+          )}
         </header>
         <div className="picker-tags" role="group" aria-label={t("Filter by class", "Filtrar por clase")}>
           <button className={tag === null ? "chip on" : "chip"} aria-pressed={tag === null} onClick={() => setTag(null)}>
@@ -73,7 +86,10 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
               key={c.id}
               className="champ-tile"
               disabled={taken.has(c.id)}
-              onClick={() => onPick(c.id)}
+              onClick={() => {
+                onPick(c.id);
+                setQuery("");
+              }}
               title={`${c.name}, ${c.title}`}
             >
               <img src={c.image} alt="" loading="lazy" />
@@ -86,6 +102,19 @@ function ChampionPicker({ champions, taken, title, onPick, onClose }: Props) {
                 : t("No champions with that name.", "No hay campeones con ese nombre.")}</p>
           )}
         </div>
+    </>
+  );
+  if (inline) {
+    return (
+      <section className="picker inline" aria-labelledby="picker-title">
+        {body}
+      </section>
+    );
+  }
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div className="picker" onClick={(e) => e.stopPropagation()}>
+        {body}
       </div>
     </div>
   );
