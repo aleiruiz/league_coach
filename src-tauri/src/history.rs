@@ -37,6 +37,18 @@ const THROWN_LEAD_GOLD: i32 = 1500;
 
 // ---------- Riot payloads (only the fields used) ----------
 
+/// For the parts of Match-V5 that change shape between patches (teams,
+/// runes, challenges): an unexpected value there leaves that part empty
+/// instead of failing the whole game, and with it the sync.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchDto {
@@ -65,7 +77,7 @@ struct MatchInfo {
     #[serde(default)]
     game_version: String,
     participants: Vec<ParticipantDto>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     teams: Vec<TeamDto>,
 }
 
@@ -170,6 +182,7 @@ struct ParticipantDto {
     item6: u32,
     summoner1_id: u32,
     summoner2_id: u32,
+    #[serde(deserialize_with = "lenient")]
     perks: PerksDto,
     largest_multi_kill: u32,
     double_kills: u32,
@@ -180,6 +193,7 @@ struct ParticipantDto {
     first_blood_assist: bool,
     turret_kills: u32,
     total_time_spent_dead: u32,
+    #[serde(deserialize_with = "lenient")]
     challenges: Option<ChallengesDto>,
 }
 
@@ -1848,6 +1862,25 @@ mod tests {
         let o = &d.teams[0].objectives;
         assert_eq!((o.tower, o.dragon, o.horde, o.baron), (10, 2, 3, 0));
         assert!(o.first_tower && o.first_blood && !o.first_baron);
+    }
+
+    #[test]
+    fn odd_teams_runes_or_challenges_dont_break_the_game() {
+        let mut v = serde_json::to_value(json!({
+            "metadata": {"matchId": "LA1_7"},
+            "info": {"gameDuration": 1600, "queueId": 420, "mapId": 11,
+                     "teams": "unexpected",
+                     "participants": [participant(1, 100, "MIDDLE", "Ahri", 4)]}
+        }))
+        .unwrap();
+        let p = &mut v["info"]["participants"][0];
+        p["perks"] = json!({"styles": "??"});
+        p["challenges"] = json!({"soloKills": "many"});
+        let m: MatchDto = serde_json::from_value(v).unwrap();
+        let d = match_detail(&m, "p1");
+        assert!(d.teams.is_empty());
+        assert!(d.players[0].runes.is_empty() && d.players[0].solo_kills.is_none());
+        assert_eq!(d.players[0].kills, 4);
     }
 
     #[test]
