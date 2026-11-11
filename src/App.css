@@ -2811,6 +2811,7 @@ button.tab.on {
 
 ul.rune-shards {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px 18px;
   list-style: none;
@@ -2818,6 +2819,11 @@ ul.rune-shards {
   margin: 0 0 10px;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* The sheet's list spacing (li + li) would push all but the first shard down. */
+ul.rune-shards li {
+  margin: 0;
 }
 
 .rune-shards li .icon img {
