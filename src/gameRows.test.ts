@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MatchDetail, PlayerDetail } from "./games";
 import type { GameStats } from "./history";
-import { byDay, duration, gameFacts, kdaRatio, killShare, laneOpponent, mainChampions, me, queueName, rowTags } from "./gameRows";
+import { bests, byDay, duration, gameFacts, matchPrompt, matchTitle, kdaRatio, killShare, laneOpponent, mainChampions, me, queueName, rowTags } from "./gameRows";
 
 const player = (o: Partial<PlayerDetail>): PlayerDetail => ({
   name: "P",
@@ -122,5 +122,30 @@ describe("game rows", () => {
   it("lists the champions played at least twice, most played first", () => {
     const g = (c: string) => game({ champion: c });
     expect(mainChampions([g("Jax"), g("Ahri"), g("Ahri"), g("Jax"), g("Ahri"), g("Zed")])).toEqual(["Ahri", "Jax"]);
+  });
+
+  it("finds the best of the game in each number", () => {
+    const g = game({ gold: 15_000, damage_taken: 40_000, kills: 10, deaths: 0, assists: 5 });
+    g.players[7] = { ...g.players[7], cs: 300, damage_dealt: 50_000 };
+    const b = Object.fromEntries(bests(g, "en-US").map((x) => [x.key, x]));
+    expect(b.gold.player.is_me).toBe(true);
+    expect(b.gold.value).toBe("15,000");
+    expect(b.cs.player.name).toBe("200-2");
+    expect(b.damage.player.name).toBe("200-2");
+    expect(b.kda.value).toBe("Perfect (10/0/5)");
+    expect(b.taken.player.is_me).toBe(true);
+  });
+
+  it("titles the game and tells the coach about it without anyone's name", () => {
+    const g = game({ name: "MyName", tag: "MINE", champion: "Ahri", kills: 5 });
+    g.players = g.players.map((x, i) => (x.is_me ? x : { ...x, name: `Player${i}`, tag: `T${i}` }));
+    g.players[7] = { ...g.players[7], champion: "Zed" };
+    const names = { champ: (c: string) => c, item: () => "Item", role: (r: string) => r.toLowerCase() };
+    expect(matchTitle(g, names.champ, names.role)).toBe("Win as Ahri (middle) against Zed");
+    const prompt = matchPrompt(g, stats({ cs_diff_10: 12, gold_diff_15: 300, team_gold_diff_15: 900, death_minutes: [4.2] } as Partial<GameStats>), names);
+    expect(prompt).toContain("Win as Ahri (middle) against Zed");
+    expect(prompt).toContain("Zed (middle)");
+    expect(prompt).toContain("minions vs my lane opponent at 10 min: 12");
+    expect(prompt).not.toMatch(/MyName|MINE|Player\d|T\d\b/);
   });
 });

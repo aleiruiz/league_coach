@@ -93,9 +93,14 @@ function App() {
     askOpener.current = null;
     if (el?.isConnected) requestAnimationFrame(() => el.focus());
   }, []);
-  const [contexts, setContexts] = useState<{ draft: AskContext | null; progress: AskContext | null }>({ draft: null, progress: null });
+  const [contexts, setContexts] = useState<{ draft: AskContext | null; progress: AskContext | null; games: AskContext | null }>({
+    draft: null,
+    progress: null,
+    games: null,
+  });
   const draftContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, draft: c })), []);
   const progressContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, progress: c })), []);
+  const gamesContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, games: c })), []);
   const providers: ProvidersState = { list, loading, error, refresh, preferred, setPreferred };
   const signedIn = list.filter((p) => p.logged_in);
   const aiInUse = signedIn.find((p) => p.kind === pickKind(signedIn, preferred)) ?? null;
@@ -145,8 +150,9 @@ function App() {
     );
   }
 
-  // The Ask panel belongs to the screens that have something to ask about.
-  const asksHere = view === "draft" || view === "progress";
+  // The Ask panel belongs to the screens that have something to ask about:
+  // Games only while a finished game is open.
+  const asksHere = view === "draft" || view === "progress" || (view === "games" && !!contexts.games);
   // Views stay mounted (only hidden) so switching tabs doesn't lose the
   // conversation or an answer in progress. Changing the language re-renders
   // them in place: the draft and the chat are kept, and the draft view
@@ -229,6 +235,8 @@ function App() {
             version={historyVersion + accountVersion}
             onChanged={historyChanged}
             onGoToSettings={() => setView("settings")}
+            onAsk={openAsk}
+            onContext={gamesContext}
           />
         </div>
         <div hidden={view !== "settings"}>
@@ -242,11 +250,11 @@ function App() {
           />
         </div>
       </main>
-      {/* Kept mounted so the conversation survives closing it; only over the two moments. */}
+      {/* Kept mounted so the conversation survives closing it; over the two moments and an open game. */}
       <AskPanel
         providers={providers}
         open={askOpen && asksHere}
-        context={view === "draft" ? contexts.draft : view === "progress" ? contexts.progress : null}
+        context={view === "draft" ? contexts.draft : view === "progress" ? contexts.progress : view === "games" ? contexts.games : null}
         onClose={closeAsk}
         onBusy={coachBusy}
         onGoToSettings={() => {

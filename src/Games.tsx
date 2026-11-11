@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Champion, GameData, gameData } from "./game";
-import { GameDetail } from "./GameDetail";
-import { fillMatchDetails, GamesView, MatchDetail, matchDetails, PlayerDetail } from "./games";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AskContext } from "./AskPanel";
+import { Art, ChampPic, champName, Items, Pic, useArt } from "./gameArt";
+import { fillMatchDetails, GamesView, MatchDetail, matchDetails } from "./games";
+import Match from "./Match";
 import {
   byDay,
   duration,
@@ -9,6 +10,8 @@ import {
   killShare,
   laneOpponent,
   mainChampions,
+  matchPrompt,
+  matchTitle,
   me,
   pctText,
   perMinute,
@@ -26,89 +29,6 @@ import { humanizeError } from "./providers";
 const EMPTY: GamesView = { configured: false, games: [], missing: 0 };
 const PAGE = 10;
 
-/** Images by Riot's ids: champions by name, spells and runes by number. */
-type Art = {
-  version: string;
-  champ: (id: string) => Champion | undefined;
-  spell: (key: number) => { name: string; image: string } | undefined;
-  rune: (id: number) => { name: string; icon: string } | undefined;
-  item: (id: number) => string | undefined;
-};
-
-function useArt(lang: Lang): Art | null {
-  const [data, setData] = useState<GameData | null>(null);
-  useEffect(() => {
-    let current = true;
-    gameData()
-      .then((d) => current && setData(d))
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [lang]);
-  return useMemo(() => {
-    if (!data) return null;
-    const champs = new Map(data.champions.map((c) => [c.id.toLowerCase(), c]));
-    const spells = new Map((data.spells ?? []).map((s) => [s.key, s]));
-    const runes = new Map<number, { name: string; icon: string }>();
-    for (const tree of data.rune_trees) {
-      runes.set(tree.id, tree);
-      for (const slot of tree.slots) for (const r of slot) runes.set(r.id, r);
-    }
-    const items = new Map((data.items ?? []).map((i) => [Number(i.id), i.name]));
-    return {
-      version: data.version,
-      champ: (id) => champs.get(id.toLowerCase()),
-      spell: (key) => spells.get(key),
-      rune: (id) => runes.get(id),
-      item: (id) => items.get(id),
-    };
-  }, [data]);
-}
-
-function Pic({ src, title, size, className }: { src?: string; title?: string; size: number; className?: string }) {
-  const [broken, setBroken] = useState(false);
-  return src && !broken ? (
-    <img className={className} src={src} alt="" title={title} width={size} height={size} onError={() => setBroken(true)} />
-  ) : (
-    <span className={`${className ?? ""} pic-missing`} title={title} style={{ width: size, height: size }} aria-hidden="true" />
-  );
-}
-
-function ChampPic({ art, id, size, className }: { art: Art | null; id: string; size: number; className?: string }) {
-  const c = art?.champ(id);
-  return <Pic src={c?.image} title={c?.name ?? id} size={size} className={className ?? "g-champ"} />;
-}
-
-const champName = (art: Art | null, id: string) => art?.champ(id)?.name ?? id;
-
-/** Bought items packed to the left, the trinket kept last. */
-function packed(items: number[]): number[] {
-  const bought = items.slice(0, 6).filter(Boolean);
-  return [...bought, ...Array(6 - bought.length).fill(0), items[6] ?? 0];
-}
-
-function Items({ p, art }: { p: PlayerDetail; art: Art | null }) {
-  const label = t("Final items", "Objetos finales");
-  return (
-    <span className="g-items" aria-label={label}>
-      {packed(p.items).map((id, i) =>
-        id ? (
-          <Pic
-            key={i}
-            className={i === 6 ? "g-item trinket" : "g-item"}
-            src={art ? `https://ddragon.leagueoflegends.com/cdn/${art.version}/img/item/${id}.png` : undefined}
-            title={art?.item(id)}
-            size={26}
-          />
-        ) : (
-          <span key={i} className={i === 6 ? "g-item empty trinket" : "g-item empty"} aria-hidden="true" />
-        ),
-      )}
-    </span>
-  );
-}
-
 function Team({ d, teamId, art, label }: { d: MatchDetail; teamId: number; art: Art | null; label: string }) {
   return (
     <span className="g-team" aria-label={label}>
@@ -124,17 +44,13 @@ function Team({ d, teamId, art, label }: { d: MatchDetail; teamId: number; art: 
 function GameRow({
   d,
   stats,
-  history,
   art,
-  open,
-  onToggle,
+  onOpen,
 }: {
   d: MatchDetail;
   stats: GameStats | undefined;
-  history: GameStats[];
   art: Art | null;
-  open: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
 }) {
   const p = me(d);
   if (!p) return null;
@@ -145,17 +61,9 @@ function GameRow({
   const keystone = art?.rune(p.runes[0]);
   const second = art?.rune(p.secondary_style);
   const cs10 = p.position !== "UTILITY" ? (stats?.cs_diff_10 ?? null) : null;
-  const detailId = `games-detail-${d.id}`;
   return (
-    <li className={`g-row ${win ? "win" : "loss"}${open ? " open" : ""}`}>
-      <button
-        type="button"
-        className="g-row-head"
-        aria-expanded={stats ? open : undefined}
-        aria-controls={open ? detailId : undefined}
-        disabled={!stats}
-        onClick={onToggle}
-      >
+    <li className={`g-row ${win ? "win" : "loss"}`}>
+      <button type="button" className="g-row-head" data-game={d.id} onClick={onOpen}>
         <span className="g-result">
           <strong>{win ? t("Win", "Victoria") : t("Loss", "Derrota")}</strong>
           <span className="muted small">{queueName(d.queue_id, true)}</span>
@@ -237,14 +145,11 @@ function GameRow({
             <Team d={d} teamId={p.team_id} art={art} label={t("Your team", "Tu equipo")} />
             <Team d={d} teamId={p.team_id === 100 ? 200 : 100} art={art} label={t("Enemy team", "Equipo rival")} />
           </span>
-          {stats && (
-            <span className="g-more small" aria-hidden="true">
-              {open ? t("Hide summary", "Ocultar resumen") : t("Summary", "Resumen")} ▾
-            </span>
-          )}
+          <span className="g-more small" aria-hidden="true">
+            {t("Details", "Detalles")} ›
+          </span>
         </span>
       </button>
-      {open && stats && <GameDetail g={stats} games={history} id={detailId} />}
     </li>
   );
 }
@@ -257,6 +162,8 @@ export default function Games({
   version,
   onChanged,
   onGoToSettings,
+  onAsk,
+  onContext,
 }: {
   lang: Lang;
   /** The screen is showing: reload what may have changed meanwhile. */
@@ -266,6 +173,9 @@ export default function Games({
   /** This screen added games or details: the others should reload. */
   onChanged: () => void;
   onGoToSettings: () => void;
+  onAsk: () => void;
+  /** What Ask the coach is told while a game is open (null on the list). */
+  onContext: (c: AskContext | null) => void;
 }) {
   const art = useArt(lang);
   const [view, setView] = useState<GamesView>(EMPTY);
@@ -278,6 +188,8 @@ export default function Games({
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
   const [shown, setShown] = useState(PAGE);
   const [openGame, setOpenGame] = useState<string | null>(null);
+  // Back from a game puts focus on its row again.
+  const lastOpened = useRef<string | null>(null);
 
   const reload = useCallback(async (): Promise<GamesView | null> => {
     try {
@@ -354,6 +266,33 @@ export default function Games({
   };
 
   const stats = useMemo(() => new Map(history.map((g) => [g.id, g])), [history]);
+  const match = openGame ? view.games.find((g) => g.id === openGame) : undefined;
+
+  const matchContext = useMemo<AskContext | null>(() => {
+    if (!match || !art) return null;
+    const p = me(match);
+    if (!p) return null;
+    const champ = (c: string) => champName(art, c);
+    return {
+      label: matchTitle(match, champ, roleName),
+      image: art.champ(p.champion)?.image,
+      prompt: matchPrompt(match, stats.get(match.id), { champ, item: art.item, role: roleName }),
+      question: t("Your question about this game", "Tu pregunta sobre esta partida"),
+      suggestions: t(
+        ["What decided this game?", "What should I have done differently?", "What should I practice from this game?"],
+        ["¿Qué decidió esta partida?", "¿Qué debí hacer diferente?", "¿Qué debería practicar de esta partida?"],
+      ),
+    };
+    // `lang` re-runs it so the text follows the language.
+  }, [match, art, stats, lang]);
+  useEffect(() => onContext(matchContext), [matchContext, onContext]);
+
+  useEffect(() => {
+    if (openGame || !lastOpened.current) return;
+    const id = lastOpened.current;
+    lastOpened.current = null;
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.g-row-head[data-game="${CSS.escape(id)}"]`)?.focus());
+  }, [openGame]);
   const champs = useMemo(() => mainChampions(view.games), [view.games]);
   const filtered = view.games.filter((g) => {
     if (filter.kind === "ranked") return RANKED_QUEUES.includes(g.queue_id);
@@ -380,6 +319,20 @@ export default function Games({
       </button>
     );
   };
+
+  if (match) {
+    return (
+      <Match
+        d={match}
+        stats={stats.get(match.id)}
+        history={history}
+        art={art}
+        lang={lang}
+        onBack={() => setOpenGame(null)}
+        onAsk={onAsk}
+      />
+    );
+  }
 
   if (loaded && !view.configured) {
     return (
@@ -465,10 +418,11 @@ export default function Games({
                 key={d.id}
                 d={d}
                 stats={stats.get(d.id)}
-                history={history}
                 art={art}
-                open={openGame === d.id}
-                onToggle={() => setOpenGame((o) => (o === d.id ? null : d.id))}
+                onOpen={() => {
+                  lastOpened.current = d.id;
+                  setOpenGame(d.id);
+                }}
               />
             ))}
           </ul>

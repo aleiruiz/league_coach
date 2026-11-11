@@ -23,14 +23,16 @@ export type AskContext = {
   prompt: string;
   /** Questions that fit this screen. */
   suggestions: string[];
+  /** The input's label when the screen is about one thing ("Your question about this game"). */
+  question?: string;
 };
 
 /** Opens the "Ask the coach" panel, from the top of Next game and Improve. */
-export function AskButton({ onClick }: { onClick: () => void }) {
+export function AskButton({ onClick, label }: { onClick: () => void; label?: string }) {
   return (
     <button type="button" className="secondary ask-button" onClick={onClick}>
       <NavIcon name="coach" />
-      {t("Ask the coach", "Preguntar al coach")}
+      {label ?? t("Ask the coach", "Preguntar al coach")}
     </button>
   );
 }
@@ -313,10 +315,8 @@ function AskPanel({
             }}
           >
             <label htmlFor="ask-input" className="muted small">
-              {t(
-                "Your question about this matchup or your games",
-                "Tu pregunta sobre este enfrentamiento o tus partidas",
-              )}
+              {context?.question ??
+                t("Your question about this matchup or your games", "Tu pregunta sobre este enfrentamiento o tus partidas")}
             </label>
             <div className="ask-row">
               <textarea
