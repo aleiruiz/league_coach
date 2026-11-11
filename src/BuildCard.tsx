@@ -291,7 +291,7 @@ function IconGroup({ title, refs }: { title: string; refs: Ref[] }) {
 }
 
 function Abilities({ card, champion }: { card: Card; champion?: Champion }) {
-  const [grid, setGrid] = useState(false);
+  const [grid, setGrid] = useState(true);
   const { max, first_levels } = card.skill_order;
   if (max.length === 0) return null;
   const first = parseKeys(first_levels);

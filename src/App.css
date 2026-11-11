@@ -1150,10 +1150,11 @@ a.inline-link {
   overflow-x: auto;
 }
 
+/* All 18 levels fit in the build sheet's half width, no hidden scroll. */
 .skill-line {
   display: grid;
-  grid-template-columns: 28px repeat(18, minmax(22px, 1fr));
-  gap: 3px;
+  grid-template-columns: 20px repeat(18, minmax(16px, 1fr));
+  gap: 2px;
 }
 
 .skill-key {
