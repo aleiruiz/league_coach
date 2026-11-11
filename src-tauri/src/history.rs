@@ -1109,6 +1109,9 @@ struct Store {
     /// before details were kept are filled in by `fill_match_details`.
     #[serde(default)]
     details: HashMap<String, MatchDetail>,
+    /// Stored games Riot no longer has details for: not asked for again.
+    #[serde(default)]
+    no_details: Vec<String>,
 }
 
 impl Store {
@@ -1116,12 +1119,13 @@ impl Store {
     fn prune_details(&mut self) {
         let kept: HashSet<String> = self.games.iter().map(|g| g.id.clone()).collect();
         self.details.retain(|id, _| kept.contains(id));
+        self.no_details.retain(|id| kept.contains(id));
     }
 
     fn missing_details(&self) -> Vec<String> {
         self.games
             .iter()
-            .filter(|g| !self.details.contains_key(&g.id))
+            .filter(|g| !self.details.contains_key(&g.id) && !self.no_details.contains(&g.id))
             .map(|g| g.id.clone())
             .collect()
     }
@@ -1362,8 +1366,12 @@ pub async fn fill_match_details(
         });
         let m: MatchDto = match client.match_detail(id).await {
             Ok(m) => m,
-            // Gone from Riot: the row keeps its summary only.
-            Err(RiotError::NotFound) => continue,
+            // Gone from Riot: the row keeps its summary only, and isn't
+            // counted as missing again.
+            Err(RiotError::NotFound) => {
+                store.no_details.push(id.clone());
+                continue;
+            }
             Err(e) => {
                 // Keep what was already read.
                 save_store(&app, &store_id, &store)?;
@@ -1375,6 +1383,7 @@ pub async fn fill_match_details(
         store.details.insert(id.clone(), d);
         filled += 1;
     }
+    store.prune_details();
     save_store(&app, &store_id, &store)?;
     Ok(filled)
 }
@@ -1872,8 +1881,13 @@ mod tests {
         store.details.insert("A".into(), MatchDetail::default());
         store.details.insert("OLD".into(), MatchDetail::default());
         assert_eq!(store.missing_details(), ["B"]);
+        // One Riot no longer has stops counting as missing.
+        store.no_details.push("B".into());
+        store.no_details.push("OLD".into());
+        assert!(store.missing_details().is_empty());
         store.prune_details();
         assert_eq!(store.details.keys().collect::<Vec<_>>(), ["A"]);
+        assert_eq!(store.no_details, ["B"]);
         // Old stores without the field still load.
         let old: Store = serde_json::from_str(r#"{"games": [], "reports": []}"#).unwrap();
         assert!(old.details.is_empty());
