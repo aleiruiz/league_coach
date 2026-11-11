@@ -6,8 +6,17 @@ export type DraftState = {
   me: string | null;
   allies: (string | null)[];
   enemies: (string | null)[];
-  /** Rival de línea: siempre es uno de `enemies` o null. */
+  /**
+   * Lane opponent marked by hand: always one of `enemies`, or null. Without
+   * one, it's the enemy in your role's row (see `laneOpponent`).
+   */
   lane: string | null;
+  /**
+   * Champions whose role isn't known: filled from a live list in pick order
+   * (enemies in champ select, everyone from Spectator). Their row isn't their
+   * role, so it isn't labeled with one and isn't anyone's lane.
+   */
+  unplaced: { allies: boolean[]; enemies: boolean[] };
 };
 
 export type Slot = { team: "me" | "ally" | "enemy"; index: number };
@@ -18,25 +27,45 @@ export const EMPTY_DRAFT: DraftState = {
   allies: [null, null, null, null],
   enemies: [null, null, null, null, null],
   lane: null,
+  unplaced: { allies: [false, false, false, false], enemies: [false, false, false, false, false] },
 };
 
-const put = (list: (string | null)[], i: number, v: string | null) => list.map((x, j) => (j === i ? v : x));
+const put = <T,>(list: T[], i: number, v: T) => list.map((x, j) => (j === i ? v : x));
 
 /** Pone (o quita, con `id` null) un campeón en una casilla. */
 export function setSlot(s: DraftState, slot: Slot, id: string | null): DraftState {
   if (slot.team === "me") return { ...s, me: id };
-  if (slot.team === "ally") return { ...s, allies: put(s.allies, slot.index, id) };
+  // Picked by hand into a row: that row is now the champion's role.
+  if (slot.team === "ally") {
+    return {
+      ...s,
+      allies: put(s.allies, slot.index, id),
+      unplaced: { ...s.unplaced, allies: put(s.unplaced.allies, slot.index, false) },
+    };
+  }
   const old = s.enemies[slot.index];
   const enemies = put(s.enemies, slot.index, id);
-  // Si se reemplaza o quita al rival de línea, la estrella se va con él.
-  // The lane opponent is set only in step 3 (setLane), never guessed.
+  // Replacing or removing the marked lane opponent drops the mark.
   const lane = old === s.lane ? null : s.lane;
-  return { ...s, enemies, lane };
+  return { ...s, enemies, lane, unplaced: { ...s.unplaced, enemies: put(s.unplaced.enemies, slot.index, false) } };
 }
 
-export function toggleLane(s: DraftState, id: string): DraftState {
+/**
+ * Who you lane against, the one answer every part of the screen shows: the
+ * enemy marked by hand, else the enemy in your role's row (when its role is
+ * known), else nobody.
+ */
+export function laneOpponent(s: DraftState): string | null {
+  if (s.lane && s.enemies.includes(s.lane)) return s.lane;
+  const row = laneRow(s.role);
+  return s.unplaced.enemies[row] ? null : s.enemies[row];
+}
+
+/** "Set as my lane": marks an enemy as your lane opponent (the one across from you needs no mark). */
+export function markLane(s: DraftState, id: string): DraftState {
   if (!s.enemies.includes(id)) return s;
-  return { ...s, lane: s.lane === id ? null : id };
+  const across = laneRow(s.role);
+  return { ...s, lane: s.enemies[across] === id && !s.unplaced.enemies[across] ? null : id };
 }
 
 export function taken(s: DraftState): Set<string> {
@@ -51,7 +80,7 @@ export function toDraft(s: DraftState): Draft | null {
     champion: s.me,
     allies: ids(s.allies),
     enemies: ids(s.enemies),
-    lane_opponent: s.lane && s.enemies.includes(s.lane) ? s.lane : null,
+    lane_opponent: laneOpponent(s),
     // Free-text notes moved to the Ask panel; the build request has none.
     notes: null,
   };
@@ -99,58 +128,58 @@ export type LiveDraft = {
   role: Role | null;
   me: string | null;
   allies: string[];
+  /** Champ select only: each ally's assigned role, in the order of `allies` (null in blind pick). */
+  ally_roles?: (Role | null)[];
   enemies: string[];
 };
 
 /**
- * Fills the draft with what the client or Riot reports. A team the game
- * doesn't show yet (enemies early in champ select) keeps what was typed;
- * the lane opponent stays only if it's still among the enemies (it's never
- * guessed). Notes are kept. Unknown champion ids (a champion newer than the
- * loaded patch data) are left out.
+ * Fills the draft with what the client or Riot reports. Allies with a known
+ * role (champ select) go into their role's row; everyone else fills the free
+ * rows in the order the game lists them and is marked `unplaced`, so the row
+ * doesn't claim a role. A team the game doesn't show yet (enemies early in
+ * champ select) keeps what was typed. A lane opponent marked by hand stays if
+ * it's still among the enemies. Unknown champion ids (a champion newer than
+ * the loaded patch data) are left out.
  */
 export function applyLive(s: DraftState, live: LiveDraft, known: (id: string) => boolean): DraftState {
-  const ok = (l: string[]) => l.filter(known);
-  const fill = (l: string[], n: number) => Array.from({ length: n }, (_, i) => l[i] ?? null);
-  const allies = ok(live.allies);
-  const enemies = ok(live.enemies);
+  const role = live.role ?? s.role;
+  const allies = live.allies.map((id, i) => ({ id, role: live.ally_roles?.[i] ?? null })).filter((x) => known(x.id));
+  const enemies = live.enemies.filter(known).map((id) => ({ id, role: null as Role | null }));
   const me = live.me && known(live.me) ? live.me : s.me;
   // A kept (typed) team drops any champion the game now places elsewhere:
   // one champion can't be on both teams.
-  const placed = new Set([me, ...allies, ...enemies].filter(Boolean));
+  const placed = new Set([me, ...allies.map((x) => x.id), ...enemies.map((x) => x.id)].filter(Boolean));
   const keep = (l: (string | null)[]) => l.map((x) => (x && placed.has(x) ? null : x));
-  const next: DraftState = {
-    ...s,
-    role: live.role ?? s.role,
-    me,
-    allies: allies.length ? fill(allies, s.allies.length) : keep(s.allies),
-    enemies: enemies.length ? fill(enemies, s.enemies.length) : keep(s.enemies),
+  /** Rows by role first, then the rest in list order, marked unplaced. */
+  const rows = (list: { id: string; role: Role | null }[], roles: Role[]) => {
+    const ids: (string | null)[] = roles.map(() => null);
+    const unplaced = roles.map(() => false);
+    const rest: string[] = [];
+    for (const x of list) {
+      const i = x.role ? roles.indexOf(x.role) : -1;
+      if (i >= 0 && ids[i] === null) ids[i] = x.id;
+      else rest.push(x.id);
+    }
+    for (const id of rest) {
+      const i = ids.indexOf(null);
+      if (i < 0) break;
+      ids[i] = id;
+      unplaced[i] = true;
+    }
+    return { ids, unplaced };
   };
-  return { ...next, lane: next.lane && next.enemies.includes(next.lane) ? next.lane : null };
-}
-
-/**
- * Step 3 of Next game: who you lane against. The champion goes into the enemy
- * team (in the old lane opponent's slot, or the first free one) and is marked
- * as the lane opponent. `null` takes the lane opponent out of the enemy team.
- */
-export function setLane(s: DraftState, id: string | null): DraftState {
-  const at = s.lane ? s.enemies.indexOf(s.lane) : -1;
-  if (id === null) {
-    return at < 0 ? { ...s, lane: null } : { ...s, enemies: put(s.enemies, at, null), lane: null };
-  }
-  if (s.enemies.includes(id)) return { ...s, lane: id };
-  const free = s.enemies.indexOf(null);
-  const i = at >= 0 ? at : free >= 0 ? free : s.enemies.length - 1;
-  return { ...s, enemies: put(s.enemies, i, id), lane: id };
-}
-
-/** The other enemy slots (all but the lane opponent's), with their index in `enemies`. */
-export function otherEnemies(s: DraftState): { id: string | null; index: number }[] {
-  const at = s.lane ? s.enemies.indexOf(s.lane) : -1;
-  // Without a lane opponent, the first slot is kept for step 3.
-  const skip = at >= 0 ? at : s.enemies.indexOf(null);
-  return s.enemies.map((id, index) => ({ id, index })).filter((x) => x.index !== skip);
+  const a = allies.length ? rows(allies, allyRoles(role)) : { ids: keep(s.allies), unplaced: s.unplaced.allies };
+  const e = enemies.length ? rows(enemies, ROLE_ORDER) : { ids: keep(s.enemies), unplaced: s.unplaced.enemies };
+  return {
+    ...s,
+    role,
+    me,
+    allies: a.ids,
+    enemies: e.ids,
+    unplaced: { allies: a.unplaced, enemies: e.unplaced },
+    lane: s.lane && e.ids.includes(s.lane) ? s.lane : null,
+  };
 }
 
 /** Champ-select order of the rows: top, jungle, mid, ADC, support. */
@@ -167,28 +196,17 @@ export function laneRow(role: Role): number {
 }
 
 /**
- * Picks an enemy into a row. Picked into your role's row, it becomes your
- * lane opponent unless another enemy was already marked as one: the player
- * put it in their lane themselves, so it isn't a guess.
- */
-export function setEnemy(s: DraftState, index: number, id: string | null): DraftState {
-  const old = s.enemies[index];
-  const next = setSlot(s, { team: "enemy", index }, id);
-  if (id && index === laneRow(s.role) && (s.lane === null || s.lane === old)) return { ...next, lane: id };
-  return next;
-}
-
-/**
  * Changes your role keeping everyone in their row: the ally who was in the
- * new role's row moves to your old one. A lane opponent that was the enemy
- * in your old row follows you to the new row (or clears when it's empty);
- * one marked by hand in another row stays.
+ * new role's row moves to your old one. The lane opponent across from you is
+ * whoever is in the new row; one marked by hand stays.
  */
 export function changeRole(s: DraftState, role: Role): DraftState {
   if (role === s.role) return s;
-  const byRole = new Map(allyRoles(s.role).map((r, i) => [r, s.allies[i]]));
-  const allies = allyRoles(role).map((r) => (r === s.role ? (byRole.get(role) ?? null) : (byRole.get(r) ?? null)));
-  const followed = s.lane !== null && s.enemies[laneRow(s.role)] === s.lane;
-  const lane = followed ? s.enemies[laneRow(role)] : s.lane;
-  return { ...s, role, allies, lane };
+  const swap = <T,>(list: T[], empty: T) => {
+    const byRole = new Map(allyRoles(s.role).map((r, i) => [r, list[i]]));
+    return allyRoles(role).map((r) => (r === s.role ? (byRole.get(role) ?? empty) : (byRole.get(r) ?? empty)));
+  };
+  const next = { ...s, role, allies: swap(s.allies, null), unplaced: { ...s.unplaced, allies: swap(s.unplaced.allies, false) } };
+  // A mark on the enemy now across from you is the default: no mark needed.
+  return s.lane ? markLane(next, s.lane) : next;
 }

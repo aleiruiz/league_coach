@@ -10,15 +10,15 @@ import {
   changeRole,
   DraftState,
   EMPTY_DRAFT,
+  laneOpponent,
   laneRow,
+  markLane,
   ROLE_ORDER,
   sameDraft,
-  setEnemy,
   setSlot,
   Slot,
   taken as takenIds,
   toDraft,
-  toggleLane,
 } from "./draft";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 import { AskButton, type AskContext } from "./AskPanel";
@@ -55,7 +55,7 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
   if (!me) return null;
   const name = (id: string | null) => (id ? (byId.get(id)?.name ?? id) : null);
   const role = ROLES.find((r) => r.id === d.role)?.label() ?? d.role;
-  const lane = name(d.lane);
+  const lane = name(laneOpponent(d));
   const label = lane
     ? t(`${me.name} ${role.toLowerCase()} against ${lane}`, `${me.name} ${role.toLowerCase()} contra ${lane}`)
     : `${me.name} ${role.toLowerCase()}`;
@@ -107,6 +107,7 @@ function TeamRow({
   selected,
   me,
   lane,
+  unplaced,
   onSelect,
   onClear,
   onMarkLane,
@@ -117,19 +118,22 @@ function TeamRow({
   selected: boolean;
   me?: boolean;
   lane?: boolean;
+  /** Filled from a list without positions: the row isn't its role. */
+  unplaced?: boolean;
   onSelect: () => void;
   onClear?: () => void;
   onMarkLane?: () => void;
 }) {
   const who = me ? t("You", "Tú") : side === "ally" ? t("Ally", "Aliado") : t("Enemy", "Rival");
-  const label = `${who}, ${roleName(role)}: ${champ ? champ.name : t("empty", "vacío")}`;
+  const roleText = unplaced ? t("Role unknown", "Rol desconocido") : roleName(role);
+  const label = `${who}, ${roleText}: ${champ ? champ.name : t("empty", "vacío")}`;
   return (
     <div className={`cs-row ${side}${selected ? " selected" : ""}${me ? " me" : ""}${lane ? " lane" : ""}${champ ? " filled" : ""}`}>
       <button type="button" className="cs-row-main" onClick={onSelect} aria-pressed={selected} aria-label={label}>
         {champ ? <img src={champ.image} alt="" /> : <span className="plus" aria-hidden="true">+</span>}
         <span className="cs-row-text">
           <span className="cs-row-role">
-            {roleName(role)}
+            <span className={unplaced ? "cs-unknown" : undefined}>{roleText}</span>
             {me && <span className="cs-badge you">{t("You", "Tú")}</span>}
             {lane && <span className="cs-badge lane">{t("Your lane", "Tu línea")}</span>}
             {selected && <span className="cs-badge picking">{t("Picking", "Eligiendo")}</span>}
@@ -137,19 +141,23 @@ function TeamRow({
           <strong>{champ?.name ?? (me ? t("Pick your champion", "Elige tu campeón") : side === "ally" ? t("Add teammate", "Añadir aliado") : t("Add enemy", "Añadir rival"))}</strong>
         </span>
       </button>
-      {(onClear || onMarkLane) && (
+      {onClear && champ && (
         <span className="cs-row-actions">
-          {onMarkLane && (
-            <button type="button" className="link-button small" onClick={onMarkLane} title={t("Lanes swapped: this is who you face", "Cambiaron de línea: este es tu rival")}>
-              {t("My lane", "Mi línea")}
-            </button>
-          )}
-          {onClear && champ && (
-            <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
-              ×
-            </button>
-          )}
+          <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
+            ×
+          </button>
         </span>
+      )}
+      {onMarkLane && (
+        <button
+          type="button"
+          className="link-button small cs-set-lane"
+          onClick={onMarkLane}
+          title={t("This is who you face in lane", "Este es tu rival de línea")}
+          aria-label={champ ? t(`Set ${champ.name} as your lane opponent`, `Marcar a ${champ.name} como tu rival de línea`) : undefined}
+        >
+          {t("Set as my lane", "Es mi línea")}
+        </button>
       )}
     </div>
   );
@@ -219,6 +227,9 @@ function DraftView({
   const [dataError, setDataError] = useState<string | null>(null);
 
   const [d, setD] = useState<DraftState>(EMPTY_DRAFT);
+  // The latest picks, for handlers that run after an await or a fast key press.
+  const latest = useRef(d);
+  latest.current = d;
   /** The slot the picker fills, as in champ select (null: nothing left to pick). */
   const [picking, setPicking] = useState<Slot | null>({ team: "me", index: 0 });
   /** Back on the picks while a build exists ("Change picks"). */
@@ -280,14 +291,18 @@ function DraftView({
 
   function select(slot: Slot) {
     setPicking(slot);
-    requestAnimationFrame(() => search.current?.focus());
+    // In the stacked layout the grid is below the teams: bring it into view.
+    requestAnimationFrame(() => {
+      search.current?.closest(".picker")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      search.current?.focus({ preventScroll: true });
+    });
   }
 
   /** After a pick, the next empty slot that matters most: you, your lane, then the rest by role. */
   function nextEmpty(s: DraftState): Slot | null {
     if (!s.me) return { team: "me", index: 0 };
     const lane = laneRow(s.role);
-    if (!s.enemies[lane] && !s.lane) return { team: "enemy", index: lane };
+    if (!s.enemies[lane] && !laneOpponent(s)) return { team: "enemy", index: lane };
     const ally = s.allies.indexOf(null);
     if (ally >= 0) return { team: "ally", index: ally };
     const enemy = s.enemies.indexOf(null);
@@ -296,8 +311,7 @@ function DraftView({
 
   function pick(id: string) {
     if (!picking) return;
-    const slot = picking;
-    const next = slot.team === "enemy" ? setEnemy(d, slot.index, id) : setSlot(d, slot, id);
+    const next = setSlot(latest.current, picking, id);
     setD(next);
     setPicking(nextEmpty(next));
   }
@@ -310,21 +324,14 @@ function DraftView({
     try {
       const live = await currentGame();
       const ids = new Set(data.champions.map((c) => c.id));
-      setD((s) => {
-        const next = applyLive(s, live, (id) => ids.has(id));
-        setPicking(nextEmpty(next));
-        return next;
-      });
-      setLiveNote({
-        text:
-          live.source === "champ_select"
-            ? t(
-                "Filled from your champ select. Press again as more picks lock in.",
-                "Rellenado con tu selección de campeones. Vuelve a pulsar cuando se bloqueen más picks.",
-              )
-            : t("Filled from your game in progress.", "Rellenado con tu partida en curso."),
-        error: false,
-      });
+      const next = applyLive(latest.current, live, (id) => ids.has(id));
+      setD(next);
+      setPicking(nextEmpty(next));
+      const filled =
+        live.source === "champ_select"
+          ? t("Filled from your champ select. Press again as more picks lock in.", "Rellenado con tu selección de campeones. Vuelve a pulsar cuando se bloqueen más picks.")
+          : t("Filled from your game in progress.", "Rellenado con tu partida en curso.");
+      setLiveNote({ text: filled, error: false });
     } catch (e) {
       const text = String(e);
       setLiveNote(
@@ -382,13 +389,14 @@ function DraftView({
 
   const champ = (id: string | null) => (id ? byId.get(id) : undefined);
   const me = champ(d.me);
-  const lane = champ(d.lane);
+  const laneId = laneOpponent(d);
+  const lane = champ(laneId);
   const taken = takenIds(d);
   const pickingTitle = (p: Slot) => {
     if (p.team === "me") return t("Picking your champion", "Eligiendo tu campeón");
     const role = p.team === "ally" ? allyRoles(d.role)[p.index] : ROLE_ORDER[p.index];
     const r = role === "adc" ? "ADC" : roleName(role).toLowerCase();
-    return p.team === "ally" ? t(`Picking your ${r}`, `Eligiendo a tu ${r}`) : t(`Picking the enemy ${r}`, `Eligiendo al ${r} rival`);
+    return p.team === "ally" ? t(`Picking your team's ${r}`, `Eligiendo el ${r} de tu equipo`) : t(`Picking the enemy ${r}`, `Eligiendo el ${r} rival`);
   };
   const showSheet = !!rec && !editing;
   const getBuild = busy ? (
@@ -418,6 +426,10 @@ function DraftView({
               <p className={liveNote?.error ? "error small" : "muted"} role="status">
                 {liveNote?.text ??
                   t("Click a slot and pick, or fill both teams from your champ select.", "Haz clic en una casilla y elige, o rellena ambos equipos con tu selección de campeones.")}
+                {/* Enemies filled without roles: say so rather than guess the lane. */}
+                {!laneId &&
+                  d.unplaced.enemies.some((u, i) => u && d.enemies[i]) &&
+                  ` ${t("Enemy roles aren't known, so pick “Set as my lane” on the one you face.", "No se saben los roles rivales: pulsa “Es mi línea” en tu rival.")}`}
               </p>
             </div>
             <div className="cs-head-actions">
@@ -437,7 +449,7 @@ function DraftView({
           </header>
           {data.notice && <p className="muted small">{data.notice}</p>}
 
-          <div className="cs">
+          <div className={laneId ? "cs" : "cs no-lane"}>
             <section className="cs-team ally" aria-labelledby="cs-ally">
               <h3 id="cs-ally">{t("Your team", "Tu equipo")}</h3>
               {ROLE_ORDER.map((r) => {
@@ -451,6 +463,7 @@ function DraftView({
                       champ={champ(d.me)}
                       selected={picking?.team === "me"}
                       onSelect={() => select({ team: "me", index: 0 })}
+                      onClear={() => setD((s) => setSlot(s, { team: "me", index: 0 }, null))}
                     />
                   );
                 }
@@ -461,6 +474,7 @@ function DraftView({
                     side="ally"
                     role={r}
                     champ={champ(d.allies[i])}
+                    unplaced={!!d.allies[i] && d.unplaced.allies[i]}
                     selected={picking?.team === "ally" && picking.index === i}
                     onSelect={() => select({ team: "ally", index: i })}
                     onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
@@ -474,23 +488,29 @@ function DraftView({
                 <div className="cs-vs">
                   <span className={`cs-face me${me ? "" : " empty"}`}>{me ? <img src={me.image} alt="" /> : "+"}</span>
                   <span className="cs-vs-text">
-                    <label className="muted small" htmlFor="cs-role">
-                      {t("You,", "Tú,")}
-                    </label>{" "}
-                    <select id="cs-role" className="cs-role" value={d.role} onChange={(e) => setD((s) => changeRole(s, e.currentTarget.value as Role))}>
-                      {ROLES.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.label()}
-                        </option>
-                      ))}
-                    </select>
-                    <strong>{me?.name ?? t("Your champion", "Tu campeón")}</strong>
+                    <span className="cs-you-line muted small">
+                      {t("You", "Tú")} ·{" "}
+                      <select
+                        id="cs-role"
+                        className="cs-role"
+                        aria-label={t("Your role", "Tu rol")}
+                        value={d.role}
+                        onChange={(e) => setD((s) => changeRole(s, e.currentTarget.value as Role))}
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.label()}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    {me ? <strong>{me.name}</strong> : <span className="cs-placeholder">{t("Your champion", "Tu campeón")}</span>}
                   </span>
                   <span className="muted cs-against">{t("against", "contra")}</span>
                   <span className={`cs-face enemy${lane ? "" : " empty"}`}>{lane ? <img src={lane.image} alt="" /> : "?"}</span>
                   <span className="cs-vs-text">
-                    <span className="muted small">{d.role === "jungle" ? t("Enemy jungler", "Jungla rival") : t("Your lane", "Tu línea")}</span>
-                    <strong>{lane?.name ?? t("Not picked", "Sin elegir")}</strong>
+                    <span className="small cs-lane-label">{d.role === "jungle" ? t("Enemy jungler", "Jungla rival") : t("Your lane", "Tu línea")}</span>
+                    {lane ? <strong className="cs-lane-name">{lane.name}</strong> : <span className="cs-placeholder">{t("Not picked", "Sin elegir")}</span>}
                   </span>
                 </div>
                 <div className="cs-build">
@@ -535,7 +555,7 @@ function DraftView({
               <h3 id="cs-enemy">{t("Enemy team", "Equipo rival")}</h3>
               {ROLE_ORDER.map((r, i) => {
                 const id = d.enemies[i];
-                const isLane = !!id && id === d.lane;
+                const isLane = !!id && id === laneId;
                 return (
                   <TeamRow
                     key={r}
@@ -543,10 +563,11 @@ function DraftView({
                     role={r}
                     champ={champ(id)}
                     lane={isLane}
+                    unplaced={!!id && d.unplaced.enemies[i]}
                     selected={picking?.team === "enemy" && picking.index === i}
                     onSelect={() => select({ team: "enemy", index: i })}
                     onClear={() => setD((s) => setSlot(s, { team: "enemy", index: i }, null))}
-                    onMarkLane={id && !isLane ? () => setD((s) => toggleLane(s, id)) : undefined}
+                    onMarkLane={id && !isLane ? () => setD((s) => markLane(s, id)) : undefined}
                   />
                 );
               })}

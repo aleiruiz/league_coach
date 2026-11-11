@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allyRoles, applyLive, type DraftState, changeRole, damageProfile, EMPTY_DRAFT, laneRow, sameDraft, setEnemy, setSlot, taken, toDraft, toggleLane, setLane, otherEnemies } from "./draft";
+import { allyRoles, applyLive, type DraftState, changeRole, damageProfile, EMPTY_DRAFT, laneOpponent, laneRow, markLane, sameDraft, setSlot, taken, toDraft } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -31,35 +31,33 @@ describe("searchChampions", () => {
 
 describe("draft", () => {
   const enemy = (i: number) => ({ team: "enemy" as const, index: i });
+  const jax = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
 
-  it("reemplazar al rival de línea quita la estrella", () => {
-    let s = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
-    s = setLane(s, "Darius");
+  it("your lane opponent is the enemy across from you unless you mark another", () => {
+    let s = setSlot(jax, enemy(1), "Vi");
+    expect(laneOpponent(s)).toBeNull();
+    s = setSlot(s, enemy(0), "Darius");
+    expect(laneOpponent(s)).toBe("Darius");
     expect(toDraft(s)?.lane_opponent).toBe("Darius");
-    // Another enemy picked in the optional teams is never marked on its own.
-    expect(setSlot(s, enemy(1), "Ahri").lane).toBe("Darius");
-    expect(setSlot(EMPTY_DRAFT, enemy(0), "Ahri").lane).toBeNull();
-    s = setSlot(s, enemy(0), "Garen");
+    // Lanes swapped: the mark wins over the row.
+    s = markLane(s, "Vi");
+    expect(laneOpponent(s)).toBe("Vi");
+    // Marking the one across again is the default, so no mark is kept.
+    s = markLane(s, "Darius");
     expect(s.lane).toBeNull();
-    expect(toDraft(s)?.lane_opponent).toBeNull();
+    expect(laneOpponent(s)).toBe("Darius");
   });
 
-  it("quitar otro rival no toca la estrella", () => {
-    let s = setSlot(EMPTY_DRAFT, enemy(0), "Darius");
-    s = setSlot(s, enemy(1), "Ahri");
-    s = toggleLane(s, "Ahri");
-    expect(s.lane).toBe("Ahri");
-    s = setSlot(s, enemy(0), null);
-    expect(s.lane).toBe("Ahri");
-    s = toggleLane(s, "Ahri");
+  it("replacing or removing the marked enemy drops the mark", () => {
+    let s = markLane(setSlot(setSlot(jax, enemy(0), "Darius"), enemy(2), "Ahri"), "Ahri");
+    expect(setSlot(s, enemy(0), null).lane).toBe("Ahri");
+    s = setSlot(s, enemy(2), "Zed");
     expect(s.lane).toBeNull();
-    // Con otros rivales ya elegidos, uno nuevo no se marca solo.
-    s = setSlot(s, enemy(2), "Garen");
-    expect(s.lane).toBeNull();
+    expect(laneOpponent(s)).toBe("Darius");
   });
 
-  it("solo se marca como rival de línea a un rival", () => {
-    expect(toggleLane(EMPTY_DRAFT, "Darius").lane).toBeNull();
+  it("only an enemy can be marked", () => {
+    expect(markLane(EMPTY_DRAFT, "Darius").lane).toBeNull();
   });
 
   it("sin campeón propio no hay draft", () => {
@@ -67,10 +65,9 @@ describe("draft", () => {
   });
 
   it("detecta cambios del draft pero no el orden de las casillas", () => {
-    let a = setSlot(EMPTY_DRAFT, { team: "me", index: 0 }, "Jax");
-    a = setLane(setSlot(a, enemy(1), "Ahri"), "Darius");
-    const b = setSlot(setSlot(setSlot(a, enemy(0), null), enemy(1), null), enemy(3), "Ahri");
-    const c = toggleLane(setSlot(b, enemy(4), "Darius"), "Darius");
+    const a = markLane(setSlot(setSlot(jax, enemy(1), "Ahri"), enemy(2), "Darius"), "Darius");
+    const b = setSlot(setSlot(setSlot(a, enemy(1), null), enemy(2), null), enemy(3), "Ahri");
+    const c = markLane(setSlot(b, enemy(4), "Darius"), "Darius");
     expect(sameDraft(toDraft(a), toDraft(c))).toBe(true);
     expect(sameDraft(toDraft(a), toDraft(b))).toBe(false);
     expect(sameDraft(toDraft(a), toDraft({ ...a, role: "mid" }))).toBe(false);
@@ -93,24 +90,43 @@ describe("applyLive", () => {
   const known = (id: string) => id !== "Unknown";
   const base = EMPTY_DRAFT;
 
-  it("fills role, me and both teams, never guessing the lane opponent", () => {
+  it("fills a game in progress in list order, with no roles and no lane opponent", () => {
     const s = applyLive(base, { source: "game", role: null, me: "Kayn", allies: ["Darius", "Ahri"], enemies: ["Khazix", "Unknown"] }, known);
     expect(s.role).toBe(base.role);
     expect(s.me).toBe("Kayn");
     expect(s.allies).toEqual(["Darius", "Ahri", null, null]);
+    expect(s.unplaced.allies).toEqual([true, true, false, false]);
     expect(s.enemies).toEqual(["Khazix", null, null, null, null]);
-    expect(s.lane).toBeNull();
+    expect(s.unplaced.enemies[0]).toBe(true);
+    // Khazix sits in the top row but its role isn't known: not your lane.
+    expect(laneOpponent(s)).toBeNull();
   });
 
-  it("keeps typed enemies until champ select reveals them, and the lane star if it's still there", () => {
-    const typed = { ...base, enemies: ["Zed", null, null, null, null], lane: "Zed" };
+  it("puts champ-select allies in their role's row", () => {
+    const s = applyLive(
+      base,
+      { source: "champ_select", role: "top", me: "Jax", allies: ["Nami", "Jinx", "Zed"], ally_roles: ["support", "adc", null], enemies: [] },
+      known,
+    );
+    // top player: rows jungle, mid, adc, support. Zed has no role: first free row.
+    expect(s.allies).toEqual(["Zed", null, "Jinx", "Nami"]);
+    expect(s.unplaced.allies).toEqual([true, false, false, false]);
+  });
+
+  it("keeps typed enemies until champ select reveals them, and the lane mark if it's still there", () => {
+    const typed = { ...base, enemies: ["Zed", "Vi", null, null, null], lane: "Vi" };
     const early = applyLive(typed, { source: "champ_select", role: "mid", me: "Ahri", allies: [], enemies: [] }, known);
     expect(early.role).toBe("mid");
     expect(early.enemies[0]).toBe("Zed");
-    expect(early.lane).toBe("Zed");
+    expect(early.lane).toBe("Vi");
     const later = applyLive(early, { source: "champ_select", role: "mid", me: "Ahri", allies: [], enemies: ["Yasuo"] }, known);
     expect(later.enemies[0]).toBe("Yasuo");
     expect(later.lane).toBeNull();
+  });
+
+  it("a hand pick into a filled row makes that row its role", () => {
+    const s = applyLive(base, { source: "game", role: null, me: "Kayn", allies: [], enemies: ["Khazix"] }, known);
+    expect(laneOpponent(setSlot(s, { team: "enemy", index: 0 }, "Darius"))).toBe("Darius");
   });
 });
 
@@ -123,59 +139,20 @@ describe("applyLive duplicates", () => {
   });
 });
 
-describe("lane opponent step", () => {
-  it("puts the lane opponent in the enemy team and swaps it in place", () => {
-    let s = setLane(EMPTY_DRAFT, "Darius");
-    expect(s.enemies[0]).toBe("Darius");
-    expect(s.lane).toBe("Darius");
-    s = setSlot(s, { team: "enemy", index: 1 }, "Soraka");
-    s = setLane(s, "Garen");
-    expect(s.enemies.slice(0, 2)).toEqual(["Garen", "Soraka"]);
-    expect(s.lane).toBe("Garen");
-    // An enemy already in the team just becomes the lane opponent.
-    s = setLane(s, "Soraka");
-    expect(s.enemies.slice(0, 2)).toEqual(["Garen", "Soraka"]);
-    expect(s.lane).toBe("Soraka");
-    s = setLane(s, null);
-    expect(s.enemies.slice(0, 2)).toEqual(["Garen", null]);
-    expect(s.lane).toBeNull();
-  });
-
-  it("lists the other enemy slots without the lane opponent's", () => {
-    const s = setLane(setSlot(EMPTY_DRAFT, { team: "enemy", index: 0 }, "Soraka"), "Darius");
-    expect(s.enemies[1]).toBe("Darius");
-    expect(otherEnemies(s).map((x) => x.index)).toEqual([0, 2, 3, 4]);
-    expect(otherEnemies(EMPTY_DRAFT).map((x) => x.index)).toEqual([1, 2, 3, 4]);
-  });
-});
-
 describe("champ-select rows", () => {
-  it("puts the enemy picked in your row as your lane opponent", () => {
-    let s: DraftState = { ...EMPTY_DRAFT, role: "mid" };
-    s = setEnemy(s, 0, "Darius");
-    expect(s.lane).toBeNull();
-    s = setEnemy(s, 2, "Syndra");
-    expect(s.lane).toBe("Syndra");
-    // Replacing it moves the mark to the new pick.
-    s = setEnemy(s, 2, "Zed");
-    expect(s.lane).toBe("Zed");
-    // A lane opponent marked by hand elsewhere isn't overwritten.
-    s = toggleLane(s, "Darius");
-    s = setEnemy(s, 2, "Ahri");
-    expect(s.lane).toBe("Darius");
-  });
-
   it("keeps allies in their rows when your role changes", () => {
     let s: DraftState = { ...EMPTY_DRAFT, role: "top", me: "Jax" };
     // top player: rows jungle, mid, adc, support.
     s = { ...s, allies: ["LeeSin", "Ahri", "Jinx", "Nami"] };
-    s = { ...s, enemies: ["Darius", "Vi", "Syndra", null, null], lane: "Darius" };
+    s = { ...s, enemies: ["Darius", "Vi", "Syndra", null, null] };
     const mid = changeRole(s, "mid");
     // mid player: rows top, jungle, adc, support. Ahri (was mid) moves to top.
     expect(allyRoles("mid")).toEqual(["top", "jungle", "adc", "support"]);
     expect(mid.allies).toEqual(["Ahri", "LeeSin", "Jinx", "Nami"]);
-    expect(mid.lane).toBe("Syndra");
-    expect(changeRole(mid, "adc").lane).toBeNull();
+    expect(laneOpponent(mid)).toBe("Syndra");
+    expect(laneOpponent(changeRole(mid, "adc"))).toBeNull();
+    // A hand mark stays when the role changes.
+    expect(laneOpponent(changeRole(markLane(s, "Vi"), "mid"))).toBe("Vi");
     expect(laneRow("support")).toBe(4);
   });
 });
