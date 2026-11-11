@@ -130,7 +130,13 @@ export function rowTags(d: MatchDetail, stats: GameStats | undefined): Tags {
  * out the ones the Games row already shows as numbers (minions at 10, share
  * of kills).
  */
-export function gameFacts(d: MatchDetail, stats: GameStats | undefined, onRow = false): Tags {
+export function gameFacts(
+  d: MatchDetail,
+  stats: GameStats | undefined,
+  onRow = false,
+  /** Metric keys already said another way (Match details compares them with the usual). */
+  skip: ReadonlySet<string> = new Set(),
+): Tags {
   const p = me(d);
   if (!p) return { good: [], bad: [] };
   const minutes = d.duration_s / 60;
@@ -146,17 +152,18 @@ export function gameFacts(d: MatchDetail, stats: GameStats | undefined, onRow = 
   } else if (d.players.filter((x) => x.team_id === p.team_id).every((x) => x.damage_dealt <= p.damage_dealt)) {
     good.push(t("Most damage on your team", "Más daño de tu equipo"));
   }
-  const cs10 = support || onRow ? null : (stats?.cs_diff_10 ?? null);
+  const cs10 = support || onRow || skip.has("cs_diff_10") ? null : (stats?.cs_diff_10 ?? null);
   if (cs10 !== null && cs10 >= 10) good.push(t(`${cs10} minions ahead at 10 min`, `${cs10} súbditos arriba al min 10`));
   if (cs10 !== null && cs10 <= -10) bad.push(t(`${-cs10} minions behind at 10 min`, `${-cs10} súbditos abajo al min 10`));
-  const early = stats?.early_deaths ?? null;
+  const early = skip.has("early_deaths") ? null : (stats?.early_deaths ?? null);
   if (early === 0 && minutes >= 14 && p.deaths > 0) good.push(t("No deaths before minute 14", "Sin muertes antes del min 14"));
   if (early !== null && early >= 2) bad.push(t(`${early} deaths before minute 14`, `${early} muertes antes del min 14`));
   const share = killShare(d, p);
   const kills = teamKills(d, p.team_id);
-  if (!onRow && share >= 0.6) good.push(t(`In ${pctText(share)} of kills`, `En el ${pctText(share)} de las kills`));
-  if (!onRow && share < 0.35 && kills >= 10) bad.push(t(`In only ${pctText(share)} of kills`, `Solo en el ${pctText(share)} de las kills`));
-  if (p.control_wards === 0 && minutes >= 15) bad.push(t("0 control wards", "0 wards de control"));
+  const shareShown = onRow || skip.has("kill_participation");
+  if (!shareShown && share >= 0.6) good.push(t(`In ${pctText(share)} of kills`, `En el ${pctText(share)} de las kills`));
+  if (!shareShown && share < 0.35 && kills >= 10) bad.push(t(`In only ${pctText(share)} of kills`, `Solo en el ${pctText(share)} de las kills`));
+  if (p.control_wards === 0 && minutes >= 15 && !skip.has("control_wards")) bad.push(t("0 control wards", "0 wards de control"));
   if (p.deaths >= 8) bad.push(t(`${p.deaths} deaths`, `${p.deaths} muertes`));
   return { good, bad };
 }
@@ -184,4 +191,99 @@ export function mainChampions(games: MatchDetail[], max = 3): string[] {
     .sort((a, b) => b[1] - a[1])
     .slice(0, max)
     .map(([c]) => c);
+}
+
+/** (K + A) / D as a number to compare players (deaths count as at least 1). */
+export function kdaValue(p: PlayerDetail): number {
+  return (p.kills + p.assists) / Math.max(1, p.deaths);
+}
+
+export type Best = { key: string; label: string; player: PlayerDetail; value: string };
+
+/** "Best in this game": who led each number, of all ten players. Ties go to the first listed. */
+export function bests(d: MatchDetail, locale: string): Best[] {
+  const n = (x: number) => x.toLocaleString(locale);
+  const top = (f: (p: PlayerDetail) => number) =>
+    d.players.reduce((a, b) => (f(b) > f(a) ? b : a), d.players[0]);
+  if (d.players.length === 0) return [];
+  const gold = top((p) => p.gold);
+  const dmg = top((p) => p.damage_dealt);
+  const cs = top((p) => p.cs);
+  const kda = top(kdaValue);
+  const tank = top((p) => p.damage_taken);
+  return [
+    { key: "gold", label: t("Most gold", "Más oro"), player: gold, value: n(gold.gold) },
+    { key: "damage", label: t("Most damage dealt", "Más daño hecho"), player: dmg, value: n(dmg.damage_dealt) },
+    { key: "cs", label: t("Most minions", "Más súbditos"), player: cs, value: n(cs.cs) },
+    { key: "kda", label: t("Best KDA", "Mejor KDA"), player: kda, value: `${kdaRatio(kda)} (${kda.kills}/${kda.deaths}/${kda.assists})` },
+    { key: "taken", label: t("Most damage taken", "Más daño recibido"), player: tank, value: n(tank.damage_taken) },
+  ];
+}
+
+/** "Win as Ahri (Mid) against Syndra". */
+export function matchTitle(d: MatchDetail, champ: (id: string) => string, role: (pos: string) => string): string {
+  const p = me(d);
+  if (!p) return queueName(d.queue_id);
+  const opp = laneOpponent(d, p);
+  const r = p.position ? ` (${role(p.position)})` : "";
+  const vs = opp ? t(` against ${champ(opp.champion)}`, ` contra ${champ(opp.champion)}`) : "";
+  return won(d) ? t(`Win as ${champ(p.champion)}${r}${vs}`, `Victoria con ${champ(p.champion)}${r}${vs}`) : t(`Loss as ${champ(p.champion)}${r}${vs}`, `Derrota con ${champ(p.champion)}${r}${vs}`);
+}
+
+export type Names = { champ: (id: string) => string; item: (id: number) => string | undefined; role: (pos: string) => string };
+
+/**
+ * What "Ask the coach" is told about a finished game. Champions, roles and
+ * numbers only: never another player's name or Riot ID.
+ */
+export function matchPrompt(d: MatchDetail, stats: GameStats | undefined, names: Names): string {
+  const p = me(d);
+  if (!p) return "";
+  const minutes = d.duration_s / 60;
+  const line = (x: PlayerDetail) =>
+    `${names.champ(x.champion)}${x.position ? ` (${names.role(x.position)})` : ""} ${x.kills}/${x.deaths}/${x.assists}, ${x.cs} ${t("minions", "súbditos")}, ${x.gold} ${t("gold", "oro")}, ${x.damage_dealt} ${t("damage", "daño")}`;
+  const team = (id: number) => d.players.filter((x) => x.team_id === id && !x.is_me).map(line).join("; ");
+  const enemy = p.team_id === 100 ? 200 : 100;
+  const obj = (id: number) => {
+    const o = d.teams.find((x) => x.team_id === id)?.objectives;
+    return o
+      ? t(
+          `${o.tower} towers, ${o.dragon} dragons, ${o.baron} barons, ${o.rift_herald} heralds, ${o.horde} void grubs`,
+          `${o.tower} torres, ${o.dragon} dragones, ${o.baron} barones, ${o.rift_herald} heraldos, ${o.horde} larvas del vacío`,
+        )
+      : "";
+  };
+  const items = p.items
+    .slice(0, 6)
+    .filter(Boolean)
+    .map((i) => names.item(i))
+    .filter(Boolean)
+    .join(", ");
+  const facts = gameFacts(d, stats);
+  const timeline = stats
+    ? [
+        stats.cs_diff_10 !== null && p.position !== "UTILITY" ? t(`minions vs my lane opponent at 10 min: ${stats.cs_diff_10}`, `súbditos vs mi rival al min 10: ${stats.cs_diff_10}`) : "",
+        stats.gold_diff_15 !== null ? t(`gold vs my lane opponent at 15 min: ${Math.round(stats.gold_diff_15)}`, `oro vs mi rival al min 15: ${Math.round(stats.gold_diff_15)}`) : "",
+        stats.team_gold_diff_15 !== null ? t(`my team's gold lead at 15 min: ${Math.round(stats.team_gold_diff_15)}`, `ventaja de oro de mi equipo al min 15: ${Math.round(stats.team_gold_diff_15)}`) : "",
+        stats.death_minutes.length ? t(`my deaths at minutes ${stats.death_minutes.map((m) => Math.round(m)).join(", ")}`, `mis muertes en los minutos ${stats.death_minutes.map((m) => Math.round(m)).join(", ")}`) : "",
+      ].filter(Boolean)
+    : [];
+  return [
+    t("Context from League Coach (not my question): a finished game I want to review.", "Contexto de League Coach (no es mi pregunta): una partida terminada que quiero revisar."),
+    `${matchTitle(d, names.champ, names.role)}. ${queueName(d.queue_id)}, ${duration(d.duration_s)}, ${t("patch", "parche")} ${d.patch}.`,
+    t(
+      `Me: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} minions (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} gold, ${p.damage_dealt} damage to champions, ${p.damage_taken} taken, vision score ${p.vision_score}, ${p.control_wards} control wards, in ${pctText(killShare(d, p))} of my team's kills, ${Math.round(p.time_dead_s)}s dead in ${Math.round(minutes)} min.`,
+      `Yo: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} súbditos (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} de oro, ${p.damage_dealt} de daño a campeones, ${p.damage_taken} recibido, visión ${p.vision_score}, ${p.control_wards} wards de control, en el ${pctText(killShare(d, p))} de las kills de mi equipo, ${Math.round(p.time_dead_s)}s muerto en ${Math.round(minutes)} min.`,
+    ),
+    items ? t(`My items: ${items}.`, `Mis objetos: ${items}.`) : "",
+    timeline.length ? `${timeline.join("; ")}.` : "",
+    facts.good.length ? t(`Went well: ${facts.good.join("; ")}.`, `Salió bien: ${facts.good.join("; ")}.`) : "",
+    facts.bad.length ? t(`To improve: ${facts.bad.join("; ")}.`, `A mejorar: ${facts.bad.join("; ")}.`) : "",
+    t(`My team: ${team(p.team_id)}.`, `Mi equipo: ${team(p.team_id)}.`),
+    t(`Enemy team: ${team(enemy)}.`, `Equipo rival: ${team(enemy)}.`),
+    t(`Objectives, my team: ${obj(p.team_id)}. Enemy: ${obj(enemy)}.`, `Objetivos, mi equipo: ${obj(p.team_id)}. Rival: ${obj(enemy)}.`),
+    t("Answer in plain text (not JSON), short and direct, as a few bullets.", "Responde en texto normal (no JSON), corto y directo, en unas pocas viñetas."),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

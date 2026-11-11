@@ -16,7 +16,7 @@ const EARLY_MIN = 14;
 const LEAD_GOLD = 1500;
 
 /** This game's own count is a whole number ("2", not "2.0"); averages keep a decimal. */
-function format(c: Compared, v: number, own = false): string {
+export function formatCompared(c: Compared, v: number, own = false): string {
   if (own && COUNTS.has(c.key)) return String(Math.round(v));
   return METRICS.find((m) => m.key === c.key)?.format(v) ?? String(v);
 }
@@ -25,9 +25,9 @@ function Standout({ c }: { c: Compared }) {
   return (
     <li>
       <span className="muted">{c.label}:</span>{" "}
-      <strong>{format(c, c.value, true)}</strong>{" "}
+      <strong>{formatCompared(c, c.value, true)}</strong>{" "}
       <span className="muted small">
-        ({t("usually", "normalmente")} {format(c, c.usual)})
+        ({t("usually", "normalmente")} {formatCompared(c, c.usual)})
       </span>
     </li>
   );
@@ -97,10 +97,13 @@ export function GameDetail({
   g,
   games,
   id,
+  compare = true,
 }: {
   g: GameStats;
   games: GameStats[];
   id: string;
+  /** Match details shows the comparison itself, above. */
+  compare?: boolean;
 }) {
   const { better, worse } = standouts(g, games);
   const peers = peersOf(g, games).length;
@@ -191,7 +194,7 @@ export function GameDetail({
 
       <DeathTimeline g={g} />
 
-      {peers >= MIN_PEERS ? (
+      {!compare ? null : peers >= MIN_PEERS ? (
         better.length || worse.length ? (
           <div className="gd-compare">
             <p className="muted small">

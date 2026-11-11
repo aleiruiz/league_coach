@@ -26,11 +26,11 @@ export type AskContext = {
 };
 
 /** Opens the "Ask the coach" panel, from the top of Next game and Improve. */
-export function AskButton({ onClick }: { onClick: () => void }) {
+export function AskButton({ onClick, label }: { onClick: () => void; label?: string }) {
   return (
     <button type="button" className="secondary ask-button" onClick={onClick}>
       <NavIcon name="coach" />
-      {t("Ask the coach", "Preguntar al coach")}
+      {label ?? t("Ask the coach", "Preguntar al coach")}
     </button>
   );
 }
