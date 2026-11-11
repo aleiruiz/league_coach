@@ -82,11 +82,17 @@ function ChampPic({ art, id, size, className }: { art: Art | null; id: string; s
 
 const champName = (art: Art | null, id: string) => art?.champ(id)?.name ?? id;
 
+/** Bought items packed to the left, the trinket kept last. */
+function packed(items: number[]): number[] {
+  const bought = items.slice(0, 6).filter(Boolean);
+  return [...bought, ...Array(6 - bought.length).fill(0), items[6] ?? 0];
+}
+
 function Items({ p, art }: { p: PlayerDetail; art: Art | null }) {
   const label = t("Final items", "Objetos finales");
   return (
     <span className="g-items" aria-label={label}>
-      {p.items.map((id, i) =>
+      {packed(p.items).map((id, i) =>
         id ? (
           <Pic
             key={i}
@@ -152,10 +158,8 @@ function GameRow({
       >
         <span className="g-result">
           <strong>{win ? t("Win", "Victoria") : t("Loss", "Derrota")}</strong>
-          <span className="muted small">{queueName(d.queue_id)}</span>
-          <span className="muted small">
-            {duration(d.duration_s)} · {t("Patch", "Parche")} {d.patch}
-          </span>
+          <span className="muted small">{queueName(d.queue_id, true)}</span>
+          <span className="muted small">{duration(d.duration_s)}</span>
         </span>
 
         <span className="g-who">
@@ -195,7 +199,7 @@ function GameRow({
             {p.kills} / <span className="deaths">{p.deaths}</span> / {p.assists}
           </strong>
           <span className="muted small">
-            {kdaRatio(p)} KDA · {t(`${pctText(killShare(d, p))} of kills`, `${pctText(killShare(d, p))} de las bajas`)}
+            {kdaRatio(p)} KDA · {t(`${pctText(killShare(d, p))} of kills`, `en el ${pctText(killShare(d, p))} de las kills`)}
           </span>
         </span>
 
@@ -204,7 +208,7 @@ function GameRow({
             {p.cs} {t("minions", "súbditos")} <span className="muted">({perMinute(p.cs, d.duration_s)}/min)</span>
           </strong>
           {cs10 !== null && (
-            <span className={cs10 >= 0 ? "small ahead" : "small behind"}>
+            <span className={cs10 >= 10 ? "small ahead" : cs10 <= -10 ? "small behind" : "small muted"}>
               {plainValue("cs_diff_10", cs10)} {t("at 10 min", "al min 10")}
             </span>
           )}
@@ -229,8 +233,10 @@ function GameRow({
         </span>
 
         <span className="g-teams">
-          <Team d={d} teamId={p.team_id} art={art} label={t("Your team", "Tu equipo")} />
-          <Team d={d} teamId={p.team_id === 100 ? 200 : 100} art={art} label={t("Enemy team", "Equipo rival")} />
+          <span className="g-portraits">
+            <Team d={d} teamId={p.team_id} art={art} label={t("Your team", "Tu equipo")} />
+            <Team d={d} teamId={p.team_id === 100 ? 200 : 100} art={art} label={t("Enemy team", "Equipo rival")} />
+          </span>
           {stats && (
             <span className="g-more small" aria-hidden="true">
               {open ? t("Hide summary", "Ocultar resumen") : t("Summary", "Resumen")} ▾
@@ -273,14 +279,16 @@ export default function Games({
   const [shown, setShown] = useState(PAGE);
   const [openGame, setOpenGame] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<GamesView | null> => {
     try {
       const [v, h, a] = await Promise.all([matchDetails(), matchHistory(), riotAccount()]);
       setView(v);
       setHistory(h.games);
       setRiotId(riotIdOf(a.profile));
+      return v;
     } catch (e) {
       setError(humanizeError(String(e)));
+      return null;
     } finally {
       setLoaded(true);
     }
@@ -289,6 +297,17 @@ export default function Games({
   useEffect(() => {
     if (active) reload();
   }, [active, version, reload]);
+
+  // Another check already running is not an error: say so quietly.
+  const failed = (e: unknown) => {
+    const err = asSyncError(e);
+    if (err.kind === "busy") {
+      setStatus(err.message);
+    } else {
+      setStatus(null);
+      setError(humanizeError(err.message));
+    }
+  };
 
   const update = async () => {
     setBusy(true);
@@ -300,8 +319,7 @@ export default function Games({
       if (r.new_games > 0) onChanged();
       setStatus(r.new_games === 0 ? t("Up to date: no new games.", "Al día: no hay partidas nuevas.") : null);
     } catch (e) {
-      setStatus(null);
-      setError(humanizeError(asSyncError(e).message));
+      failed(e);
     } finally {
       setBusy(false);
     }
@@ -313,13 +331,23 @@ export default function Games({
     setBusy(true);
     setError(null);
     try {
+      const before = view.missing;
       const n = await fillMatchDetails((ev) => ev.type === "status" && setStatus(ev.text));
-      await reload();
+      const v = await reload();
       if (n > 0) onChanged();
-      setStatus(null);
+      // Riot keeps games for a limited time: the ones it no longer has are
+      // remembered and not asked for again, and keep their summary in Improve.
+      const gone = v ? Math.max(0, before - n - v.missing) : 0;
+      setStatus(
+        gone > 0
+          ? t(
+              `Riot no longer has the details of ${gone === 1 ? "1 older game" : `${gone} older games`}. ${gone === 1 ? "It keeps" : "They keep"} their summary in Improve and won't be asked for again.`,
+              `Riot ya no tiene los detalles de ${gone === 1 ? "1 partida antigua" : `${gone} partidas antiguas`}. ${gone === 1 ? "Conserva" : "Conservan"} su resumen en Mejorar y no se volverán a pedir.`,
+            )
+          : null,
+      );
     } catch (e) {
-      setStatus(null);
-      setError(humanizeError(asSyncError(e).message));
+      failed(e);
     } finally {
       setBusy(false);
     }
@@ -405,10 +433,7 @@ export default function Games({
           )}{" "}
           <button type="button" className="link-button" disabled={busy} onClick={fill}>
             {t("Load their details", "Cargar sus detalles")}
-          </button>{" "}
-          <span className="muted small">
-            {t(`(one request to Riot per game)`, `(una consulta a Riot por partida)`)}
-          </span>
+          </button>
         </p>
       )}
 

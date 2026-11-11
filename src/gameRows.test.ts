@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MatchDetail, PlayerDetail } from "./games";
 import type { GameStats } from "./history";
-import { byDay, duration, kdaRatio, killShare, laneOpponent, mainChampions, me, queueName, rowTags } from "./gameRows";
+import { byDay, duration, gameFacts, kdaRatio, killShare, laneOpponent, mainChampions, me, queueName, rowTags } from "./gameRows";
 
 const player = (o: Partial<PlayerDetail>): PlayerDetail => ({
   name: "P",
@@ -74,6 +74,7 @@ describe("game rows", () => {
     expect(duration(1728)).toBe("28:48");
     expect(duration(65)).toBe("1:05");
     expect(queueName(420)).toBe("Ranked Solo/Duo");
+    expect(queueName(420, true)).toBe("Ranked Solo");
     expect(kdaRatio(player({ kills: 8, deaths: 3, assists: 6 }))).toBe("4.7");
     expect(kdaRatio(player({ deaths: 0 }))).toBe("Perfect");
   });
@@ -105,7 +106,11 @@ describe("game rows", () => {
     const g = game({ gold: 15_000, damage_dealt: 30_000, largest_multikill: 3, control_wards: 0, kills: 9, assists: 9 });
     const tags = rowTags(g, stats({ cs_diff_10: -14, early_deaths: 2 }));
     expect(tags.good).toEqual(["Triple kill", "Most gold in the game"]);
-    expect(tags.bad).toEqual(["14 minions behind at 10 min"]);
+    expect(tags.bad).toEqual(["2 deaths before minute 14"]);
+    // The row already shows minions at 10 and the share of kills; the full list has them.
+    const all = gameFacts(g, stats({ cs_diff_10: -14, early_deaths: 2 }));
+    expect(all.bad).toEqual(["14 minions behind at 10 min", "2 deaths before minute 14", "0 control wards"]);
+    expect(all.good.some((x) => /^In \d+% of kills$/.test(x))).toBe(true);
   });
 
   it("leaves minions out for supports and needs a real game for wards", () => {

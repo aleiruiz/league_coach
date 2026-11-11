@@ -3432,7 +3432,7 @@ button.ask-close:hover {
   align-items: center;
   gap: 16px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 10px 14px;
   border: 0;
   border-radius: 10px;
   background: none;
@@ -3582,8 +3582,12 @@ button.ask-close:hover {
   width: 26px;
   height: 26px;
   border-radius: 5px;
-  background: var(--bg);
-  border: 1px solid var(--line);
+}
+
+/* An empty slot is a faint outline, not a dark square that reads as missing art. */
+.g-item.empty {
+  border: 1px dashed var(--line);
+  opacity: 0.6;
 }
 
 .g-item.trinket {
@@ -3618,6 +3622,12 @@ button.ask-close:hover {
 .g-teams {
   align-items: flex-end;
   gap: 4px;
+}
+
+.g-portraits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .g-team {
@@ -3677,9 +3687,12 @@ button.ask-close:hover {
   .g-build {
     grid-column: 2 / 5;
     flex-direction: row;
-    flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
+  }
+  .g-build .g-tags {
+    flex: 1 1 200px;
+    min-width: 0;
   }
 }
 
@@ -3687,8 +3700,14 @@ button.ask-close:hover {
   .g-row-head {
     grid-template-columns: 96px minmax(0, 1.5fr) minmax(0, 0.8fr) minmax(0, 0.9fr);
   }
-  .g-teams {
+  /* The portraits drop; the way into the game stays. */
+  .g-portraits {
     display: none;
+  }
+  .g-teams {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: end;
   }
 }
 
@@ -3699,5 +3718,12 @@ button.ask-close:hover {
   .g-who,
   .g-build {
     grid-column: 1 / -1;
+  }
+  .g-build {
+    flex-wrap: wrap;
+  }
+  .g-teams {
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 }

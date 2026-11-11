@@ -525,7 +525,7 @@ function Progress({
           </button>
         </div>
       )}
-      {syncError?.kind === "transient" && (
+      {(syncError?.kind === "transient" || syncError?.kind === "busy") && (
         <p className="muted small">
           {t("Couldn't check for new games; will try again in a few minutes.", "No pude buscar partidas nuevas; lo intento de nuevo en unos minutos.")}{" "}
           ({syncError.message})

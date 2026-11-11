@@ -5,20 +5,22 @@ import type { MatchDetail, PlayerDetail } from "./games";
 import type { GameStats } from "./history";
 import { t } from "./i18n";
 
-const QUEUES: Record<number, [string, string]> = {
-  400: ["Normal Draft", "Normal (reclutamiento)"],
-  420: ["Ranked Solo/Duo", "Clasificatoria Solo/Dúo"],
-  430: ["Normal Blind", "Normal (a ciegas)"],
-  440: ["Ranked Flex", "Clasificatoria Flexible"],
-  480: ["Swiftplay", "Partida rápida"],
-  490: ["Quickplay", "Juego rápido"],
+/** Full name, then the short one for the list. */
+const QUEUES: Record<number, [string, string, string, string]> = {
+  400: ["Normal Draft", "Normal (reclutamiento)", "Normal Draft", "Normal"],
+  420: ["Ranked Solo/Duo", "Clasificatoria Solo/Dúo", "Ranked Solo", "Clasif. Solo"],
+  430: ["Normal Blind", "Normal (a ciegas)", "Normal Blind", "A ciegas"],
+  440: ["Ranked Flex", "Clasificatoria Flexible", "Ranked Flex", "Clasif. Flex"],
+  480: ["Swiftplay", "Partida rápida", "Swiftplay", "Rápida"],
+  490: ["Quickplay", "Juego rápido", "Quickplay", "Juego rápido"],
 };
 
 export const RANKED_QUEUES = [420, 440];
 
-export function queueName(q: number): string {
+export function queueName(q: number, short = false): string {
   const n = QUEUES[q];
-  return n ? t(n[0], n[1]) : t("Summoner's Rift", "Grieta del Invocador");
+  if (!n) return short ? t("Rift", "Grieta") : t("Summoner's Rift", "Grieta del Invocador");
+  return short ? t(n[2], n[3]) : t(n[0], n[1]);
 }
 
 /** 1728 → "28:48". */
@@ -120,6 +122,15 @@ const MULTI: Record<number, [string, string]> = {
  * early deaths) when the game has them.
  */
 export function rowTags(d: MatchDetail, stats: GameStats | undefined): Tags {
+  return pickThree(gameFacts(d, stats, true));
+}
+
+/**
+ * Every fact about the player's game, each with its number. `onRow` leaves
+ * out the ones the Games row already shows as numbers (minions at 10, share
+ * of kills).
+ */
+export function gameFacts(d: MatchDetail, stats: GameStats | undefined, onRow = false): Tags {
   const p = me(d);
   if (!p) return { good: [], bad: [] };
   const minutes = d.duration_s / 60;
@@ -135,7 +146,7 @@ export function rowTags(d: MatchDetail, stats: GameStats | undefined): Tags {
   } else if (d.players.filter((x) => x.team_id === p.team_id).every((x) => x.damage_dealt <= p.damage_dealt)) {
     good.push(t("Most damage on your team", "Más daño de tu equipo"));
   }
-  const cs10 = support ? null : (stats?.cs_diff_10 ?? null);
+  const cs10 = support || onRow ? null : (stats?.cs_diff_10 ?? null);
   if (cs10 !== null && cs10 >= 10) good.push(t(`${cs10} minions ahead at 10 min`, `${cs10} súbditos arriba al min 10`));
   if (cs10 !== null && cs10 <= -10) bad.push(t(`${-cs10} minions behind at 10 min`, `${-cs10} súbditos abajo al min 10`));
   const early = stats?.early_deaths ?? null;
@@ -143,12 +154,15 @@ export function rowTags(d: MatchDetail, stats: GameStats | undefined): Tags {
   if (early !== null && early >= 2) bad.push(t(`${early} deaths before minute 14`, `${early} muertes antes del min 14`));
   const share = killShare(d, p);
   const kills = teamKills(d, p.team_id);
-  if (share >= 0.6) good.push(t(`In ${pctText(share)} of kills`, `En el ${pctText(share)} de las bajas`));
-  if (share < 0.35 && kills >= 10) bad.push(t(`In only ${pctText(share)} of kills`, `Solo en el ${pctText(share)} de las bajas`));
-  if (p.control_wards === 0 && minutes >= 15) bad.push(t("0 control wards", "0 guardianes de control"));
+  if (!onRow && share >= 0.6) good.push(t(`In ${pctText(share)} of kills`, `En el ${pctText(share)} de las kills`));
+  if (!onRow && share < 0.35 && kills >= 10) bad.push(t(`In only ${pctText(share)} of kills`, `Solo en el ${pctText(share)} de las kills`));
+  if (p.control_wards === 0 && minutes >= 15) bad.push(t("0 control wards", "0 wards de control"));
   if (p.deaths >= 8) bad.push(t(`${p.deaths} deaths`, `${p.deaths} muertes`));
-  // Three at most: the first of each side, then the rest of what went well,
-  // then the rest to improve.
+  return { good, bad };
+}
+
+/** Three at most: the first of each side, then the rest of what went well, then the rest to improve. */
+function pickThree({ good, bad }: Tags): Tags {
   const picked: Tags = { good: good.slice(0, 1), bad: bad.slice(0, 1) };
   const more = [...good.slice(1).map((x) => ["good", x] as const), ...bad.slice(1).map((x) => ["bad", x] as const)];
   for (const [side, text] of more) {
