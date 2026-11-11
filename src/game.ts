@@ -4,6 +4,8 @@ import { t } from "./i18n";
 
 export type Champion = {
   id: string;
+  /** Riot's numeric id, as Match-V5 bans send it. */
+  key: number;
   name: string;
   title: string;
   tags: string[];
@@ -16,11 +18,18 @@ export type Champion = {
 export type Rune = { id: number; name: string; short_desc: string; icon: string };
 export type RuneTree = { id: number; name: string; icon: string; slots: Rune[][] };
 export type Shard = { name: string; short: string; icon: string };
+export type Item = { id: string; name: string; image: string };
+/** `key` is the number Match-V5 sends (`summoner1Id`). */
+export type Spell = { id: string; key: number; name: string; image: string };
 
 export type GameData = {
   version: string;
   patch: string;
   champions: Champion[];
+  /** Summoner's Rift items (not every component). */
+  items: Item[];
+  /** Summoner's Rift summoner spells. */
+  spells: Spell[];
   rune_trees: RuneTree[];
   /** Stat shard rows, in the app language. */
   shards: Shard[][];

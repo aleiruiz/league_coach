@@ -4,6 +4,7 @@ import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
   id,
+  key: 0,
   name,
   title: "",
   tags: [],

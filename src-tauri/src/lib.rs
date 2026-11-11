@@ -43,6 +43,8 @@ pub fn run() {
             history::match_history,
             history::sync_matches,
             history::review_matches,
+            history::match_details,
+            history::fill_match_details,
         ])
         .run(tauri::generate_context!())
         .expect("error while starting League Coach");

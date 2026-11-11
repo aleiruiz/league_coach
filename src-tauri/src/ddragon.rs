@@ -142,8 +142,7 @@ const SUMMONERS_RIFT: &str = "11";
 pub struct Champion {
     pub id: String,
     /// Riot's numeric champion id (`key` in Data Dragon), as the League
-    /// client and Spectator-V5 send it. Not needed by the UI.
-    #[serde(skip)]
+    /// client, Spectator-V5 and Match-V5 bans send it.
     pub key: u32,
     pub name: String,
     pub title: String,
@@ -192,6 +191,8 @@ pub struct RuneTree {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Spell {
     pub id: String,
+    /// Numeric id, as Match-V5 sends it (`summoner1Id`).
+    pub key: u32,
     pub name: String,
     pub image: String,
 }
@@ -429,6 +430,7 @@ pub fn parse_spells(json: &str, version: &str) -> Result<Vec<Spell>, String> {
         .filter(|s| str_vec(&s["modes"]).iter().any(|m| m == "CLASSIC"))
         .map(|s| Spell {
             id: s["id"].as_str().unwrap_or_default().into(),
+            key: s["key"].as_str().and_then(|k| k.parse().ok()).unwrap_or(0),
             name: s["name"].as_str().unwrap_or_default().into(),
             image: format!(
                 "{BASE}/cdn/{version}/img/spell/{}",
@@ -758,7 +760,7 @@ pub mod fixtures {
     ]"#;
 
     pub const SPELLS: &str = r#"{"type":"summoner","version":"15.22.1","data":{
-      "SummonerFlash":{"id":"SummonerFlash","name":"Destello","image":{"full":"SummonerFlash.png"},"modes":["CLASSIC","ARAM"]},
+      "SummonerFlash":{"id":"SummonerFlash","key":"4","name":"Destello","image":{"full":"SummonerFlash.png"},"modes":["CLASSIC","ARAM"]},
       "SummonerTeleport":{"id":"SummonerTeleport","name":"Teleportar","image":{"full":"SummonerTeleport.png"},"modes":["CLASSIC"]},
       "SummonerSnowball":{"id":"SummonerSnowball","name":"Marcar","image":{"full":"SummonerSnowball.png"},"modes":["ARAM"]}
     }}"#;
@@ -861,6 +863,14 @@ mod tests {
         let names: Vec<&str> = d.spells.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["Destello", "Teleportar"]);
         assert!(d.spell_by_name("destello").is_some());
+        // Match-V5 names spells by number.
+        assert_eq!(
+            d.spells
+                .iter()
+                .find(|s| s.id == "SummonerFlash")
+                .map(|s| s.key),
+            Some(4)
+        );
     }
 
     #[test]
