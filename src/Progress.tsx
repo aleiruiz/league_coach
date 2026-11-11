@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProvidersState } from "./App";
 import { Champion, gameData } from "./game";
-import { GameDetail } from "./GameDetail";
 import {
   GameStats,
   HistoryView,
@@ -13,7 +12,6 @@ import {
   riotAccount,
   riotIdOf,
   RiotProfile,
-  roleName,
   SavedReport,
   asSyncError,
   SyncError,
@@ -193,57 +191,6 @@ function Metrics({ view, latest, previous }: { view: HistoryView; latest: SavedR
   );
 }
 
-function GameRow({
-  g,
-  games,
-  byId,
-  lang,
-  open,
-  onToggle,
-}: {
-  g: GameStats;
-  games: GameStats[];
-  byId: Map<string, Champion>;
-  lang: Lang;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const detailId = `game-detail-${g.id}`;
-  return (
-    <li className={`game-row ${g.win ? "win" : "loss"}${open ? " open" : ""}`}>
-      <button
-        type="button"
-        className="game-row-head"
-        aria-expanded={open}
-        aria-controls={open ? detailId : undefined}
-        title={open ? t("Hide the summary", "Ocultar el resumen") : t("Show the game summary", "Ver el resumen de la partida")}
-        onClick={onToggle}
-      >
-        <span className="game-result">{g.win ? t("Win", "Victoria") : t("Loss", "Derrota")}</span>
-        <ChampIcon id={g.champion} byId={byId} />
-        <span className="game-main">
-          <strong>{gameName(g, byId, lang, false)}</strong>
-          <span className="muted small">{roleName(g.role)}</span>
-        </span>
-        <span className="num">
-          {g.kills}/{g.deaths}/{g.assists}
-        </span>
-        <span
-          className={g.cs_diff_10 !== null && g.cs_diff_10 <= -10 ? "num bad" : "num"}
-          title={t("Minions vs your opponent at 10 min", "Súbditos vs tu rival al minuto 10")}
-        >
-          {g.role !== "UTILITY" && g.cs_diff_10 !== null ? plainValue("cs_diff_10", g.cs_diff_10) : ""}
-        </span>
-        <span className="muted small">{gameDate(g, lang)}</span>
-        <span className="game-chev" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      {open && <GameDetail g={g} games={games} id={detailId} />}
-    </li>
-  );
-}
-
 function Progress({
   providers,
   lang,
@@ -253,6 +200,9 @@ function Progress({
   onGoToModels,
   onAsk,
   onContext,
+  historyVersion,
+  onHistoryChanged,
+  onGoToGames,
 }: {
   providers: ProvidersState;
   lang: Lang;
@@ -265,6 +215,11 @@ function Progress({
   onAsk: () => void;
   /** What Ask should know about this screen (null: no review yet). */
   onContext: (c: AskContext | null) => void;
+  /** Changes when the Games screen read new games or details. */
+  historyVersion: number;
+  /** New games were read here: Games should reload. */
+  onHistoryChanged: () => void;
+  onGoToGames: () => void;
 }) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
@@ -379,6 +334,7 @@ function Progress({
           if (ev.type === "status") setStatus(ev.text);
         });
         await reload();
+        if (r.new_games > 0) onHistoryChanged();
         setSyncing(false);
         setSynced(true);
         setSyncError(null);
@@ -401,8 +357,13 @@ function Progress({
         setStatus(null);
       }
     },
-    [reload, review],
+    [reload, review, onHistoryChanged],
   );
+
+  // Games synced from the Games screen.
+  useEffect(() => {
+    if (historyVersion > 0) reload();
+  }, [historyVersion, reload]);
 
   const configured = !!profile && !!riotIdOf(profile) && !!profile.region;
 
@@ -423,9 +384,6 @@ function Progress({
   const latest = view.latest;
   const newSince = latest ? view.games.findIndex((g) => g.id === latest.newest_game) : -1;
   const toReview = latest ? (newSince < 0 ? 0 : newSince) : view.games.length >= 3 ? view.games.length : 0;
-  /** Game whose summary is open in the list (one at a time). */
-  const [openGame, setOpenGame] = useState<string | null>(null);
-  const [allGames, setAllGames] = useState(false);
   const [numbers, setNumbers] = useState(false);
   // The review cites games as G1, G2…; the screen names them instead.
   const refNames = useMemo(
@@ -479,7 +437,6 @@ function Progress({
         : null,
     );
   }, [contextPrompt, focusTitle, lang, onContext]);
-  const shown = allGames ? view.games : view.games.slice(0, 5);
 
   return (
     <section className="progress">
@@ -623,15 +580,18 @@ function Progress({
       )}
 
       {view.games.length > 0 && (
-        <section className="recent" aria-labelledby="recent-title">
+        <section className="recent" aria-label={t("Your games", "Tus partidas")}>
           <div className="recent-head">
-            <h3 id="recent-title">{t("Recent games", "Partidas recientes")}</h3>
-            <div className="recent-links">
-              {view.games.length > 5 && (
-                <button type="button" className="link-button" aria-expanded={allGames} onClick={() => setAllGames((v) => !v)}>
-                  {allGames ? t("Show fewer", "Ver menos") : t(`Show all ${view.games.length}`, `Ver las ${view.games.length}`)}
-                </button>
+            <p className="muted">
+              {t(
+                `Every game, with items, both teams and what went well, is in Games.`,
+                `Cada partida, con objetos, ambos equipos y qué salió bien, está en Partidas.`,
               )}
+            </p>
+            <div className="recent-links">
+              <button type="button" className="link-button" onClick={onGoToGames}>
+                {t(`See your ${view.games.length} games`, `Ver tus ${view.games.length} partidas`)}
+              </button>
               {view.summary && (
                 <button type="button" className="link-button" aria-expanded={numbers} onClick={() => setNumbers((v) => !v)}>
                   {numbers ? t("Hide your numbers", "Ocultar tus números") : t("All your numbers", "Todos tus números")}
@@ -639,19 +599,6 @@ function Progress({
               )}
             </div>
           </div>
-          <ul className="game-list">
-            {shown.map((g) => (
-              <GameRow
-                key={g.id}
-                g={g}
-                byId={byId}
-                lang={lang}
-                games={view.games}
-                open={openGame === g.id}
-                onToggle={() => setOpenGame((o) => (o === g.id ? null : g.id))}
-              />
-            ))}
-          </ul>
           {numbers && <Metrics view={view} latest={latest} previous={view.previous} />}
         </section>
       )}

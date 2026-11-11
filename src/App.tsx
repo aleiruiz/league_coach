@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AskPanel, { type AskContext } from "./AskPanel";
 import DraftView from "./DraftView";
 import Progress from "./Progress";
+import Games from "./Games";
 import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
@@ -10,12 +11,13 @@ import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
-type View = "draft" | "progress" | "settings";
+type View = "draft" | "progress" | "games" | "settings";
 
-/** The two moments the app is for: before a game and after it. */
-const nav = (): { view: "draft" | "progress"; label: string; hint: string }[] => [
+/** The two moments the app is for (before a game and after it), then the games themselves. */
+const nav = (): { view: "draft" | "progress" | "games"; label: string; hint: string }[] => [
   { view: "draft", label: t("Next game", "Próxima partida"), hint: t("Build and matchup plan", "Build y plan de la línea") },
   { view: "progress", label: t("Improve", "Mejorar"), hint: t("What to work on", "En qué trabajar") },
+  { view: "games", label: t("Games", "Partidas"), hint: t("Your match history", "Tu historial") },
 ];
 
 export type ProvidersState = {
@@ -37,6 +39,9 @@ function App() {
   // Views with a request in flight: the language can't change mid-request.
   const [busy, setBusy] = useState({ draft: false, coach: false, progress: false });
   const [accountVersion, setAccountVersion] = useState(0);
+  // Bumped when Improve or Games read new games, so the other one reloads.
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const historyChanged = useCallback(() => setHistoryVersion((v) => v + 1), []);
   const accountSaved = useCallback(() => setAccountVersion((v) => v + 1), []);
   const draftBusy = useCallback((b: boolean) => setBusy((s) => (s.draft === b ? s : { ...s, draft: b })), []);
   const coachBusy = useCallback((b: boolean) => setBusy((s) => (s.coach === b ? s : { ...s, coach: b })), []);
@@ -140,12 +145,14 @@ function App() {
     );
   }
 
+  // The Ask panel belongs to the screens that have something to ask about.
+  const asksHere = view === "draft" || view === "progress";
   // Views stay mounted (only hidden) so switching tabs doesn't lose the
   // conversation or an answer in progress. Changing the language re-renders
   // them in place: the draft and the chat are kept, and the draft view
   // reloads the game data in the new language (champion ids don't change).
   return (
-    <div className={askOpen && view !== "settings" ? "app ask-open" : "app"}>
+    <div className={askOpen && asksHere ? "app ask-open" : "app"}>
       <nav className="sidebar">
         <h1 className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -210,6 +217,18 @@ function App() {
             onGoToModels={() => setView("settings")}
             onAsk={openAsk}
             onContext={progressContext}
+            historyVersion={historyVersion}
+            onHistoryChanged={historyChanged}
+            onGoToGames={() => setView("games")}
+          />
+        </div>
+        <div hidden={view !== "games"}>
+          <Games
+            lang={lang}
+            active={view === "games"}
+            version={historyVersion + accountVersion}
+            onChanged={historyChanged}
+            onGoToSettings={() => setView("settings")}
           />
         </div>
         <div hidden={view !== "settings"}>
@@ -226,7 +245,7 @@ function App() {
       {/* Kept mounted so the conversation survives closing it; only over the two moments. */}
       <AskPanel
         providers={providers}
-        open={askOpen && view !== "settings"}
+        open={askOpen && asksHere}
         context={view === "draft" ? contexts.draft : view === "progress" ? contexts.progress : null}
         onClose={closeAsk}
         onBusy={coachBusy}
