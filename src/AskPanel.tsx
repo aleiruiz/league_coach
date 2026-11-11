@@ -174,8 +174,7 @@ function AskPanel({
         else if (ev.type === "error") {
           answered = false;
           updateLast((m) => ({ ...m, error: humanizeError(ev.message) }));
-        }
-        else if (ev.type === "done") {
+        } else if (ev.type === "done") {
           setStatus(null);
           updateLast((m) =>
             m.text.trim() || m.error
@@ -287,12 +286,15 @@ function AskPanel({
                     {m.text}
                   </Markdown>
                   {m.error && <p className="error">⚠ {m.error}</p>}
-                  {busy && i === messages.length - 1 && !m.text.trim() && !m.error && (
-                    <p className="ask-waiting" role="status">
-                      <span className="spinner" aria-hidden="true" />
-                      {status || t("Thinking…", "Pensando…")}
-                    </p>
-                  )}
+                  {busy &&
+                    i === messages.length - 1 &&
+                    !m.text.trim() &&
+                    !m.error && (
+                      <p className="ask-waiting" role="status">
+                        <span className="spinner" aria-hidden="true" />
+                        {status || t("Thinking…", "Pensando…")}
+                      </p>
+                    )}
                 </div>
               ),
             )}
