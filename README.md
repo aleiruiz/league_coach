@@ -12,7 +12,7 @@ The app has three sections in the left navigation, plus Settings and the Ask pan
 
 - **Next game.** A champ select board: your team on the left, the enemy team on the right, each slot by role, and your matchup in the center with an inline champion picker. Press **Get build** for a build card with items, every rune with its icon, summoner spells, the level-by-level skill order and a matchup plan, adapted to everyone picked and to the current patch. **Fill from my game** fills the slots from your champ select (read from the League client on your computer) or from a game that is loading, only when you press it.
 - **Improve.** Reviews your recent finished games (Riot Match-V5) and gives you one focus with a drill for your next 5 games, with your numbers and how they trend against the previous review.
-- **Games.** Your match history with filters (all games or ranked only). Each game opens a **Match details** page with both teams, what went well, what to improve, the best players of the game, and a full scoreboard.
+- **Games.** Your match history with filters (all games, ranked only, or one champion). Each game opens a **Match details** page with both teams, what went well, what to improve, the best players of the game, and a full scoreboard.
 - **Ask the coach.** A side panel for follow-up questions about the matchup on screen, a game, or your progress. It is meant for before and after a game.
 - **Settings.** Your League account (Riot ID search and region), your Riot key, your AI (connection status, plan usage and limits, which model to use by default), language (English or Español) and the data notice.
 
@@ -26,7 +26,7 @@ Install [Claude Code](https://code.claude.com/docs/en/setup), [Codex CLI](https:
 
 ## Riot API key
 
-Improve, Games, Match details and the Riot ID search read data from Riot's API, so they need a Riot API key. Next game and the build card work without one.
+Improve, Games, Match details and the Riot ID search read data from Riot's API, so they need a Riot API key. So does **Fill from my game** during a loading or running game (Spectator-V5). Next game, the build card and Fill from my game in champ select work without one.
 
 **Development key (quick, expires every 24 hours).**
 1. Sign in at [developer.riotgames.com](https://developer.riotgames.com/) with your Riot account.
@@ -48,7 +48,7 @@ The key is stored in your operating system's keychain, never in an app file, and
 Riot does not allow third-party apps to draw conclusions for you during gameplay or to dictate your decisions. So:
 
 - Advice is for before the game (champ select, builds, matchup plans) and after it (reviews, match details, questions about past games).
-- The app never reads the game process, its memory, or the Live Client Data API, and it does not poll anything.
+- The app never reads the game process, its memory, or the Live Client Data API, and it never polls anything live. The only background check is for finished games: while the app is open, it asks Match-V5 for new games every 5 minutes. With automatic review off in Settings, that check only fetches the games and spends no AI request.
 - **Fill from my game** only reads when you press it. In champ select it reads champions and positions from the League client on your computer, never other players' names. During a loading or running game it uses Riot's official Spectator-V5 API. It only fills the slots; you still ask for the build yourself.
 
 League Coach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
@@ -80,5 +80,5 @@ Checks that CI runs (on Ubuntu and Windows):
 ```bash
 npm run build
 npm test
-cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cd src-tauri && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
 ```
