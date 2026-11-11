@@ -3132,3 +3132,155 @@ button.tab.on {
     grid-template-columns: 52px 28px minmax(0, 1fr) 64px 14px;
   }
 }
+
+/* ---------- Ask the coach (side panel) ---------- */
+
+button.ask-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ask-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(420px, 100vw);
+  padding: 20px 22px;
+  background: var(--bg);
+  border-left: 1px solid var(--line-2);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+.ask-panel[hidden] {
+  display: none;
+}
+
+.ask-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.ask-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.ask-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+button.ask-close {
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  font-weight: 400;
+  padding: 0 6px;
+}
+
+button.ask-close:hover {
+  color: var(--text);
+}
+
+.ask-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-radius: 10px;
+}
+
+.ask-context img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+}
+
+.ask-context > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ask-q {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border-radius: 10px;
+  white-space: pre-wrap;
+}
+
+.ask-a ul {
+  padding-left: 20px;
+}
+
+.ask-a li {
+  margin-bottom: 6px;
+}
+
+.ask-suggest > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ask-suggest button.chip {
+  color: var(--text);
+}
+
+.ask-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ask-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ask-row textarea {
+  flex: 1;
+  resize: none;
+}
+
+.ask-empty {
+  flex: 1;
+}
+
+/* Header actions sit on the right, the title block takes the rest. */
+.moment-head {
+  justify-content: flex-start;
+}
+
+.moment-head > :first-child {
+  margin-right: auto;
+}
+
+.sheet-head .ask-button {
+  margin-left: auto;
+  align-self: flex-start;
+}
