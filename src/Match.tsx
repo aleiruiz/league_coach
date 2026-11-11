@@ -3,7 +3,7 @@ import { AskButton } from "./AskPanel";
 import { Art, ChampPic, champName, Items, Pic } from "./gameArt";
 import { formatCompared, GameDetail } from "./GameDetail";
 import type { MatchDetail, PlayerDetail } from "./games";
-import { bests, duration, gameFacts, kdaRatio, killShare, matchTitle, me, pctText, perMinute, queueName, won } from "./gameRows";
+import { bests, duration, gameFacts, kdaRatio, killShare, matchTitleParts, me, pctText, perMinute, queueName, won } from "./gameRows";
 import { standouts } from "./gameSummary";
 import { GameStats, roleName } from "./history";
 import { Lang, t } from "./i18n";
@@ -25,7 +25,13 @@ function Verdict({ d, stats, history }: { d: MatchDetail; stats: GameStats | und
           ))}
           {vs.map((c) => (
             <li key={c.key}>
-              {c.label}: <strong>{formatCompared(c, c.value, true)}</strong>{" "}
+              {c.key === "control_wards" && c.value === 0 ? (
+                t("No control wards", "Ningún ward de control")
+              ) : (
+                <>
+                  {c.label}: <strong>{formatCompared(c, c.value, true)}</strong>
+                </>
+              )}{" "}
               <span className="muted small">
                 ({t("usually", "normalmente")} {formatCompared(c, c.usual)})
               </span>
@@ -46,6 +52,7 @@ function Verdict({ d, stats, history }: { d: MatchDetail; stats: GameStats | und
 }
 
 function Bests({ d, art, lang }: { d: MatchDetail; art: Art | null; lang: Lang }) {
+  const mine = me(d)?.team_id;
   return (
     <section aria-labelledby="m-bests">
       <h3 id="m-bests" className="m-h">
@@ -55,13 +62,15 @@ function Bests({ d, art, lang }: { d: MatchDetail; art: Art | null; lang: Lang }
         {bests(d, locale(lang)).map((b) => (
           <li key={b.key} className={b.player.is_me ? "me" : undefined}>
             <span className="muted small">{b.label}</span>
+            <strong className="m-best-value">{b.value}</strong>
             <span className="m-best-who">
-              <ChampPic art={art} id={b.player.champion} size={32} className="m-best-pic" />
-              <span>
-                <strong>{champName(art, b.player.champion)}</strong>
-                {b.player.is_me && <span className="m-you">{t("You", "Tú")}</span>}
-                <span className="m-best-value">{b.value}</span>
-              </span>
+              <ChampPic art={art} id={b.player.champion} size={24} className="m-best-pic" />
+              <span className={b.player.team_id === mine ? "ally" : "enemy"}>{champName(art, b.player.champion)}</span>
+              {b.player.is_me ? (
+                <span className="m-you">{t("You", "Tú")}</span>
+              ) : (
+                <span className="muted small">{b.player.team_id === mine ? t("your team", "tu equipo") : t("enemy", "rival")}</span>
+              )}
             </span>
           </li>
         ))}
@@ -111,6 +120,9 @@ function TeamTable({ d, teamId, art, lang }: { d: MatchDetail; teamId: number; a
               {champName(art, p.champion)}
               {p.position ? ` · ${roleName(p.position)}` : ""}
             </span>
+            <span className="m-items-under">
+              <Items p={p} art={art} size={20} />
+            </span>
           </span>
         </span>
       </th>
@@ -122,7 +134,7 @@ function TeamTable({ d, teamId, art, lang }: { d: MatchDetail; teamId: number; a
       </td>
       <td>
         {p.cs}
-        <span className="muted small">{perMinute(p.cs, d.duration_s)}/min</span>
+        <span className="muted small m-per-min">{perMinute(p.cs, d.duration_s)}/min</span>
       </td>
       <td>{pctText(killShare(d, p))}</td>
       <td>
@@ -132,7 +144,7 @@ function TeamTable({ d, teamId, art, lang }: { d: MatchDetail; teamId: number; a
         <Bar value={p.damage_taken} max={maxTaken} label={n(p.damage_taken)} />
       </td>
       <td>{n(p.gold)}</td>
-      <td>
+      <td className="m-items-col">
         <Items p={p} art={art} size={22} />
       </td>
     </tr>
@@ -150,7 +162,9 @@ function TeamTable({ d, teamId, art, lang }: { d: MatchDetail; teamId: number; a
             <th scope="col">{t("Damage dealt", "Daño hecho")}</th>
             <th scope="col">{t("Damage taken", "Daño recibido")}</th>
             <th scope="col">{t("Gold", "Oro")}</th>
-            <th scope="col">{t("Items", "Objetos")}</th>
+            <th scope="col" className="m-items-col">
+              {t("Items", "Objetos")}
+            </th>
           </tr>
         </thead>
         <tbody>{players.map(row)}</tbody>
@@ -177,6 +191,7 @@ function Objectives({ d, art }: { d: MatchDetail; art: Art | null }) {
       <h3 id="m-obj" className="m-h">
         {t("Objectives", "Objetivos")}
       </h3>
+      <div className="m-obj-row">
       <table className="m-obj-table">
         <thead>
           <tr>
@@ -224,6 +239,7 @@ function Objectives({ d, art }: { d: MatchDetail; art: Art | null }) {
           ))}
         </div>
       )}
+      </div>
     </section>
   );
 }
@@ -264,7 +280,7 @@ export default function Match({
     hour: "numeric",
     minute: "2-digit",
   });
-  const title = matchTitle(d, (c) => champName(art, c), roleName);
+  const [result, rest] = matchTitleParts(d, (c) => champName(art, c), roleName);
   const enemy = (p?.team_id ?? 100) === 100 ? 200 : 100;
   return (
     <section className={`match ${win ? "win" : "loss"}`}>
@@ -276,7 +292,7 @@ export default function Match({
           {p && <ChampPic art={art} id={p.champion} size={56} />}
           <div>
             <h2 ref={heading} tabIndex={-1}>
-              {title}
+              {result && <span className="m-result">{result}</span>} {rest}
             </h2>
             <p className="muted">
               {queueName(d.queue_id)} · {duration(d.duration_s)} · {when} · {t("Patch", "Parche")} {d.patch}

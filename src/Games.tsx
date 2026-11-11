@@ -277,6 +277,7 @@ export default function Games({
       label: matchTitle(match, champ, roleName),
       image: art.champ(p.champion)?.image,
       prompt: matchPrompt(match, stats.get(match.id), { champ, item: art.item, role: roleName }),
+      question: t("Your question about this game", "Tu pregunta sobre esta partida"),
       suggestions: t(
         ["What decided this game?", "What should I have done differently?", "What should I practice from this game?"],
         ["¿Qué decidió esta partida?", "¿Qué debí hacer diferente?", "¿Qué debería practicar de esta partida?"],

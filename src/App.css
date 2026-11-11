@@ -3765,11 +3765,11 @@ button.ask-close:hover {
   outline: none;
 }
 
-.match.win .m-head h2 {
+.match.win .m-result {
   color: var(--ally);
 }
 
-.match.loss .m-head h2 {
+.match.loss .m-result {
   color: var(--enemy);
 }
 
@@ -3838,21 +3838,29 @@ button.ask-close:hover {
 .m-best-who {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
-.m-best-who > span {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.m-best-who .ally {
+  color: var(--ally);
+}
+
+.m-best-who .enemy {
+  color: var(--enemy);
 }
 
 .m-best-pic {
-  border-radius: 7px;
+  border-radius: 6px;
 }
 
 .m-best-value {
+  font-size: 22px;
   font-variant-numeric: tabular-nums;
+}
+
+.m-best-who .m-you {
+  margin-left: 0;
 }
 
 .m-you {
@@ -3975,6 +3983,10 @@ button.ask-close:hover {
   background: var(--accent);
 }
 
+.m-table-wrap.ally .m-bar > span {
+  background: var(--ally);
+}
+
 .m-table-wrap.enemy .m-bar > span {
   background: var(--enemy);
 }
@@ -4037,8 +4049,56 @@ button.ask-close:hover {
   gap: 6px;
 }
 
-.m-obj-table {
-  align-self: flex-start;
+.m-obj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 24px;
+}
+
+.m-obj-row .m-bans p:first-child {
+  margin-top: 0;
+}
+
+.m-items-under {
+  display: none;
+  margin-top: 4px;
+}
+
+/* Below this width the items go under each player and the per-minute
+   lines drop, so the tables fit without scrolling sideways. */
+@container (max-width: 1000px) {
+  .m-table .m-items-col,
+  .m-table td > .m-per-min {
+    display: none;
+  }
+  .m-items-under {
+    display: block;
+  }
+  .m-table th,
+  .m-table td {
+    padding: 6px 6px;
+  }
+  .m-bar-cell {
+    min-width: 64px;
+  }
+  .m-player-names {
+    max-width: 150px;
+  }
+}
+
+@container (max-width: 640px) {
+  .m-table thead th:nth-child(4),
+  .m-table td:nth-child(4) {
+    display: none;
+  }
+}
+
+/* "Your numbers": the page's own label style, not the old tiles. */
+.match .gd-stat-label {
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .match .game-detail {

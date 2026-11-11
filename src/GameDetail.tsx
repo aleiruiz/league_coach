@@ -51,13 +51,13 @@ function Stat({
 }
 
 /** When each death happened, on a bar the length of the game. */
-function DeathTimeline({ g }: { g: GameStats }) {
+function DeathTimeline({ g, label }: { g: GameStats; label: string }) {
   const len = Math.max(g.minutes, ...g.death_minutes, 1);
   const at = (m: number) => `${Math.min(100, (m / len) * 100)}%`;
   return (
     <div className="gd-deaths">
       <div className="gd-deaths-head">
-        <span className="gd-stat-label">{t("Deaths", "Muertes")}</span>
+        <span className="gd-stat-label">{label}</span>
         <span className="muted small">
           {g.death_minutes.length === 0
             ? t("No deaths", "Sin muertes")
@@ -102,9 +102,10 @@ export function GameDetail({
   g: GameStats;
   games: GameStats[];
   id: string;
-  /** Match details shows the comparison itself, above. */
+  /** Match details shows the comparison itself above, and KDA, kills and minions per minute in its table. */
   compare?: boolean;
 }) {
+  const full = compare;
   const { better, worse } = standouts(g, games);
   const peers = peersOf(g, games).length;
   const role = roleName(g.role);
@@ -129,15 +130,15 @@ export function GameDetail({
       )}
 
       <div className="gd-grid">
-        <Stat
+        {full && <Stat
           label="KDA"
           value={kda(g)?.toFixed(1) ?? t("Perfect", "Perfecto")}
           hint={`${g.kills}/${g.deaths}/${g.assists}`}
-        />
-        <Stat
+        />}
+        {full && <Stat
           label={t("Kills you were in", "Kills en las que participaste")}
           value={pct(g.kill_participation)}
-        />
+        />}
         <Stat
           label={t("Share of team damage", "Parte del daño del equipo")}
           value={pct(g.damage_share)}
@@ -149,7 +150,7 @@ export function GameDetail({
         {/* A support isn't judged on CS: the tiles would hint at farming more. */}
         {g.role !== "UTILITY" && (
           <>
-            <Stat label={t("Minions per minute", "Súbditos por minuto")} value={g.cs_per_min.toFixed(1)} />
+            {full && <Stat label={t("Minions per minute", "Súbditos por minuto")} value={g.cs_per_min.toFixed(1)} />}
             <Stat
               label={t("Minions at 10 min", "Súbditos al minuto 10")}
               value={
@@ -192,7 +193,7 @@ export function GameDetail({
         />
       </div>
 
-      <DeathTimeline g={g} />
+      <DeathTimeline g={g} label={full ? t("Deaths", "Muertes") : t("When you died", "Cuándo moriste")} />
 
       {!compare ? null : peers >= MIN_PEERS ? (
         better.length || worse.length ? (

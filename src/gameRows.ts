@@ -110,6 +110,14 @@ export function won(d: MatchDetail): boolean {
 
 export type Tags = { good: string[]; bad: string[] };
 
+/**
+ * Control wards bought, the count Improve compares across games; the
+ * stored details' own count (wards placed) only when the summary is missing.
+ */
+export function controlWards(p: PlayerDetail, stats: GameStats | undefined): number {
+  return stats?.control_wards ?? p.control_wards;
+}
+
 const MULTI: Record<number, [string, string]> = {
   3: ["Triple kill", "Triple asesinato"],
   4: ["Quadra kill", "Cuádruple asesinato"],
@@ -146,11 +154,13 @@ export function gameFacts(
   const multi = Math.min(p.largest_multikill, 5);
   if (multi >= 3) good.push(t(...MULTI[multi]));
   if (p.deaths === 0) good.push(t("No deaths", "Sin muertes"));
-  if (d.players.every((x) => x.gold <= p.gold)) good.push(t("Most gold in the game", "Más oro de la partida"));
+  // The row is short; Match details adds the number.
+  const num = (n: number) => (onRow ? "" : `: ${n.toLocaleString(t("en-US", "es-MX"))}`);
+  if (d.players.every((x) => x.gold <= p.gold)) good.push(t("Most gold in the game", "Más oro de la partida") + num(p.gold));
   if (d.players.every((x) => x.damage_dealt <= p.damage_dealt)) {
-    good.push(t("Most damage in the game", "Más daño de la partida"));
+    good.push(t("Most damage in the game", "Más daño de la partida") + num(p.damage_dealt));
   } else if (d.players.filter((x) => x.team_id === p.team_id).every((x) => x.damage_dealt <= p.damage_dealt)) {
-    good.push(t("Most damage on your team", "Más daño de tu equipo"));
+    good.push(t("Most damage on your team", "Más daño de tu equipo") + num(p.damage_dealt));
   }
   const cs10 = support || onRow || skip.has("cs_diff_10") ? null : (stats?.cs_diff_10 ?? null);
   if (cs10 !== null && cs10 >= 10) good.push(t(`${cs10} minions ahead at 10 min`, `${cs10} súbditos arriba al min 10`));
@@ -163,7 +173,7 @@ export function gameFacts(
   const shareShown = onRow || skip.has("kill_participation");
   if (!shareShown && share >= 0.6) good.push(t(`In ${pctText(share)} of kills`, `En el ${pctText(share)} de las kills`));
   if (!shareShown && share < 0.35 && kills >= 10) bad.push(t(`In only ${pctText(share)} of kills`, `Solo en el ${pctText(share)} de las kills`));
-  if (p.control_wards === 0 && minutes >= 15 && !skip.has("control_wards")) bad.push(t("0 control wards", "0 wards de control"));
+  if (controlWards(p, stats) === 0 && minutes >= 15 && !skip.has("control_wards")) bad.push(t("0 control wards", "0 wards de control"));
   if (p.deaths >= 8) bad.push(t(`${p.deaths} deaths`, `${p.deaths} muertes`));
   return { good, bad };
 }
@@ -220,14 +230,19 @@ export function bests(d: MatchDetail, locale: string): Best[] {
   ];
 }
 
-/** "Win as Ahri (Mid) against Syndra". */
-export function matchTitle(d: MatchDetail, champ: (id: string) => string, role: (pos: string) => string): string {
+/** ["Win", "as Ahri (Mid) against Syndra"]: the result apart, so only it is colored. */
+export function matchTitleParts(d: MatchDetail, champ: (id: string) => string, role: (pos: string) => string): [string, string] {
   const p = me(d);
-  if (!p) return queueName(d.queue_id);
+  if (!p) return ["", queueName(d.queue_id)];
   const opp = laneOpponent(d, p);
   const r = p.position ? ` (${role(p.position)})` : "";
   const vs = opp ? t(` against ${champ(opp.champion)}`, ` contra ${champ(opp.champion)}`) : "";
-  return won(d) ? t(`Win as ${champ(p.champion)}${r}${vs}`, `Victoria con ${champ(p.champion)}${r}${vs}`) : t(`Loss as ${champ(p.champion)}${r}${vs}`, `Derrota con ${champ(p.champion)}${r}${vs}`);
+  return [won(d) ? t("Win", "Victoria") : t("Loss", "Derrota"), t(`as ${champ(p.champion)}${r}${vs}`, `con ${champ(p.champion)}${r}${vs}`)];
+}
+
+/** "Win as Ahri (Mid) against Syndra". */
+export function matchTitle(d: MatchDetail, champ: (id: string) => string, role: (pos: string) => string): string {
+  return matchTitleParts(d, champ, role).filter(Boolean).join(" ");
 }
 
 export type Names = { champ: (id: string) => string; item: (id: number) => string | undefined; role: (pos: string) => string };
@@ -272,8 +287,8 @@ export function matchPrompt(d: MatchDetail, stats: GameStats | undefined, names:
     t("Context from League Coach (not my question): a finished game I want to review.", "Contexto de League Coach (no es mi pregunta): una partida terminada que quiero revisar."),
     `${matchTitle(d, names.champ, names.role)}. ${queueName(d.queue_id)}, ${duration(d.duration_s)}, ${t("patch", "parche")} ${d.patch}.`,
     t(
-      `Me: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} minions (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} gold, ${p.damage_dealt} damage to champions, ${p.damage_taken} taken, vision score ${p.vision_score}, ${p.control_wards} control wards, in ${pctText(killShare(d, p))} of my team's kills, ${Math.round(p.time_dead_s)}s dead in ${Math.round(minutes)} min.`,
-      `Yo: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} súbditos (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} de oro, ${p.damage_dealt} de daño a campeones, ${p.damage_taken} recibido, visión ${p.vision_score}, ${p.control_wards} wards de control, en el ${pctText(killShare(d, p))} de las kills de mi equipo, ${Math.round(p.time_dead_s)}s muerto en ${Math.round(minutes)} min.`,
+      `Me: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} minions (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} gold, ${p.damage_dealt} damage to champions, ${p.damage_taken} taken, vision score ${p.vision_score}, ${controlWards(p, stats)} control wards, in ${pctText(killShare(d, p))} of my team's kills, ${Math.round(p.time_dead_s)}s dead in ${Math.round(minutes)} min.`,
+      `Yo: ${p.kills}/${p.deaths}/${p.assists}, ${p.cs} súbditos (${perMinute(p.cs, d.duration_s)}/min), ${p.gold} de oro, ${p.damage_dealt} de daño a campeones, ${p.damage_taken} recibido, visión ${p.vision_score}, ${controlWards(p, stats)} wards de control, en el ${pctText(killShare(d, p))} de las kills de mi equipo, ${Math.round(p.time_dead_s)}s muerto en ${Math.round(minutes)} min.`,
     ),
     items ? t(`My items: ${items}.`, `Mis objetos: ${items}.`) : "",
     timeline.length ? `${timeline.join("; ")}.` : "",
