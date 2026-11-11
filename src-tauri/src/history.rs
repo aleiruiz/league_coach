@@ -37,6 +37,18 @@ const THROWN_LEAD_GOLD: i32 = 1500;
 
 // ---------- Riot payloads (only the fields used) ----------
 
+/// For the parts of Match-V5 that change shape between patches (teams,
+/// runes, challenges): an unexpected value there leaves that part empty
+/// instead of failing the whole game, and with it the sync.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchDto {
@@ -61,7 +73,78 @@ struct MatchInfo {
     queue_id: u32,
     #[serde(default)]
     map_id: u32,
+    /// "16.22.712.6634".
+    #[serde(default)]
+    game_version: String,
     participants: Vec<ParticipantDto>,
+    #[serde(default, deserialize_with = "lenient")]
+    teams: Vec<TeamDto>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct TeamDto {
+    team_id: u32,
+    win: bool,
+    bans: Vec<BanDto>,
+    /// baron, champion, dragon, horde, inhibitor, riftHerald, tower, atakhan.
+    objectives: HashMap<String, ObjectiveDto>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct BanDto {
+    /// -1 when the turn passed without a ban.
+    champion_id: i32,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ObjectiveDto {
+    first: bool,
+    kills: u32,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct PerksDto {
+    styles: Vec<PerkStyleDto>,
+    stat_perks: StatPerksDto,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PerkStyleDto {
+    style: u32,
+    selections: Vec<PerkSelectionDto>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PerkSelectionDto {
+    perk: u32,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct StatPerksDto {
+    offense: u32,
+    flex: u32,
+    defense: u32,
+}
+
+/// The few of Riot's precomputed `challenges` the match page uses. Riot
+/// sends some as floats and some as integers, so all are read as floats.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct ChallengesDto {
+    solo_kills: Option<f32>,
+    kill_participation: Option<f32>,
+    lane_minions_first10_minutes: Option<f32>,
+    turret_plates_taken: Option<f32>,
+    max_cs_advantage_on_lane_opponent: Option<f32>,
+    epic_monster_steals: Option<f32>,
+    control_wards_placed: Option<f32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -84,6 +167,34 @@ struct ParticipantDto {
     vision_wards_bought_in_game: u32,
     total_damage_dealt_to_champions: u64,
     game_ended_in_early_surrender: bool,
+    riot_id_game_name: String,
+    riot_id_tagline: String,
+    summoner_name: String,
+    champ_level: u32,
+    gold_earned: u32,
+    total_damage_taken: u64,
+    item0: u32,
+    item1: u32,
+    item2: u32,
+    item3: u32,
+    item4: u32,
+    item5: u32,
+    item6: u32,
+    summoner1_id: u32,
+    summoner2_id: u32,
+    #[serde(deserialize_with = "lenient")]
+    perks: PerksDto,
+    largest_multi_kill: u32,
+    double_kills: u32,
+    triple_kills: u32,
+    quadra_kills: u32,
+    penta_kills: u32,
+    first_blood_kill: bool,
+    first_blood_assist: bool,
+    turret_kills: u32,
+    total_time_spent_dead: u32,
+    #[serde(deserialize_with = "lenient")]
+    challenges: Option<ChallengesDto>,
 }
 
 #[derive(Deserialize)]
@@ -764,6 +875,237 @@ pub fn parse_report(text: &str, games: &[GameStats]) -> Result<Report, String> {
     })
 }
 
+// ---------- full match details (the Games screen) ----------
+
+/// Everything the Games list and the match page show about one game: all ten
+/// players and both teams. Built from the same Match-V5 call as `GameStats`.
+/// No PUUIDs are kept: `is_me` marks the player.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MatchDetail {
+    pub id: String,
+    /// Community patch name, e.g. "26.22".
+    pub patch: String,
+    pub queue_id: u32,
+    pub duration_s: u64,
+    /// Unix time in ms.
+    pub ended_at: i64,
+    pub teams: Vec<TeamDetail>,
+    /// Blue team (100) first, then red (200); each in Riot's order.
+    pub players: Vec<PlayerDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct TeamDetail {
+    /// 100 blue, 200 red.
+    pub team_id: u32,
+    pub win: bool,
+    /// Numeric champion ids (Data Dragon `key`); passed turns left out.
+    pub bans: Vec<u32>,
+    pub objectives: Objectives,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Objectives {
+    pub champion: u32,
+    pub tower: u32,
+    pub inhibitor: u32,
+    pub dragon: u32,
+    pub baron: u32,
+    pub rift_herald: u32,
+    pub horde: u32,
+    pub atakhan: u32,
+    pub first_blood: bool,
+    pub first_tower: bool,
+    pub first_dragon: bool,
+    pub first_baron: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PlayerDetail {
+    pub name: String,
+    pub tag: String,
+    pub is_me: bool,
+    pub team_id: u32,
+    /// TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY (or empty).
+    pub position: String,
+    pub champion: String,
+    pub level: u32,
+    pub kills: u32,
+    pub deaths: u32,
+    pub assists: u32,
+    pub cs: u32,
+    pub gold: u32,
+    pub damage_dealt: u64,
+    pub damage_taken: u64,
+    pub vision_score: f32,
+    pub wards_placed: u32,
+    pub wards_killed: u32,
+    pub control_wards: u32,
+    /// item0..item6 (slot 6 is the trinket); 0 is an empty slot.
+    pub items: Vec<u32>,
+    /// Numeric summoner spell ids (Data Dragon `key`).
+    pub spells: Vec<u32>,
+    pub primary_style: u32,
+    pub secondary_style: u32,
+    /// Keystone first, then the other primary runes, then the secondary ones.
+    pub runes: Vec<u32>,
+    pub shards: Vec<u32>,
+    pub largest_multikill: u32,
+    pub double_kills: u32,
+    pub triple_kills: u32,
+    pub quadra_kills: u32,
+    pub penta_kills: u32,
+    /// Got the first kill of the game, or helped.
+    pub first_blood: bool,
+    pub turret_kills: u32,
+    pub time_dead_s: u32,
+    pub solo_kills: Option<u32>,
+    pub kill_participation: Option<f32>,
+    /// Lane minions by 10:00.
+    pub lane_cs_10: Option<u32>,
+    pub turret_plates: Option<u32>,
+    pub max_cs_lead: Option<u32>,
+    pub epic_steals: Option<u32>,
+}
+
+fn whole(x: Option<f32>) -> Option<u32> {
+    x.map(|v| v.max(0.0).round() as u32)
+}
+
+fn player_detail(p: &ParticipantDto, puuid: &str) -> PlayerDetail {
+    let ch = p.challenges.as_ref();
+    let style = |i: usize| p.perks.styles.get(i);
+    let runes = p
+        .perks
+        .styles
+        .iter()
+        .take(2)
+        .flat_map(|s| s.selections.iter().map(|x| x.perk))
+        .collect();
+    let sp = &p.perks.stat_perks;
+    let name = if p.riot_id_game_name.is_empty() {
+        p.summoner_name.clone()
+    } else {
+        p.riot_id_game_name.clone()
+    };
+    PlayerDetail {
+        name,
+        tag: p.riot_id_tagline.clone(),
+        is_me: !puuid.is_empty() && p.puuid == puuid,
+        team_id: p.team_id,
+        position: p.team_position.clone(),
+        champion: p.champion_name.clone(),
+        level: p.champ_level,
+        kills: p.kills,
+        deaths: p.deaths,
+        assists: p.assists,
+        cs: p.total_minions_killed + p.neutral_minions_killed,
+        gold: p.gold_earned,
+        damage_dealt: p.total_damage_dealt_to_champions,
+        damage_taken: p.total_damage_taken,
+        vision_score: round1(p.vision_score),
+        wards_placed: p.wards_placed,
+        wards_killed: p.wards_killed,
+        control_wards: whole(ch.and_then(|c| c.control_wards_placed))
+            .unwrap_or(p.vision_wards_bought_in_game),
+        items: vec![
+            p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6,
+        ],
+        spells: vec![p.summoner1_id, p.summoner2_id],
+        primary_style: style(0).map_or(0, |s| s.style),
+        secondary_style: style(1).map_or(0, |s| s.style),
+        runes,
+        shards: [sp.offense, sp.flex, sp.defense]
+            .into_iter()
+            .filter(|x| *x != 0)
+            .collect(),
+        largest_multikill: p.largest_multi_kill,
+        double_kills: p.double_kills,
+        triple_kills: p.triple_kills,
+        quadra_kills: p.quadra_kills,
+        penta_kills: p.penta_kills,
+        first_blood: p.first_blood_kill || p.first_blood_assist,
+        turret_kills: p.turret_kills,
+        time_dead_s: p.total_time_spent_dead,
+        solo_kills: whole(ch.and_then(|c| c.solo_kills)),
+        kill_participation: ch.and_then(|c| c.kill_participation).map(round2),
+        lane_cs_10: whole(ch.and_then(|c| c.lane_minions_first10_minutes)),
+        turret_plates: whole(ch.and_then(|c| c.turret_plates_taken)),
+        max_cs_lead: whole(ch.and_then(|c| c.max_cs_advantage_on_lane_opponent)),
+        epic_steals: whole(ch.and_then(|c| c.epic_monster_steals)),
+    }
+}
+
+fn team_detail(t: &TeamDto) -> TeamDetail {
+    let o = |k: &str| t.objectives.get(k);
+    let kills = |k: &str| o(k).map_or(0, |x| x.kills);
+    let first = |k: &str| o(k).is_some_and(|x| x.first);
+    TeamDetail {
+        team_id: t.team_id,
+        win: t.win,
+        bans: t
+            .bans
+            .iter()
+            .filter_map(|b| u32::try_from(b.champion_id).ok().filter(|id| *id > 0))
+            .collect(),
+        objectives: Objectives {
+            champion: kills("champion"),
+            tower: kills("tower"),
+            inhibitor: kills("inhibitor"),
+            dragon: kills("dragon"),
+            baron: kills("baron"),
+            rift_herald: kills("riftHerald"),
+            horde: kills("horde"),
+            atakhan: kills("atakhan"),
+            first_blood: first("champion"),
+            first_tower: first("tower"),
+            first_dragon: first("dragon"),
+            first_baron: first("baron"),
+        },
+    }
+}
+
+/// The match page's data for one game, seen from `puuid`'s side.
+pub fn match_detail(m: &MatchDto, puuid: &str) -> MatchDetail {
+    let info = &m.info;
+    let mut players: Vec<PlayerDetail> = info
+        .participants
+        .iter()
+        .map(|p| player_detail(p, puuid))
+        .collect();
+    // Stable: keeps Riot's order (top to support) inside each team.
+    players.sort_by_key(|p| p.team_id);
+    let mut teams: Vec<TeamDetail> = info.teams.iter().map(team_detail).collect();
+    teams.sort_by_key(|t| t.team_id);
+    MatchDetail {
+        id: m.metadata.match_id.clone(),
+        patch: ddragon::patch_name(&info.game_version),
+        queue_id: info.queue_id,
+        duration_s: info.game_duration,
+        ended_at: info.game_end_timestamp,
+        teams,
+        players,
+    }
+}
+
+impl MatchDetail {
+    /// A PUUID cached under another API key matches no one (Riot encrypts
+    /// them per key): fall back to the Riot ID.
+    fn mark_me_by_riot_id(&mut self, name: &str, tag: &str) {
+        if self.players.iter().any(|p| p.is_me) {
+            return;
+        }
+        let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
+        if let Some(p) = self
+            .players
+            .iter_mut()
+            .find(|p| same(&p.name, name) && same(&p.tag, tag))
+        {
+            p.is_me = true;
+        }
+    }
+}
+
 // ---------- local storage ----------
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -777,6 +1119,30 @@ struct Store {
     /// Newest first.
     #[serde(default)]
     reports: Vec<SavedReport>,
+    /// Full details of the games in `games`, by match id. Games synced
+    /// before details were kept are filled in by `fill_match_details`.
+    #[serde(default)]
+    details: HashMap<String, MatchDetail>,
+    /// Stored games Riot no longer has details for: not asked for again.
+    #[serde(default)]
+    no_details: Vec<String>,
+}
+
+impl Store {
+    /// Keeps only the details of games still in the cache.
+    fn prune_details(&mut self) {
+        let kept: HashSet<String> = self.games.iter().map(|g| g.id.clone()).collect();
+        self.details.retain(|id, _| kept.contains(id));
+        self.no_details.retain(|id| kept.contains(id));
+    }
+
+    fn missing_details(&self) -> Vec<String> {
+        self.games
+            .iter()
+            .filter(|g| !self.details.contains_key(&g.id) && !self.no_details.contains(&g.id))
+            .map(|g| g.id.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -927,6 +1293,113 @@ pub fn match_history(app: AppHandle) -> HistoryView {
         previous: store.reports.get(1).cloned(),
         games: store.games,
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct GamesView {
+    pub configured: bool,
+    /// Newest first; only games whose details are stored.
+    pub games: Vec<MatchDetail>,
+    /// Stored games still without details (synced before they were kept).
+    pub missing: usize,
+}
+
+/// The Games screen: every stored game with its full details.
+#[tauri::command]
+pub fn match_details(app: AppHandle) -> GamesView {
+    let profile = riot::load_profile(&app);
+    if !profile.is_complete() {
+        return GamesView {
+            configured: false,
+            games: Vec::new(),
+            missing: 0,
+        };
+    }
+    let mut store = load_store(&app, &profile.store_id());
+    let missing = store.missing_details().len();
+    let games = store
+        .games
+        .iter()
+        .filter_map(|g| store.details.remove(&g.id))
+        .collect();
+    GamesView {
+        configured: true,
+        games,
+        missing,
+    }
+}
+
+/// Reads the full details of stored games that don't have them yet (games
+/// synced before details were kept): one Match-V5 request per game.
+#[tauri::command]
+pub async fn fill_match_details(
+    app: AppHandle,
+    lock: State<'_, Lock>,
+    on_event: Channel<ChatEvent>,
+) -> Result<usize, SyncError> {
+    let Ok(_guard) = lock.0.try_lock() else {
+        return Err(SyncError {
+            kind: "transient",
+            message: tr(
+                "Already checking for games.",
+                "Ya se están buscando partidas.",
+            )
+            .into(),
+        });
+    };
+    let mut profile = riot::load_profile(&app);
+    if !profile.is_complete() {
+        return Ok(0);
+    }
+    let store_id = profile.store_id();
+    let mut store = load_store(&app, &store_id);
+    let missing = store.missing_details();
+    if missing.is_empty() {
+        return Ok(0);
+    }
+    let region = riot::find_region(&profile.region).expect("checked by is_complete");
+    let client = riot::Client::new(region)?;
+    let puuid = match profile.puuid.clone() {
+        Some(p) => p,
+        None => {
+            let p = client.puuid(&profile.game_name, &profile.tag_line).await?;
+            profile.puuid = Some(p.clone());
+            riot::save_profile(&app, &profile)?;
+            p
+        }
+    };
+    let total = missing.len();
+    let mut filled = 0;
+    for (i, id) in missing.iter().enumerate() {
+        let _ = on_event.send(ChatEvent::Status {
+            text: format!(
+                "{} {}/{total}…",
+                tr("Reading game details", "Leyendo detalles de la partida"),
+                i + 1
+            ),
+        });
+        let m: MatchDto = match client.match_detail(id).await {
+            Ok(m) => m,
+            // Gone from Riot: the row keeps its summary only, and isn't
+            // counted as missing again.
+            Err(RiotError::NotFound) => {
+                store.no_details.push(id.clone());
+                continue;
+            }
+            Err(e) => {
+                // Keep what was already read.
+                save_store(&app, &store_id, &store)?;
+                return Err(e.into());
+            }
+        };
+        let mut d = match_detail(&m, &puuid);
+        d.mark_me_by_riot_id(&profile.game_name, &profile.tag_line);
+        store.details.insert(id.clone(), d);
+        filled += 1;
+    }
+    store.prune_details();
+    save_store(&app, &store_id, &store)?;
+    Ok(filled)
 }
 
 /// Why a sync failed. `setup`: the player must fix something in Settings
@@ -1081,12 +1554,16 @@ pub async fn sync_matches(
             }
         };
         if let Some(g) = compute(&m, timeline.as_ref(), &puuid, &legendary) {
+            let mut d = match_detail(&m, &puuid);
+            d.mark_me_by_riot_id(&profile.game_name, &profile.tag_line);
+            store.details.insert(g.id.clone(), d);
             store.games.push(g);
             new_games += 1;
         }
     }
     store.games.sort_by_key(|g| std::cmp::Reverse(g.ended_at));
     store.games.truncate(KEEP_GAMES);
+    store.prune_details();
     let skip_from = store.skipped.len().saturating_sub(200);
     store.skipped.drain(..skip_from);
     save_store(&app, &store_id, &store)?;
@@ -1286,6 +1763,167 @@ mod tests {
             ));
         }
         serde_json::from_value(json!({"info": {"frames": frames}})).unwrap()
+    }
+
+    fn detailed_match() -> MatchDto {
+        let mut ps = vec![];
+        for pid in 1..=10u32 {
+            let team = if pid <= 5 { 100 } else { 200 };
+            let mut p = participant(pid, team, "MIDDLE", "Ahri", pid);
+            let o = p.as_object_mut().unwrap();
+            o.insert("riotIdGameName".into(), json!(format!("Player{pid}")));
+            o.insert("riotIdTagline".into(), json!("LAN"));
+            o.insert("goldEarned".into(), json!(10_000 + pid));
+            o.insert("totalDamageTaken".into(), json!(20_000));
+            o.insert("champLevel".into(), json!(16));
+            for slot in 0..7 {
+                o.insert(
+                    format!("item{slot}"),
+                    json!(if slot == 6 { 3340 } else { 3000 + slot }),
+                );
+            }
+            o.insert("summoner1Id".into(), json!(4));
+            o.insert("summoner2Id".into(), json!(14));
+            o.insert("tripleKills".into(), json!(u32::from(pid == 1)));
+            o.insert(
+                "largestMultiKill".into(),
+                json!(if pid == 1 { 3 } else { 1 }),
+            );
+            o.insert(
+                "perks".into(),
+                json!({"statPerks": {"offense": 5008, "flex": 5008, "defense": 5011},
+                       "styles": [
+                         {"description": "primaryStyle", "style": 8100,
+                          "selections": [{"perk": 8112}, {"perk": 8139}, {"perk": 8138}, {"perk": 8135}]},
+                         {"description": "subStyle", "style": 8300,
+                          "selections": [{"perk": 8304}, {"perk": 8347}]}]}),
+            );
+            if pid == 1 {
+                o.insert(
+                    "challenges".into(),
+                    json!({"soloKills": 2, "killParticipation": 0.6123,
+                           "laneMinionsFirst10Minutes": 81, "controlWardsPlaced": 0}),
+                );
+            }
+            ps.push(p);
+        }
+        // Riot's order isn't guaranteed: put a red player first.
+        ps.rotate_left(7);
+        let v = json!({
+            "metadata": {"matchId": "LA1_9"},
+            "info": {"gameDuration": 1800, "gameEndTimestamp": 1_700_000_000_000i64,
+                     "queueId": 420, "mapId": 11, "gameVersion": "16.22.712.6634",
+                     "participants": ps,
+                     "teams": [
+                        {"teamId": 200, "win": false, "bans": [{"championId": 64}, {"championId": -1}],
+                         "objectives": {"tower": {"first": false, "kills": 3}}},
+                        {"teamId": 100, "win": true, "bans": [{"championId": 103}],
+                         "objectives": {"tower": {"first": true, "kills": 10},
+                                        "dragon": {"first": true, "kills": 2},
+                                        "champion": {"first": true, "kills": 50},
+                                        "horde": {"first": false, "kills": 3}}}]}
+        });
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn keeps_full_details_for_all_ten_players() {
+        let d = match_detail(&detailed_match(), "p1");
+        assert_eq!(d.patch, "26.22");
+        assert_eq!(d.duration_s, 1800);
+        assert_eq!(d.players.len(), 10);
+        // Blue first, Riot's order kept inside each team.
+        let names: Vec<&str> = d.players.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            &names[..5],
+            ["Player1", "Player2", "Player3", "Player4", "Player5"]
+        );
+        assert!(d.players[5..].iter().all(|p| p.team_id == 200));
+        let me = &d.players[0];
+        assert!(me.is_me && d.players.iter().filter(|p| p.is_me).count() == 1);
+        assert_eq!(me.items, [3000, 3001, 3002, 3003, 3004, 3005, 3340]);
+        assert_eq!(me.spells, [4, 14]);
+        assert_eq!((me.primary_style, me.secondary_style), (8100, 8300));
+        assert_eq!(me.runes, [8112, 8139, 8138, 8135, 8304, 8347]);
+        assert_eq!(me.shards, [5008, 5008, 5011]);
+        assert_eq!(me.cs, 160);
+        assert_eq!((me.solo_kills, me.lane_cs_10), (Some(2), Some(81)));
+        assert_eq!(me.kill_participation, Some(0.61));
+        // Riot's control wards placed wins over the bought count.
+        assert_eq!(me.control_wards, 0);
+        assert_eq!((me.triple_kills, me.largest_multikill), (1, 3));
+        // Without challenges, the bought count and None.
+        assert_eq!(d.players[1].control_wards, 3);
+        assert_eq!(d.players[1].solo_kills, None);
+        // Teams: blue first, passed bans dropped, missing objectives are 0.
+        assert_eq!(d.teams[0].team_id, 100);
+        assert_eq!(d.teams[0].bans, [103]);
+        assert_eq!(d.teams[1].bans, [64]);
+        let o = &d.teams[0].objectives;
+        assert_eq!((o.tower, o.dragon, o.horde, o.baron), (10, 2, 3, 0));
+        assert!(o.first_tower && o.first_blood && !o.first_baron);
+    }
+
+    #[test]
+    fn odd_teams_runes_or_challenges_dont_break_the_game() {
+        let mut v = serde_json::to_value(json!({
+            "metadata": {"matchId": "LA1_7"},
+            "info": {"gameDuration": 1600, "queueId": 420, "mapId": 11,
+                     "teams": "unexpected",
+                     "participants": [participant(1, 100, "MIDDLE", "Ahri", 4)]}
+        }))
+        .unwrap();
+        let p = &mut v["info"]["participants"][0];
+        p["perks"] = json!({"styles": "??"});
+        p["challenges"] = json!({"soloKills": "many"});
+        let m: MatchDto = serde_json::from_value(v).unwrap();
+        let d = match_detail(&m, "p1");
+        assert!(d.teams.is_empty());
+        assert!(d.players[0].runes.is_empty() && d.players[0].solo_kills.is_none());
+        assert_eq!(d.players[0].kills, 4);
+    }
+
+    #[test]
+    fn finds_me_by_riot_id_when_the_puuid_is_from_another_key() {
+        let mut d = match_detail(&detailed_match(), "stale-puuid");
+        assert!(d.players.iter().all(|p| !p.is_me));
+        d.mark_me_by_riot_id("player7", "lan");
+        let me: Vec<&str> = d
+            .players
+            .iter()
+            .filter(|p| p.is_me)
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(me, ["Player7"]);
+        // Already found: nothing changes.
+        d.mark_me_by_riot_id("Player2", "LAN");
+        assert_eq!(d.players.iter().filter(|p| p.is_me).count(), 1);
+    }
+
+    #[test]
+    fn details_follow_the_kept_games() {
+        let mut store = Store::default();
+        store.games.push(GameStats {
+            id: "A".into(),
+            ..Default::default()
+        });
+        store.games.push(GameStats {
+            id: "B".into(),
+            ..Default::default()
+        });
+        store.details.insert("A".into(), MatchDetail::default());
+        store.details.insert("OLD".into(), MatchDetail::default());
+        assert_eq!(store.missing_details(), ["B"]);
+        // One Riot no longer has stops counting as missing.
+        store.no_details.push("B".into());
+        store.no_details.push("OLD".into());
+        assert!(store.missing_details().is_empty());
+        store.prune_details();
+        assert_eq!(store.details.keys().collect::<Vec<_>>(), ["A"]);
+        assert_eq!(store.no_details, ["B"]);
+        // Old stores without the field still load.
+        let old: Store = serde_json::from_str(r#"{"games": [], "reports": []}"#).unwrap();
+        assert!(old.details.is_empty());
     }
 
     #[test]
