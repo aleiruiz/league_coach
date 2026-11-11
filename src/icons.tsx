@@ -23,7 +23,7 @@ export function RoleIcon({ role, size = 18 }: { role: Role; size?: number }) {
   );
 }
 
-type NavName = "draft" | "progress" | "coach" | "models" | "settings";
+type NavName = "draft" | "progress" | "games" | "coach" | "models" | "settings";
 
 export function NavIcon({ name }: { name: NavName }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -38,6 +38,13 @@ export function NavIcon({ name }: { name: NavName }) {
       <svg {...common}>
         <path d="M4 19 h16 M6 16 l4 -5 3 3 5 -7" />
         <path d="M15 7 h3 v3" />
+      </svg>
+    );
+  if (name === "games")
+    return (
+      <svg {...common}>
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <path d="M8 9h8M8 13h8M8 17h5" />
       </svg>
     );
   if (name === "coach")

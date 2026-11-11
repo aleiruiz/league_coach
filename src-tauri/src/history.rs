@@ -1339,7 +1339,7 @@ pub async fn fill_match_details(
 ) -> Result<usize, SyncError> {
     let Ok(_guard) = lock.0.try_lock() else {
         return Err(SyncError {
-            kind: "transient",
+            kind: "busy",
             message: tr(
                 "Already checking for games.",
                 "Ya se están buscando partidas.",
@@ -1404,6 +1404,7 @@ pub async fn fill_match_details(
 
 /// Why a sync failed. `setup`: the player must fix something in Settings
 /// (no key, expired key, unknown Riot ID). `transient`: try again later.
+/// `busy`: another check is already running (not an error to show in red).
 #[derive(Debug, Serialize, PartialEq)]
 pub struct SyncError {
     pub kind: &'static str,
@@ -1450,7 +1451,7 @@ pub async fn sync_matches(
     // instead of queueing behind it.
     let Ok(_guard) = lock.0.try_lock() else {
         return Err(SyncError {
-            kind: "transient",
+            kind: "busy",
             message: tr(
                 "Already checking for games.",
                 "Ya se están buscando partidas.",

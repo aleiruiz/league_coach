@@ -115,12 +115,14 @@ export function syncMatches(onEvent: (ev: ChatEvent) => void) {
 }
 
 /** Error from `sync_matches`. `setup`: something to fix in Settings. */
-export type SyncError = { kind: "setup" | "transient"; message: string };
+/** `busy`: another check is already running, which is not an error. */
+export type SyncError = { kind: "setup" | "transient" | "busy"; message: string };
 
 export function asSyncError(e: unknown): SyncError {
   if (e && typeof e === "object" && "message" in e && "kind" in e) {
     const x = e as { kind: unknown; message: unknown };
-    return { kind: x.kind === "setup" ? "setup" : "transient", message: String(x.message) };
+    const kind = x.kind === "setup" || x.kind === "busy" ? x.kind : "transient";
+    return { kind, message: String(x.message) };
   }
   return { kind: "transient", message: String(e) };
 }
