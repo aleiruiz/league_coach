@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Champion, GameData, gameData } from "./game";
-import type { PlayerDetail } from "./games";
+import type { PlayerDetail } from "./matchDetails";
 import { Lang, t } from "./i18n";
 
 /** Images by Riot's ids: champions by name, spells and runes by number. */

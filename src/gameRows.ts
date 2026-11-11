@@ -1,7 +1,7 @@
 // What the Games list shows for each game, worked out from the stored details.
 // Pure functions: the screen only lays them out.
 
-import type { MatchDetail, PlayerDetail } from "./games";
+import type { MatchDetail, PlayerDetail } from "./matchDetails";
 import type { GameStats } from "./history";
 import { t } from "./i18n";
 

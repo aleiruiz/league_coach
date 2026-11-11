@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { AskButton } from "./AskPanel";
 import { Art, ChampPic, champName, Items, Pic } from "./gameArt";
 import { formatCompared, GameDetail } from "./GameDetail";
-import type { MatchDetail, PlayerDetail } from "./games";
+import type { MatchDetail, PlayerDetail } from "./matchDetails";
 import { bests, duration, gameFacts, kdaRatio, killShare, matchTitleParts, me, pctText, perMinute, queueName, won } from "./gameRows";
 import { standouts } from "./gameSummary";
 import { GameStats, roleName } from "./history";
