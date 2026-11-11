@@ -495,7 +495,10 @@ function DraftView({
                         className="cs-role"
                         aria-label={t("Your role", "Tu rol")}
                         value={d.role}
-                        onChange={(e) => setD((s) => changeRole(s, e.currentTarget.value as Role))}
+                        onChange={(e) => {
+                          const role = e.currentTarget.value as Role;
+                          setD((s) => changeRole(s, role));
+                        }}
                       >
                         {ROLES.map((r) => (
                           <option key={r.id} value={r.id}>
