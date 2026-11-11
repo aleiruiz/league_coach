@@ -224,14 +224,21 @@ function treeLine(card: Card): string {
   return s ? t(`${p}, with ${s} second`, `${p}, con ${s} de secundaria`) : p;
 }
 
-/** Runes as a keystone and a list of names; the full page is one click away. */
+/** One rune or shard in the summary: its icon, then its name. */
+function RuneLine({ r, size }: { r: Ref; size: number }) {
+  return (
+    <li className={r.valid ? undefined : "error"}>
+      <Icon r={r} size={size} caption={false} />
+      <span>{r.name}</span>
+    </li>
+  );
+}
+
+/** Runes as a keystone and every rune with its icon; the full page is one click away. */
 function RunesSummary({ card, trees, shards }: { card: Card; trees: RuneTree[]; shards: Shard[][] }) {
   const [full, setFull] = useState(false);
   const r = card.runes;
-  const shardText = r.shards
-    .filter((s) => s.valid)
-    .map((s) => s.name)
-    .join(", ");
+  const shardRefs = r.shards.filter((s) => s.valid);
   return (
     <div className="sheet-block">
       <h5>{t("Runes", "Runas")}</h5>
@@ -243,22 +250,24 @@ function RunesSummary({ card, trees, shards }: { card: Card; trees: RuneTree[]; 
         </div>
       </div>
       <div className="rune-list">
-        <ul>
+        <ul aria-label={r.primary_tree.name || t("Primary runes", "Runas principales")}>
           {r.primary.map((x, i) => (
-            <li key={i} className={x.valid ? undefined : "error"}>
-              {x.name}
-            </li>
+            <RuneLine key={i} r={x} size={32} />
           ))}
         </ul>
-        <ul>
+        <ul aria-label={r.secondary_tree.name || t("Secondary runes", "Runas secundarias")}>
           {r.secondary.map((x, i) => (
-            <li key={i} className={x.valid ? undefined : "error"}>
-              {x.name}
-            </li>
+            <RuneLine key={i} r={x} size={32} />
           ))}
-          {shardText && <li className="muted">{shardText}</li>}
         </ul>
       </div>
+      {shardRefs.length > 0 && (
+        <ul className="rune-shards" aria-label={t("Stat shards", "Fragmentos de estadísticas")}>
+          {shardRefs.map((x, i) => (
+            <RuneLine key={i} r={x} size={22} />
+          ))}
+        </ul>
+      )}
       <button type="button" className="link-button" aria-expanded={full} onClick={() => setFull((v) => !v)}>
         {full ? t("Hide the full rune page", "Ocultar la página de runas") : t("Show the full rune page", "Ver la página de runas completa")}
       </button>
@@ -282,7 +291,7 @@ function IconGroup({ title, refs }: { title: string; refs: Ref[] }) {
 }
 
 function Abilities({ card, champion }: { card: Card; champion?: Champion }) {
-  const [grid, setGrid] = useState(false);
+  const [grid, setGrid] = useState(true);
   const { max, first_levels } = card.skill_order;
   if (max.length === 0) return null;
   const first = parseKeys(first_levels);

@@ -1150,10 +1150,11 @@ a.inline-link {
   overflow-x: auto;
 }
 
+/* All 18 levels fit in the build sheet's half width, no hidden scroll. */
 .skill-line {
   display: grid;
-  grid-template-columns: 28px repeat(18, minmax(22px, 1fr));
-  gap: 3px;
+  grid-template-columns: 20px repeat(18, minmax(16px, 1fr));
+  gap: 2px;
 }
 
 .skill-key {
@@ -2784,10 +2785,52 @@ button.tab.on {
 .rune-list ul {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.rune-list li,
+.rune-shards li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rune-list li .icon,
+.rune-shards li .icon {
+  margin: 0;
+  flex: none;
+}
+
+.rune-list li .icon img {
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+ul.rune-shards {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* The sheet's list spacing (li + li) would push all but the first shard down. */
+ul.rune-shards li {
+  margin: 0;
+}
+
+.rune-shards li .icon img {
+  border-radius: 50%;
+  background: var(--bg);
+  padding: 2px;
 }
 
 .sheet-pair {
