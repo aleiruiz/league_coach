@@ -2433,239 +2433,10 @@ button.small-button {
   margin: 4px 0 0;
 }
 
-.picks {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  margin-top: 22px;
-}
-
-.step-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.step-num {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--bg);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.big-pick {
-  position: relative;
-}
-
-.big-pick-main {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  min-height: 104px;
-  padding: 16px 18px;
-  background: var(--panel);
-  color: var(--text);
-  border: 1px dashed var(--line-2);
-  border-radius: 10px;
-  text-align: left;
-  font-weight: 400;
-}
-
-.big-pick-main:hover {
-  border-color: var(--muted);
-}
-
-.big-pick.filled .big-pick-main {
-  border-style: solid;
-  border-width: 2px;
-}
-
-.big-pick.me.filled .big-pick-main {
-  border-color: var(--gold);
-}
-
-.big-pick.enemy.filled .big-pick-main {
-  border-color: var(--enemy);
-}
-
-.big-pick-main img,
-.big-pick-main .plus {
-  width: 72px;
-  height: 72px;
-  border-radius: 8px;
-  flex: none;
-}
-
-.big-pick-main .plus {
-  display: grid;
-  place-items: center;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 26px;
-}
-
-.big-pick-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.big-pick-text strong {
-  font-size: 20px;
-}
-
-.big-pick:not(.filled) .big-pick-text strong {
-  font-size: 15px;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.big-pick .slot-x {
-  top: 6px;
-}
-
-.role-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 16px 18px;
-  min-height: 104px;
-  align-content: center;
-  background: var(--panel);
-  border-radius: 10px;
-}
-
-/* Selected state in neutral light: teal is kept for the main action. */
-.role-chips button.chip {
-  border-radius: 6px;
-  padding: 8px 14px;
-}
-
-.role-chips button.chip.on {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg);
-}
-
-.get-build {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: 26px 0 8px;
-}
-
 button.big-button {
   padding: 14px 34px;
   font-size: 17px;
   border-radius: 8px;
-}
-
-.rest {
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid var(--line);
-}
-
-.rest-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.rest-head h3 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.rest-head p {
-  margin: 4px 0 0;
-}
-
-.rest-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.rest-teams {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-  margin-top: 16px;
-}
-
-.rest-teams h4 {
-  margin: 0 0 8px;
-  font-size: 12px;
-}
-
-.ally-t {
-  color: var(--ally);
-}
-
-.enemy-t {
-  color: var(--enemy);
-}
-
-.mini-slots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.mini-pick {
-  position: relative;
-}
-
-.mini-pick-main {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  padding: 0;
-  background: transparent;
-  color: var(--muted);
-  border: 1px dashed var(--line-2);
-  border-radius: 8px;
-  overflow: hidden;
-  font-size: 20px;
-  font-weight: 400;
-}
-
-.mini-pick-main:hover {
-  border-color: var(--muted);
-  color: var(--text);
-}
-
-.mini-pick.filled .mini-pick-main {
-  border: none;
-}
-
-.mini-pick-main img {
-  width: 100%;
-  height: 100%;
-}
-
-.mini-pick .slot-x {
-  top: -8px;
-  right: -8px;
-  background: var(--bg);
-  border-radius: 50%;
-  padding: 0 6px;
-  line-height: 20px;
 }
 
 .notes {
@@ -4104,4 +3875,303 @@ button.ask-close:hover {
 .match .game-detail {
   padding: 0;
   border-top: 0;
+}
+
+/* ---------- Next game as champ select: both teams by role, the matchup in the middle ---------- */
+.draft {
+  container-type: inline-size;
+}
+
+.cs-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cs {
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(200px, 250px);
+  gap: 18px;
+  align-items: start;
+  margin-top: 14px;
+}
+
+.cs-team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cs-team h3 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  color: var(--ally);
+}
+
+.cs-team.enemy h3 {
+  color: var(--enemy);
+  text-align: right;
+}
+
+.cs-row {
+  position: relative;
+}
+
+.cs-row-main {
+  width: 100%;
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+}
+
+.cs-row.enemy .cs-row-main {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.cs-row-main:hover {
+  border-color: var(--line-2);
+  filter: none;
+}
+
+.cs-row-main img,
+.cs-row-main .plus {
+  width: 60px;
+  height: 60px;
+  flex: none;
+  border-radius: 8px;
+}
+
+.cs-row-main .plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line-2);
+  color: var(--dim);
+  font-size: 22px;
+}
+
+.cs-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cs-row.enemy .cs-row-text {
+  align-items: flex-end;
+}
+
+.cs-row-text strong {
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-row:not(.filled) .cs-row-text strong {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.cs-row-role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cs-row.enemy .cs-row-role {
+  flex-direction: row-reverse;
+}
+
+.cs-badge {
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cs-badge.you {
+  background: var(--gold);
+  color: #1c1503;
+}
+
+.cs-badge.lane {
+  background: var(--enemy);
+  color: #1f0507;
+}
+
+.cs-badge.picking {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.cs-row.me .cs-row-main {
+  border: 2px solid var(--gold);
+}
+
+.cs-row.lane .cs-row-main {
+  border: 2px solid var(--enemy);
+}
+
+.cs-row.selected .cs-row-main {
+  border: 2px solid var(--text);
+}
+
+.cs-row-actions {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cs-row.enemy .cs-row-actions {
+  right: auto;
+  left: 6px;
+  flex-direction: row-reverse;
+}
+
+.cs-row-actions .slot-x {
+  position: static;
+}
+
+.cs-row-actions .link-button {
+  font-size: 12px;
+  opacity: 0;
+}
+
+.cs-row:hover .cs-row-actions .link-button,
+.cs-row-actions .link-button:focus-visible {
+  opacity: 1;
+}
+
+.cs-center {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cs-matchup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.cs-vs {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto auto minmax(0, auto);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cs-face {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--gold);
+  color: var(--dim);
+  font-size: 22px;
+}
+
+.cs-face.enemy {
+  border-color: var(--enemy);
+}
+
+.cs-face.empty {
+  border-style: dashed;
+  border-color: var(--line-2);
+}
+
+.cs-face img {
+  width: 100%;
+  height: 100%;
+}
+
+.cs-vs-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Names wrap rather than cut off ("Your champion", "Not picked"). */
+.cs-vs-text strong {
+  font-size: 20px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.cs-role {
+  align-self: flex-start;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
+.cs-against {
+  padding: 0 4px;
+}
+
+.cs-build {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.picker.inline {
+  width: auto;
+  height: auto;
+  max-height: 560px;
+  box-shadow: none;
+}
+
+.cs-done {
+  padding: 16px 0;
+}
+
+.cs-clear {
+  align-self: flex-end;
+}
+
+/* Narrower (or with the Ask panel open): both teams side by side, the matchup and picker below. */
+@container (max-width: 860px) {
+  .cs {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cs-center {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+  .cs-row-main {
+    min-height: 64px;
+  }
+  .cs-row-main img,
+  .cs-row-main .plus {
+    width: 44px;
+    height: 44px;
+  }
 }

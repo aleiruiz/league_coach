@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyLive, damageProfile, EMPTY_DRAFT, sameDraft, setSlot, taken, toDraft, toggleLane, setLane, otherEnemies } from "./draft";
+import { allyRoles, applyLive, type DraftState, changeRole, damageProfile, EMPTY_DRAFT, laneRow, sameDraft, setEnemy, setSlot, taken, toDraft, toggleLane, setLane, otherEnemies } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -146,5 +146,36 @@ describe("lane opponent step", () => {
     expect(s.enemies[1]).toBe("Darius");
     expect(otherEnemies(s).map((x) => x.index)).toEqual([0, 2, 3, 4]);
     expect(otherEnemies(EMPTY_DRAFT).map((x) => x.index)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe("champ-select rows", () => {
+  it("puts the enemy picked in your row as your lane opponent", () => {
+    let s: DraftState = { ...EMPTY_DRAFT, role: "mid" };
+    s = setEnemy(s, 0, "Darius");
+    expect(s.lane).toBeNull();
+    s = setEnemy(s, 2, "Syndra");
+    expect(s.lane).toBe("Syndra");
+    // Replacing it moves the mark to the new pick.
+    s = setEnemy(s, 2, "Zed");
+    expect(s.lane).toBe("Zed");
+    // A lane opponent marked by hand elsewhere isn't overwritten.
+    s = toggleLane(s, "Darius");
+    s = setEnemy(s, 2, "Ahri");
+    expect(s.lane).toBe("Darius");
+  });
+
+  it("keeps allies in their rows when your role changes", () => {
+    let s: DraftState = { ...EMPTY_DRAFT, role: "top", me: "Jax" };
+    // top player: rows jungle, mid, adc, support.
+    s = { ...s, allies: ["LeeSin", "Ahri", "Jinx", "Nami"] };
+    s = { ...s, enemies: ["Darius", "Vi", "Syndra", null, null], lane: "Darius" };
+    const mid = changeRole(s, "mid");
+    // mid player: rows top, jungle, adc, support. Ahri (was mid) moves to top.
+    expect(allyRoles("mid")).toEqual(["top", "jungle", "adc", "support"]);
+    expect(mid.allies).toEqual(["Ahri", "LeeSin", "Jinx", "Nami"]);
+    expect(mid.lane).toBe("Syndra");
+    expect(changeRole(mid, "adc").lane).toBeNull();
+    expect(laneRow("support")).toBe(4);
   });
 });

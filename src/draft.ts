@@ -152,3 +152,43 @@ export function otherEnemies(s: DraftState): { id: string | null; index: number 
   const skip = at >= 0 ? at : s.enemies.indexOf(null);
   return s.enemies.map((id, index) => ({ id, index })).filter((x) => x.index !== skip);
 }
+
+/** Champ-select order of the rows: top, jungle, mid, ADC, support. */
+export const ROLE_ORDER: Role[] = ["top", "jungle", "mid", "adc", "support"];
+
+/** The roles of the four allies' rows, in order: every role but yours. */
+export function allyRoles(role: Role): Role[] {
+  return ROLE_ORDER.filter((r) => r !== role);
+}
+
+/** Row of the enemy team that plays your role (your lane, by position). */
+export function laneRow(role: Role): number {
+  return ROLE_ORDER.indexOf(role);
+}
+
+/**
+ * Picks an enemy into a row. Picked into your role's row, it becomes your
+ * lane opponent unless another enemy was already marked as one: the player
+ * put it in their lane themselves, so it isn't a guess.
+ */
+export function setEnemy(s: DraftState, index: number, id: string | null): DraftState {
+  const old = s.enemies[index];
+  const next = setSlot(s, { team: "enemy", index }, id);
+  if (id && index === laneRow(s.role) && (s.lane === null || s.lane === old)) return { ...next, lane: id };
+  return next;
+}
+
+/**
+ * Changes your role keeping everyone in their row: the ally who was in the
+ * new role's row moves to your old one. A lane opponent that was the enemy
+ * in your old row follows you to the new row (or clears when it's empty);
+ * one marked by hand in another row stays.
+ */
+export function changeRole(s: DraftState, role: Role): DraftState {
+  if (role === s.role) return s;
+  const byRole = new Map(allyRoles(s.role).map((r, i) => [r, s.allies[i]]));
+  const allies = allyRoles(role).map((r) => (r === s.role ? (byRole.get(role) ?? null) : (byRole.get(r) ?? null)));
+  const followed = s.lane !== null && s.enemies[laneRow(s.role)] === s.lane;
+  const lane = followed ? s.enemies[laneRow(role)] : s.lane;
+  return { ...s, role, allies, lane };
+}

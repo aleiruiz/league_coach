@@ -1,13 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, ROLES, RuneTree, Shard } from "./game";
+import { Champion, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES, RuneTree, Shard } from "./game";
 import { damageProfile } from "./draft";
-import { applyLive, DraftState, EMPTY_DRAFT, otherEnemies, sameDraft, setLane, setSlot, Slot, taken as takenIds, toDraft } from "./draft";
-
-/** A slot of the teams, or step 3 (the lane opponent). */
-type Pick = Slot | { team: "lane"; index: 0 };
+import {
+  allyRoles,
+  applyLive,
+  changeRole,
+  DraftState,
+  EMPTY_DRAFT,
+  laneRow,
+  ROLE_ORDER,
+  sameDraft,
+  setEnemy,
+  setSlot,
+  Slot,
+  taken as takenIds,
+  toDraft,
+  toggleLane,
+} from "./draft";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 import { AskButton, type AskContext } from "./AskPanel";
 import type { ProvidersState } from "./App";
@@ -82,59 +94,62 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
   };
 }
 
-/** Step 3's title: a jungler has no lane, it faces the other jungler. */
-function laneTitle(role: string): string {
-  return role === "jungle" ? t("Enemy jungler", "Jungla rival") : t("Who you lane against", "Contra quién vas en línea");
-}
+const roleName = (r: Role) => ROLES.find((x) => x.id === r)?.label() ?? r;
 
-/** Steps 1 and 3: a big card with the champion, or a call to pick one. */
-function BigPick({ champ, empty, tone, onClick, onClear }: {
+/** "Fill from my game" found no champ select or game: a normal state, not an error. */
+const NOT_IN_GAME = /^(You're not in|No estás en)/;
+
+/** One row of a team, as in champ select: the champion's square, its role, its name. */
+function TeamRow({
+  side,
+  role,
+  champ,
+  selected,
+  me,
+  lane,
+  onSelect,
+  onClear,
+  onMarkLane,
+}: {
+  side: "ally" | "enemy";
+  role: Role;
   champ: Champion | undefined;
-  empty: string;
-  tone: "me" | "enemy";
-  onClick: () => void;
+  selected: boolean;
+  me?: boolean;
+  lane?: boolean;
+  onSelect: () => void;
   onClear?: () => void;
+  onMarkLane?: () => void;
 }) {
+  const who = me ? t("You", "Tú") : side === "ally" ? t("Ally", "Aliado") : t("Enemy", "Rival");
+  const label = `${who}, ${roleName(role)}: ${champ ? champ.name : t("empty", "vacío")}`;
   return (
-    <div className={`big-pick ${tone}${champ ? " filled" : ""}`}>
-      <button type="button" className="big-pick-main" onClick={onClick} aria-label={champ ? t(`${champ.name}. Change`, `${champ.name}. Cambiar`) : empty}>
-        {champ ? <img src={champ.image} alt="" /> : <span className="plus">+</span>}
-        <span className="big-pick-text">
-          <strong>{champ?.name ?? empty}</strong>
-          {champ && <span className="muted small">{t("Click to change", "Clic para cambiar")}</span>}
+    <div className={`cs-row ${side}${selected ? " selected" : ""}${me ? " me" : ""}${lane ? " lane" : ""}${champ ? " filled" : ""}`}>
+      <button type="button" className="cs-row-main" onClick={onSelect} aria-pressed={selected} aria-label={label}>
+        {champ ? <img src={champ.image} alt="" /> : <span className="plus" aria-hidden="true">+</span>}
+        <span className="cs-row-text">
+          <span className="cs-row-role">
+            {roleName(role)}
+            {me && <span className="cs-badge you">{t("You", "Tú")}</span>}
+            {lane && <span className="cs-badge lane">{t("Your lane", "Tu línea")}</span>}
+            {selected && <span className="cs-badge picking">{t("Picking", "Eligiendo")}</span>}
+          </span>
+          <strong>{champ?.name ?? (me ? t("Pick your champion", "Elige tu campeón") : side === "ally" ? t("Add teammate", "Añadir aliado") : t("Add enemy", "Añadir rival"))}</strong>
         </span>
       </button>
-      {champ && onClear && (
-        <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
-          ×
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** One of the optional teammates or enemies: a small square. */
-function MiniPick({ champ, label, onClick, onClear }: {
-  champ: Champion | undefined;
-  label: string;
-  onClick: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className={champ ? "mini-pick filled" : "mini-pick"}>
-      <button
-        type="button"
-        className="mini-pick-main"
-        onClick={onClick}
-        title={champ?.name ?? label}
-        aria-label={champ ? t(`${label}: ${champ.name}. Change`, `${label}: ${champ.name}. Cambiar`) : t(`Add ${label.toLowerCase()}`, `Añadir ${label.toLowerCase()}`)}
-      >
-        {champ ? <img src={champ.image} alt="" /> : <span className="plus">+</span>}
-      </button>
-      {champ && (
-        <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
-          ×
-        </button>
+      {(onClear || onMarkLane) && (
+        <span className="cs-row-actions">
+          {onMarkLane && (
+            <button type="button" className="link-button small" onClick={onMarkLane} title={t("Lanes swapped: this is who you face", "Cambiaron de línea: este es tu rival")}>
+              {t("My lane", "Mi línea")}
+            </button>
+          )}
+          {onClear && champ && (
+            <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
+              ×
+            </button>
+          )}
+        </span>
       )}
     </div>
   );
@@ -204,11 +219,11 @@ function DraftView({
   const [dataError, setDataError] = useState<string | null>(null);
 
   const [d, setD] = useState<DraftState>(EMPTY_DRAFT);
-  const [picking, setPicking] = useState<Pick | null>(null);
-  /** Back on the three picks while a build exists ("Change picks"). */
+  /** The slot the picker fills, as in champ select (null: nothing left to pick). */
+  const [picking, setPicking] = useState<Slot | null>({ team: "me", index: 0 });
+  /** Back on the picks while a build exists ("Change picks"). */
   const [editing, setEditing] = useState(false);
-  // To give focus back to the slot when the picker closes.
-  const opener = useRef<HTMLElement | null>(null);
+  const search = useRef<HTMLInputElement>(null);
 
   const [busy, setBusy] = useState(false);
   /** Reading champ select / the live game (Refresh). */
@@ -263,21 +278,28 @@ function DraftView({
     onContext(askContext(d, rec && !stale ? rec : null, byId));
   }, [d, rec, stale, byId, lang, onContext]);
 
-  function openPicker(slot: Pick) {
-    opener.current = document.activeElement as HTMLElement | null;
+  function select(slot: Slot) {
     setPicking(slot);
+    requestAnimationFrame(() => search.current?.focus());
   }
 
-  const closePicker = useCallback(() => {
-    setPicking(null);
-    requestAnimationFrame(() => opener.current?.focus());
-  }, []);
+  /** After a pick, the next empty slot that matters most: you, your lane, then the rest by role. */
+  function nextEmpty(s: DraftState): Slot | null {
+    if (!s.me) return { team: "me", index: 0 };
+    const lane = laneRow(s.role);
+    if (!s.enemies[lane] && !s.lane) return { team: "enemy", index: lane };
+    const ally = s.allies.indexOf(null);
+    if (ally >= 0) return { team: "ally", index: ally };
+    const enemy = s.enemies.indexOf(null);
+    return enemy >= 0 ? { team: "enemy", index: enemy } : null;
+  }
 
   function pick(id: string) {
     if (!picking) return;
     const slot = picking;
-    setD((s) => (slot.team === "lane" ? setLane(s, id) : setSlot(s, slot, id)));
-    closePicker();
+    const next = slot.team === "enemy" ? setEnemy(d, slot.index, id) : setSlot(d, slot, id);
+    setD(next);
+    setPicking(nextEmpty(next));
   }
 
   /** Refresh: fill the slots from champ select or the game in progress. Never asks the model. */
@@ -288,7 +310,11 @@ function DraftView({
     try {
       const live = await currentGame();
       const ids = new Set(data.champions.map((c) => c.id));
-      setD((s) => applyLive(s, live, (id) => ids.has(id)));
+      setD((s) => {
+        const next = applyLive(s, live, (id) => ids.has(id));
+        setPicking(nextEmpty(next));
+        return next;
+      });
       setLiveNote({
         text:
           live.source === "champ_select"
@@ -300,7 +326,12 @@ function DraftView({
         error: false,
       });
     } catch (e) {
-      setLiveNote({ text: humanizeError(String(e)), error: true });
+      const text = String(e);
+      setLiveNote(
+        NOT_IN_GAME.test(text)
+          ? { text: t("Not in champion select right now. Click a slot and pick by hand.", "No estás en selección de campeones ahora mismo. Haz clic en una casilla y elige a mano."), error: false }
+          : { text: humanizeError(text), error: true },
+      );
     } finally {
       setSyncing(false);
     }
@@ -308,6 +339,7 @@ function DraftView({
 
   function reset() {
     setD(EMPTY_DRAFT);
+    setPicking({ team: "me", index: 0 });
     setLiveNote(null);
     setRec(null);
     setError(null);
@@ -349,6 +381,15 @@ function DraftView({
   }
 
   const champ = (id: string | null) => (id ? byId.get(id) : undefined);
+  const me = champ(d.me);
+  const lane = champ(d.lane);
+  const taken = takenIds(d);
+  const pickingTitle = (p: Slot) => {
+    if (p.team === "me") return t("Picking your champion", "Eligiendo tu campeón");
+    const role = p.team === "ally" ? allyRoles(d.role)[p.index] : ROLE_ORDER[p.index];
+    const r = role === "adc" ? "ADC" : roleName(role).toLowerCase();
+    return p.team === "ally" ? t(`Picking your ${r}`, `Eligiendo a tu ${r}`) : t(`Picking the enemy ${r}`, `Eligiendo al ${r} rival`);
+  };
   const showSheet = !!rec && !editing;
   const getBuild = busy ? (
     <button className="danger big-button" onClick={() => requestId.current && cancelPrompt(requestId.current)}>
@@ -374,138 +415,149 @@ function DraftView({
           <header className="moment-head">
             <div>
               <h2>{t("Next game", "Próxima partida")}</h2>
-              <p className="muted">{t("Three picks and you get your build.", "Tres elecciones y tienes tu build.")}</p>
+              <p className={liveNote?.error ? "error small" : "muted"} role="status">
+                {liveNote?.text ??
+                  t("Click a slot and pick, or fill both teams from your champ select.", "Haz clic en una casilla y elige, o rellena ambos equipos con tu selección de campeones.")}
+              </p>
             </div>
-            <button
-              className="secondary"
-              onClick={refreshFromGame}
-              disabled={busy || syncing}
-              title={t(
-                "Fill the champions from your champ select (League client on this computer) or your game in progress (Riot API). It doesn't ask the coach anything.",
-                "Rellena los campeones con tu selección de campeones (cliente de League en esta computadora) o tu partida en curso (API de Riot). No le pregunta nada al coach.",
-              )}
-            >
-              {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
-            </button>
-            <AskButton onClick={onAsk} />
+            <div className="cs-head-actions">
+              <button
+                className="secondary"
+                onClick={refreshFromGame}
+                disabled={busy || syncing}
+                title={t(
+                  "Fill the champions from your champ select (League client on this computer) or your game in progress (Riot API). It doesn't ask the coach anything.",
+                  "Rellena los campeones con tu selección de campeones (cliente de League en esta computadora) o tu partida en curso (API de Riot). No le pregunta nada al coach.",
+                )}
+              >
+                {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
+              </button>
+              <AskButton onClick={onAsk} />
+            </div>
           </header>
-          {liveNote && (
-            <p className={liveNote.error ? "error small" : "muted small"} role="status">
-              {liveNote.text}
-            </p>
-          )}
           {data.notice && <p className="muted small">{data.notice}</p>}
 
-          <div className="picks">
-            <div className="pick-step">
-              <h3 className="step-title">
-                <span className="step-num">1</span> {t("Your champion", "Tu campeón")}
-              </h3>
-              <BigPick
-                champ={champ(d.me)}
-                empty={t("Pick your champion", "Elige tu campeón")}
-                tone="me"
-                onClick={() => openPicker({ team: "me", index: 0 })}
-              />
-            </div>
-            <div className="pick-step">
-              <h3 className="step-title" id="role-title">
-                <span className="step-num">2</span> {t("Your role", "Tu rol")}
-              </h3>
-              <div className="role-chips" role="radiogroup" aria-labelledby="role-title">
-                {ROLES.map((r) => (
-                  <button
-                    key={r.id}
-                    role="radio"
-                    aria-checked={d.role === r.id}
-                    className={d.role === r.id ? "chip on" : "chip"}
-                    onClick={() => setD((s) => ({ ...s, role: r.id }))}
-                  >
-                    {r.label()}
+          <div className="cs">
+            <section className="cs-team ally" aria-labelledby="cs-ally">
+              <h3 id="cs-ally">{t("Your team", "Tu equipo")}</h3>
+              {ROLE_ORDER.map((r) => {
+                if (r === d.role) {
+                  return (
+                    <TeamRow
+                      key={r}
+                      side="ally"
+                      role={r}
+                      me
+                      champ={champ(d.me)}
+                      selected={picking?.team === "me"}
+                      onSelect={() => select({ team: "me", index: 0 })}
+                    />
+                  );
+                }
+                const i = allyRoles(d.role).indexOf(r);
+                return (
+                  <TeamRow
+                    key={r}
+                    side="ally"
+                    role={r}
+                    champ={champ(d.allies[i])}
+                    selected={picking?.team === "ally" && picking.index === i}
+                    onSelect={() => select({ team: "ally", index: i })}
+                    onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
+                  />
+                );
+              })}
+            </section>
+
+            <div className="cs-center">
+              <section className="cs-matchup" aria-label={t("Your matchup", "Tu enfrentamiento")}>
+                <div className="cs-vs">
+                  <span className={`cs-face me${me ? "" : " empty"}`}>{me ? <img src={me.image} alt="" /> : "+"}</span>
+                  <span className="cs-vs-text">
+                    <label className="muted small" htmlFor="cs-role">
+                      {t("You,", "Tú,")}
+                    </label>{" "}
+                    <select id="cs-role" className="cs-role" value={d.role} onChange={(e) => setD((s) => changeRole(s, e.currentTarget.value as Role))}>
+                      {ROLES.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label()}
+                        </option>
+                      ))}
+                    </select>
+                    <strong>{me?.name ?? t("Your champion", "Tu campeón")}</strong>
+                  </span>
+                  <span className="muted cs-against">{t("against", "contra")}</span>
+                  <span className={`cs-face enemy${lane ? "" : " empty"}`}>{lane ? <img src={lane.image} alt="" /> : "?"}</span>
+                  <span className="cs-vs-text">
+                    <span className="muted small">{d.role === "jungle" ? t("Enemy jungler", "Jungla rival") : t("Your lane", "Tu línea")}</span>
+                    <strong>{lane?.name ?? t("Not picked", "Sin elegir")}</strong>
+                  </span>
+                </div>
+                <div className="cs-build">
+                  {getBuild}
+                  <span className="muted small">
+                    {!d.me
+                      ? t("Pick at least your champion.", "Elige al menos tu campeón.")
+                      : busy
+                        ? (status ?? t("Preparing the build…", "Preparando la build…"))
+                        : t("About 20 seconds. Adapts to everyone picked.", "Unos 20 segundos. Se adapta a todos los elegidos.")}
+                  </span>
+                  {rec && !busy && (
+                    <button type="button" className="link-button" onClick={() => setEditing(false)}>
+                      {stale ? t("See the previous build", "Ver la build anterior") : t("Back to your build", "Volver a tu build")}
+                    </button>
+                  )}
+                </div>
+              </section>
+              <div aria-live="polite">{error && <p className="error">⚠ {error}</p>}</div>
+              {busy && !rec ? (
+                <BuildCardSkeleton />
+              ) : picking ? (
+                <ChampionPicker
+                  inline
+                  searchRef={search}
+                  champions={data.champions}
+                  taken={takenIds(d)}
+                  title={pickingTitle(picking)}
+                  onPick={pick}
+                />
+              ) : (
+                <p className="muted cs-done">
+                  {t("Both teams are in. Click any slot to change it.", "Ambos equipos están listos. Haz clic en una casilla para cambiarla.")}{" "}
+                  <button type="button" className="link-button" onClick={reset} disabled={busy}>
+                    {t("Clear all", "Borrar todo")}
                   </button>
-                ))}
-              </div>
+                </p>
+              )}
             </div>
-            <div className="pick-step">
-              <h3 className="step-title">
-                <span className="step-num">3</span> {laneTitle(d.role)}
-              </h3>
-              <BigPick
-                champ={champ(d.lane)}
-                empty={d.role === "jungle" ? t("Pick the enemy jungler", "Elige al jungla rival") : t("Pick your lane opponent", "Elige a tu rival de línea")}
-                tone="enemy"
-                onClick={() => openPicker({ team: "lane", index: 0 })}
-                onClear={d.lane ? () => setD((s) => setLane(s, null)) : undefined}
-              />
-            </div>
-          </div>
 
-          <div className="get-build">
-            {getBuild}
-            <span className="muted small">
-              {!d.me
-                ? t("Pick at least your champion.", "Elige al menos tu campeón.")
-                : busy
-                  ? status ?? t("Preparing the build…", "Preparando la build…")
-                  : t("Takes about 20 seconds.", "Tarda unos 20 segundos.")}
-            </span>
-            {rec && !busy && (
-              <button type="button" className="link-button" onClick={() => setEditing(false)}>
-                {stale ? t("See the previous build", "Ver la build anterior") : t("Back to your build", "Volver a tu build")}
-              </button>
-            )}
-          </div>
-          <div aria-live="polite">{error && <p className="error">⚠ {error}</p>}</div>
-          {busy && !rec && <BuildCardSkeleton />}
-
-          <section className="rest" aria-labelledby="rest-title">
-            <div className="rest-head">
-              <div>
-                <h3 id="rest-title">
-                  {t("Add the rest of both teams", "Añade el resto de ambos equipos")}{" "}
-                  <span className="muted">{t("(optional)", "(opcional)")}</span>
-                </h3>
-                <p className="muted small">{t("The build adapts to who else is in the game.", "La build se adapta a quién más está en la partida.")}</p>
-              </div>
-              <div className="rest-actions">
-                <button type="button" className="link-button" onClick={reset} disabled={busy}>
+            <section className="cs-team enemy" aria-labelledby="cs-enemy">
+              <h3 id="cs-enemy">{t("Enemy team", "Equipo rival")}</h3>
+              {ROLE_ORDER.map((r, i) => {
+                const id = d.enemies[i];
+                const isLane = !!id && id === d.lane;
+                return (
+                  <TeamRow
+                    key={r}
+                    side="enemy"
+                    role={r}
+                    champ={champ(id)}
+                    lane={isLane}
+                    selected={picking?.team === "enemy" && picking.index === i}
+                    onSelect={() => select({ team: "enemy", index: i })}
+                    onClear={() => setD((s) => setSlot(s, { team: "enemy", index: i }, null))}
+                    onMarkLane={id && !isLane ? () => setD((s) => toggleLane(s, id)) : undefined}
+                  />
+                );
+              })}
+              <DamageBar champs={d.enemies.flatMap((e) => (e && byId.get(e) ? [byId.get(e)!] : []))} />
+              {taken.size > 1 && (
+                <button type="button" className="link-button cs-clear" onClick={reset} disabled={busy}>
                   {t("Clear all", "Borrar todo")}
                 </button>
-              </div>
-            </div>
-
-            <div className="rest-teams">
-              <div>
-                <h4 className="ally-t">{t("Your team", "Tu equipo")}</h4>
-                <div className="mini-slots">
-                  {d.allies.map((a, i) => (
-                    <MiniPick
-                      key={i}
-                      champ={champ(a)}
-                      label={t("Ally", "Aliado")}
-                      onClick={() => openPicker({ team: "ally", index: i })}
-                      onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div>
-                <h4 className="enemy-t">{t("Enemy team", "Equipo rival")}</h4>
-                <div className="mini-slots">
-                  {otherEnemies(d).map(({ id, index }) => (
-                    <MiniPick
-                      key={index}
-                      champ={champ(id)}
-                      label={t("Enemy", "Rival")}
-                      onClick={() => openPicker({ team: "enemy", index })}
-                      onClear={() => setD((s) => setSlot(s, { team: "enemy", index }, null))}
-                    />
-                  ))}
-                </div>
-                <DamageBar champs={d.enemies.flatMap((e) => (e && byId.get(e) ? [byId.get(e)!] : []))} />
-              </div>
-            </div>
-          </section>
+              )}
+            </section>
+          </div>
         </>
       )}
 
@@ -577,28 +629,6 @@ function DraftView({
         </>
       )}
 
-      {picking && data && (
-        <ChampionPicker
-          champions={data.champions}
-          taken={
-            picking.team === "lane"
-              ? // An enemy already in the team can become the lane opponent.
-                new Set([d.me, ...d.allies].filter((x): x is string => !!x))
-              : takenIds(d)
-          }
-          title={
-            picking.team === "me"
-              ? t("Your champion", "Tu campeón")
-              : picking.team === "lane"
-                ? laneTitle(d.role)
-                : picking.team === "ally"
-                  ? t("Ally", "Aliado")
-                  : t("Enemy", "Rival")
-          }
-          onPick={pick}
-          onClose={closePicker}
-        />
-      )}
     </section>
   );
 }
