@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MatchDetail, PlayerDetail } from "./games";
+import type { MatchDetail, PlayerDetail } from "./matchDetails";
 import type { GameStats } from "./history";
 import { bests, byDay, duration, gameFacts, matchPrompt, matchTitle, kdaRatio, killShare, laneOpponent, mainChampions, me, queueName, rowTags } from "./gameRows";
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AskContext } from "./AskPanel";
 import { Art, ChampPic, champName, Items, Pic, useArt } from "./gameArt";
-import { fillMatchDetails, GamesView, MatchDetail, matchDetails } from "./games";
+import { fillMatchDetails, GamesView, MatchDetail, matchDetails } from "./matchDetails";
 import Match from "./Match";
 import {
   byDay,
