@@ -41,12 +41,12 @@ const general = () =>
   t(
     [
       "I'm playing Jax top against Darius, what build and runes?",
-      "I'm 0/3 on Ahri and their Zed is way ahead, what do I buy?",
+      "What went wrong in my last game as Ahri against Zed?",
       "How do I play Lee Sin's early game against a Kha'Zix?",
     ],
     [
       "Juego Jax top contra Darius, ¿qué build y runas?",
-      "Voy 0/3 con Ahri y su Zed está muy adelantado, ¿qué compro?",
+      "¿Qué salió mal en mi última partida con Ahri contra Zed?",
       "¿Cómo juego el early de Lee Sin contra un Kha'Zix?",
     ],
   );
@@ -147,13 +147,16 @@ function AskPanel({
     // A conversation lives in one AI: a new default starts a new one.
     const fresh = usedKind !== kind;
     const session = fresh ? null : sessionId;
-    const lastSent = fresh ? null : sentContext;
+    // Without a session the AI has nothing yet, so the context goes again.
+    const lastSent = fresh || !session ? null : sentContext;
     if (fresh) {
       setUsedKind(kind);
       setMessages([]);
     }
     const prompt = withContext(question, context, lastSent);
-    setSentContext(context?.prompt ?? null);
+    // Counted as sent only once an answer arrives: a failed or stopped
+    // question must not leave later ones without the picks and build.
+    let answered = false;
     setInput("");
     setBusy(true);
     setStatus(t("Thinking…", "Pensando…"));
@@ -168,8 +171,10 @@ function AskPanel({
       await sendPrompt(kind, prompt, session, id, (ev) => {
         if (ev.type === "session") setSessionId(ev.id);
         else if (ev.type === "status") setStatus(ev.text);
-        else if (ev.type === "error")
+        else if (ev.type === "error") {
+          answered = false;
           updateLast((m) => ({ ...m, error: humanizeError(ev.message) }));
+        }
         else if (ev.type === "done") {
           setStatus(null);
           updateLast((m) =>
@@ -184,13 +189,18 @@ function AskPanel({
                 },
           );
         } else {
-          if (ev.type === "delta" || ev.type === "message") setStatus(null);
+          if (ev.type === "delta" || ev.type === "message") {
+            setStatus(null);
+            answered = true;
+          }
           updateLast((m) => ({ ...m, text: applyEvent(m.text, ev) }));
         }
       });
     } catch (e) {
       updateLast((m) => ({ ...m, error: humanizeError(String(e)) }));
     } finally {
+      if (answered && requestId.current === id)
+        setSentContext(context?.prompt ?? null);
       requestId.current = null;
       setBusy(false);
       setStatus(null);
@@ -277,10 +287,18 @@ function AskPanel({
                     {m.text}
                   </Markdown>
                   {m.error && <p className="error">⚠ {m.error}</p>}
+                  {busy && i === messages.length - 1 && !m.text.trim() && !m.error && (
+                    <p className="ask-waiting" role="status">
+                      <span className="spinner" aria-hidden="true" />
+                      {status || t("Thinking…", "Pensando…")}
+                    </p>
+                  )}
                 </div>
               ),
             )}
-            {status && <p className="muted small">{status}</p>}
+            {status && busy && messages[messages.length - 1]?.text.trim() && (
+              <p className="muted small">{status}</p>
+            )}
             <div ref={bottom} />
           </div>
 
@@ -313,8 +331,8 @@ function AskPanel({
           >
             <label htmlFor="ask-input" className="muted small">
               {t(
-                "Your question, or how the game is going",
-                "Tu pregunta, o cómo va la partida",
+                "Your question about this matchup or your games",
+                "Tu pregunta sobre este enfrentamiento o tus partidas",
               )}
             </label>
             <div className="ask-row">
@@ -324,8 +342,8 @@ function AskPanel({
                 rows={2}
                 value={input}
                 placeholder={t(
-                  "e.g. I'm 0/2 and their jungler keeps coming top",
-                  "p. ej. voy 0/2 y su jungla no deja de venir a top",
+                  "e.g. What should I focus on next game?",
+                  "p. ej. ¿En qué me enfoco la próxima partida?",
                 )}
                 onChange={(e) => setInput(e.currentTarget.value)}
                 onKeyDown={(e) => {
@@ -339,9 +357,12 @@ function AskPanel({
                 <button
                   type="button"
                   className="danger"
-                  onClick={() =>
-                    requestId.current && cancelPrompt(requestId.current)
-                  }
+                  onClick={() => {
+                    // A stopped question doesn't count as having sent the context.
+                    const id = requestId.current;
+                    requestId.current = null;
+                    if (id) cancelPrompt(id);
+                  }}
                 >
                   {t("Stop", "Detener")}
                 </button>

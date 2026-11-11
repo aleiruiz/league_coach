@@ -76,8 +76,8 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
     image: me.image,
     prompt: lines.filter(Boolean).join("\n"),
     suggestions: t(
-      ["How do I play levels 1 to 3?", "When do I group?", "I'm ahead, what changes?", "I'm behind, what changes?"],
-      ["¿Cómo juego los niveles 1 a 3?", "¿Cuándo agrupo?", "Voy adelante, ¿qué cambia?", "Voy atrás, ¿qué cambia?"],
+      ["How do I play levels 1 to 3?", "When is my power spike?", "Where is their jungler likely to start?", "What does this matchup punish?"],
+      ["¿Cómo juego los niveles 1 a 3?", "¿Cuándo es mi pico de poder?", "¿Por dónde suele empezar su jungla?", "¿Qué castiga este enfrentamiento?"],
     ),
   };
 }

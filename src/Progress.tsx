@@ -49,7 +49,7 @@ function champName(id: string, byId: Map<string, Champion>): string {
 /** "Orianna vs Yasuo, Nov 9": a game named the way the player remembers it. */
 function gameName(g: GameStats, byId: Map<string, Champion>, lang: Lang, date = true): string {
   const vs = g.opponent ? ` vs ${champName(g.opponent, byId)}` : "";
-  return `${champName(g.champion, byId)}${vs}${date && g.ended_at ? `, ${gameDate(g, lang)}` : ""}`;
+  return `${champName(g.champion, byId)}${vs}${date && g.ended_at ? ` (${gameDate(g, lang)})` : ""}`;
 }
 
 /** The one thing to work on: what, the drill, the goal and how it's going. */
@@ -430,9 +430,9 @@ function Progress({
   // The review cites games as G1, G2…; the screen names them instead.
   const refNames = useMemo(
     () =>
-      (latest?.game_refs ?? []).map((id, i) => {
+      (latest?.game_refs ?? []).map((id) => {
         const g = view.games.find((x) => x.id === id);
-        return g ? gameName(g, byId, lang) : `G${i + 1}`;
+        return g ? gameName(g, byId, lang) : t("an older game", "una partida anterior");
       }),
     [latest, view.games, byId, lang],
   );

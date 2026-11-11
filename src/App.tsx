@@ -76,8 +76,18 @@ function App() {
   const [patch, setPatch] = useState<string | null>(null);
   // "Ask the coach": a panel over Next game and Improve, told what each shows.
   const [askOpen, setAskOpen] = useState(false);
-  const openAsk = useCallback(() => setAskOpen(true), []);
-  const closeAsk = useCallback(() => setAskOpen(false), []);
+  // Closing the panel puts keyboard focus back on the button that opened it.
+  const askOpener = useRef<HTMLElement | null>(null);
+  const openAsk = useCallback(() => {
+    askOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAskOpen(true);
+  }, []);
+  const closeAsk = useCallback(() => {
+    setAskOpen(false);
+    const el = askOpener.current;
+    askOpener.current = null;
+    if (el?.isConnected) requestAnimationFrame(() => el.focus());
+  }, []);
   const [contexts, setContexts] = useState<{ draft: AskContext | null; progress: AskContext | null }>({ draft: null, progress: null });
   const draftContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, draft: c })), []);
   const progressContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, progress: c })), []);
@@ -135,7 +145,7 @@ function App() {
   // them in place: the draft and the chat are kept, and the draft view
   // reloads the game data in the new language (champion ids don't change).
   return (
-    <div className="app">
+    <div className={askOpen && view !== "settings" ? "app ask-open" : "app"}>
       <nav className="sidebar">
         <h1 className="brand">
           <span className="brand-mark" aria-hidden="true">
