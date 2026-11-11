@@ -8,7 +8,8 @@ import { applyLive, DraftState, EMPTY_DRAFT, otherEnemies, sameDraft, setLane, s
 
 /** A slot of the teams, or step 3 (the lane opponent). */
 type Pick = Slot | { team: "lane"; index: 0 };
-import { applyEvent, cancelPrompt, humanizeError, pickKind, ProviderKind, sendPrompt } from "./providers";
+import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
+import { AskButton, type AskContext } from "./AskPanel";
 import type { ProvidersState } from "./App";
 import { Lang, t } from "./i18n";
 
@@ -34,6 +35,51 @@ function cardFailure(e: string): string {
   }
   // Usage limit, expired session, failing CLI…: the real reason matters.
   return t(`I couldn't build the card: ${humanizeError(e)}`, `No pude armar la tarjeta: ${humanizeError(e)}`);
+}
+
+/** "Jax top against Darius" and what the AI should know about the game and its build. */
+export function askContext(d: DraftState, rec: Result | null, byId: Map<string, Champion>): AskContext | null {
+  const me = d.me ? byId.get(d.me) : undefined;
+  if (!me) return null;
+  const name = (id: string | null) => (id ? (byId.get(id)?.name ?? id) : null);
+  const role = ROLES.find((r) => r.id === d.role)?.label() ?? d.role;
+  const lane = name(d.lane);
+  const label = lane
+    ? t(`${me.name} ${role.toLowerCase()} against ${lane}`, `${me.name} ${role.toLowerCase()} contra ${lane}`)
+    : `${me.name} ${role.toLowerCase()}`;
+  const list = (ids: (string | null)[]) => ids.map(name).filter(Boolean).join(", ");
+  const lines = [
+    t("Context from League Coach (not my question):", "Contexto de League Coach (no es mi pregunta):"),
+    t(`I'm playing ${me.name} ${role}.`, `Juego ${me.name} ${role}.`),
+    lane ? t(`My lane opponent is ${lane}.`, `Mi rival de línea es ${lane}.`) : "",
+    list(d.allies) ? t(`My team: ${list(d.allies)}.`, `Mi equipo: ${list(d.allies)}.`) : "",
+    list(d.enemies) ? t(`Enemy team: ${list(d.enemies)}.`, `Equipo rival: ${list(d.enemies)}.`) : "",
+  ];
+  if (rec && !rec.card_error) {
+    const c = rec.card;
+    const items = [...c.core_items, ...(c.boots.name ? [c.boots] : [])].map((r) => r.name).join(", ");
+    lines.push(
+      t(
+        `The build you gave me: ${c.runes.keystone.name} (${c.runes.primary_tree.name}/${c.runes.secondary_tree.name}), ${c.summoner_spells.map((r) => r.name).join(" + ")}, items in order: ${items}. Skill max order: ${c.skill_order.max.join(" > ")}.`,
+        `La build que me diste: ${c.runes.keystone.name} (${c.runes.primary_tree.name}/${c.runes.secondary_tree.name}), ${c.summoner_spells.map((r) => r.name).join(" + ")}, objetos en orden: ${items}. Orden de maximizar: ${c.skill_order.max.join(" > ")}.`,
+      ),
+    );
+  }
+  lines.push(
+    t(
+      "Answer in plain text (not JSON), short and direct, as a few bullets.",
+      "Responde en texto normal (no JSON), corto y directo, en unas pocas viñetas.",
+    ),
+  );
+  return {
+    label,
+    image: me.image,
+    prompt: lines.filter(Boolean).join("\n"),
+    suggestions: t(
+      ["How do I play levels 1 to 3?", "When is my power spike?", "Where is their jungler likely to start?", "What does this matchup punish?"],
+      ["¿Cómo juego los niveles 1 a 3?", "¿Cuándo es mi pico de poder?", "¿Por dónde suele empezar su jungla?", "¿Qué castiga este enfrentamiento?"],
+    ),
+  };
 }
 
 /** Step 3's title: a jungler has no lane, it faces the other jungler. */
@@ -138,6 +184,8 @@ function DraftView({
   onBusy,
   onGoToModels,
   onPatch,
+  onAsk,
+  onContext,
 }: {
   providers: ProvidersState;
   lang: Lang;
@@ -145,6 +193,10 @@ function DraftView({
   onGoToModels: () => void;
   /** Tells the sidebar which patch the champion data is from. */
   onPatch?: (patch: string) => void;
+  /** Opens "Ask the coach". */
+  onAsk: () => void;
+  /** What Ask should know about this screen (null: nothing picked yet). */
+  onContext: (c: AskContext | null) => void;
 }) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
@@ -165,8 +217,6 @@ function DraftView({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rec, setRec] = useState<Result | null>(null);
-  const [followUp, setFollowUp] = useState("");
-  const [answers, setAnswers] = useState<{ q: string; a: string; error?: string }[]>([]);
   const requestId = useRef<string | null>(null);
   const top = useRef<HTMLElement>(null);
   // The build replaces the picks (and back): start at the top of the screen.
@@ -207,6 +257,11 @@ function DraftView({
   const draft = toDraft(d);
   // The build no longer matches what is on screen.
   const stale = !!rec && !sameDraft(rec.draft, draft);
+
+  // Ask the coach knows the picks and, once there is one, the build.
+  useEffect(() => {
+    onContext(askContext(d, rec && !stale ? rec : null, byId));
+  }, [d, rec, stale, byId, lang, onContext]);
 
   function openPicker(slot: Pick) {
     opener.current = document.activeElement as HTMLElement | null;
@@ -255,7 +310,6 @@ function DraftView({
     setD(EMPTY_DRAFT);
     setLiveNote(null);
     setRec(null);
-    setAnswers([]);
     setError(null);
     setEditing(false);
   }
@@ -268,7 +322,6 @@ function DraftView({
     setBusy(true);
     setError(null);
     setRec(null);
-    setAnswers([]);
     setStatus(t("Preparing the build…", "Preparando la build…"));
     try {
       const r = await recommendBuild(usedKind, draft, id, (ev) => {
@@ -278,41 +331,6 @@ function DraftView({
       setEditing(false);
     } catch (e) {
       setError(humanizeError(String(e)));
-    } finally {
-      requestId.current = null;
-      setBusy(false);
-      setStatus(null);
-    }
-  }
-
-  async function ask() {
-    const q = followUp.trim();
-    // Keep going with the model that made the build: the session is its own.
-    if (!q || !rec?.session_id || stale || busy) return;
-    setFollowUp("");
-    setBusy(true);
-    setAnswers((a) => [...a, { q, a: "" }]);
-    const update = (f: (x: { q: string; a: string; error?: string }) => { q: string; a: string; error?: string }) =>
-      setAnswers((a) => [...a.slice(0, -1), f(a[a.length - 1])]);
-    const id = crypto.randomUUID();
-    requestId.current = id;
-    try {
-      await sendPrompt(
-        rec.kind,
-        `${q}\n\n(Answer in plain text, not JSON.)`,
-        rec.session_id,
-        id,
-        (ev) => {
-          if (ev.type === "status") setStatus(ev.text);
-          else if (ev.type === "error") update((x) => ({ ...x, error: humanizeError(ev.message) }));
-          else if (ev.type !== "session" && ev.type !== "done") {
-            setStatus(null);
-            update((x) => ({ ...x, a: applyEvent(x.a, ev) }));
-          }
-        },
-      );
-    } catch (e) {
-      update((x) => ({ ...x, error: humanizeError(String(e)) }));
     } finally {
       requestId.current = null;
       setBusy(false);
@@ -369,6 +387,7 @@ function DraftView({
             >
               {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
             </button>
+            <AskButton onClick={onAsk} />
           </header>
           {liveNote && (
             <p className={liveNote.error ? "error small" : "muted small"} role="status">
@@ -486,21 +505,6 @@ function DraftView({
                 <DamageBar champs={d.enemies.flatMap((e) => (e && byId.get(e) ? [byId.get(e)!] : []))} />
               </div>
             </div>
-            <label className="notes">
-              <span className="small muted">{t("Anything else the coach should know? (optional)", "¿Algo más que el coach deba saber? (opcional)")}</span>
-              <textarea
-                rows={2}
-                placeholder={t(
-                  "e.g. I'm 0/2, their jungler camps my lane a lot",
-                  "p. ej. voy 0/2, su jungla campea mucho mi línea",
-                )}
-                value={d.notes}
-                onChange={(e) => {
-                  const notes = e.currentTarget.value;
-                  setD((s) => ({ ...s, notes }));
-                }}
-              />
-            </label>
           </section>
         </>
       )}
@@ -566,56 +570,10 @@ function DraftView({
               retried={rec.retried}
               onRetry={busy || stale ? undefined : recommend}
               onChangePicks={() => setEditing(true)}
+              onAsk={onAsk}
             />
           )}
 
-          {rec.session_id && !stale && (
-            <section className="follow-up">
-              <h4>{t("Ask more about this game", "Preguntar más sobre esta partida")}</h4>
-              {answers.map((x, i) => (
-                <div key={i} className="qa">
-                  <p className="q">{x.q}</p>
-                  <div className="bubble assistant">
-                    <SafeMarkdown>{x.a}</SafeMarkdown>
-                    {x.error && <p className="error">⚠ {x.error}</p>}
-                  </div>
-                </div>
-              ))}
-              <form
-                className="composer"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  ask();
-                }}
-              >
-                <textarea
-                  aria-label={t("Question about the build", "Pregunta sobre la build")}
-                  rows={2}
-                  placeholder={t(
-                    "What if their ADC gets ahead? When do I go for Herald?",
-                    "¿Y si su ADC se adelanta? ¿Cuándo voy por el Heraldo?",
-                  )}
-                  value={followUp}
-                  onChange={(e) => setFollowUp(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      ask();
-                    }
-                  }}
-                />
-                {busy ? (
-                  <button type="button" className="danger" onClick={() => requestId.current && cancelPrompt(requestId.current)}>
-                    {t("Stop", "Detener")}
-                  </button>
-                ) : (
-                  <button type="submit" disabled={!followUp.trim()}>
-                    {t("Ask", "Preguntar")}
-                  </button>
-                )}
-              </form>
-            </section>
-          )}
         </>
       )}
 

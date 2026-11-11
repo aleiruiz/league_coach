@@ -90,16 +90,15 @@ describe("damageProfile", () => {
 
 describe("applyLive", () => {
   const known = (id: string) => id !== "Unknown";
-  const base = { ...EMPTY_DRAFT, notes: "jungle camps my lane" };
+  const base = EMPTY_DRAFT;
 
-  it("fills role, me and both teams, keeping notes and never guessing the lane opponent", () => {
+  it("fills role, me and both teams, never guessing the lane opponent", () => {
     const s = applyLive(base, { source: "game", role: null, me: "Kayn", allies: ["Darius", "Ahri"], enemies: ["Khazix", "Unknown"] }, known);
     expect(s.role).toBe(base.role);
     expect(s.me).toBe("Kayn");
     expect(s.allies).toEqual(["Darius", "Ahri", null, null]);
     expect(s.enemies).toEqual(["Khazix", null, null, null, null]);
     expect(s.lane).toBeNull();
-    expect(s.notes).toBe("jungle camps my lane");
   });
 
   it("keeps typed enemies until champ select reveals them, and the lane star if it's still there", () => {

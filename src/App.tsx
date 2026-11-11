@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Chat from "./Chat";
+import AskPanel, { type AskContext } from "./AskPanel";
 import DraftView from "./DraftView";
 import Progress from "./Progress";
 import Settings, { LegalNotice } from "./Settings";
@@ -10,9 +10,7 @@ import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
-type View = "draft" | "progress" | "coach" | "settings";
-
-/** "Claude (Claude Code)" → "Claude": the program name is in Settings. */
+type View = "draft" | "progress" | "settings";
 
 /** The two moments the app is for: before a game and after it. */
 const nav = (): { view: "draft" | "progress"; label: string; hint: string }[] => [
@@ -76,6 +74,23 @@ function App() {
     setPreferredState(kind);
   }, []);
   const [patch, setPatch] = useState<string | null>(null);
+  // "Ask the coach": a panel over Next game and Improve, told what each shows.
+  const [askOpen, setAskOpen] = useState(false);
+  // Closing the panel puts keyboard focus back on the button that opened it.
+  const askOpener = useRef<HTMLElement | null>(null);
+  const openAsk = useCallback(() => {
+    askOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAskOpen(true);
+  }, []);
+  const closeAsk = useCallback(() => {
+    setAskOpen(false);
+    const el = askOpener.current;
+    askOpener.current = null;
+    if (el?.isConnected) requestAnimationFrame(() => el.focus());
+  }, []);
+  const [contexts, setContexts] = useState<{ draft: AskContext | null; progress: AskContext | null }>({ draft: null, progress: null });
+  const draftContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, draft: c })), []);
+  const progressContext = useCallback((c: AskContext | null) => setContexts((s) => ({ ...s, progress: c })), []);
   const providers: ProvidersState = { list, loading, error, refresh, preferred, setPreferred };
   const signedIn = list.filter((p) => p.logged_in);
   const aiInUse = signedIn.find((p) => p.kind === pickKind(signedIn, preferred)) ?? null;
@@ -130,7 +145,7 @@ function App() {
   // them in place: the draft and the chat are kept, and the draft view
   // reloads the game data in the new language (champion ids don't change).
   return (
-    <div className="app">
+    <div className={askOpen && view !== "settings" ? "app ask-open" : "app"}>
       <nav className="sidebar">
         <h1 className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -143,7 +158,9 @@ function App() {
             key={n.view}
             className={view === n.view ? "nav active" : "nav"}
             aria-current={view === n.view ? "page" : undefined}
-            onClick={() => setView(n.view)}
+            onClick={() => {
+              setView(n.view);
+            }}
           >
             <NavIcon name={n.view} />
             <span className="nav-text">
@@ -152,14 +169,6 @@ function App() {
             </span>
           </button>
         ))}
-        <button
-          className={view === "coach" ? "nav active" : "nav"}
-          aria-current={view === "coach" ? "page" : undefined}
-          onClick={() => setView("coach")}
-        >
-          <NavIcon name="coach" />
-          {t("Ask the coach", "Preguntar al coach")}
-        </button>
         <div className="nav-spacer" />
         <div className="nav-status" aria-live="polite">
           <span className="nav-status-line">
@@ -187,6 +196,8 @@ function App() {
             onBusy={draftBusy}
             onGoToModels={() => setView("settings")}
             onPatch={setPatch}
+            onAsk={openAsk}
+            onContext={draftContext}
           />
         </div>
         <div hidden={view !== "progress"}>
@@ -197,10 +208,9 @@ function App() {
             onBusy={progressBusy}
             onGoToSettings={() => setView("settings")}
             onGoToModels={() => setView("settings")}
+            onAsk={openAsk}
+            onContext={progressContext}
           />
-        </div>
-        <div hidden={view !== "coach"}>
-          <Chat providers={providers} onBusy={coachBusy} onGoToModels={() => setView("settings")} />
         </div>
         <div hidden={view !== "settings"}>
           <Settings
@@ -213,6 +223,18 @@ function App() {
           />
         </div>
       </main>
+      {/* Kept mounted so the conversation survives closing it; only over the two moments. */}
+      <AskPanel
+        providers={providers}
+        open={askOpen && view !== "settings"}
+        context={view === "draft" ? contexts.draft : view === "progress" ? contexts.progress : null}
+        onClose={closeAsk}
+        onBusy={coachBusy}
+        onGoToSettings={() => {
+          setAskOpen(false);
+          setView("settings");
+        }}
+      />
     </div>
   );
 }

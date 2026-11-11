@@ -22,6 +22,7 @@ import {
 } from "./history";
 import { focusNumbers, nameRefs, pointMetric, plainValue, worstGames } from "./improve";
 import { Lang, t } from "./i18n";
+import { AskButton, type AskContext } from "./AskPanel";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 
 const EMPTY: HistoryView = { configured: false, games: [], summary: null, latest: null, previous: null, needs_review: false };
@@ -48,7 +49,7 @@ function champName(id: string, byId: Map<string, Champion>): string {
 /** "Orianna vs Yasuo, Nov 9": a game named the way the player remembers it. */
 function gameName(g: GameStats, byId: Map<string, Champion>, lang: Lang, date = true): string {
   const vs = g.opponent ? ` vs ${champName(g.opponent, byId)}` : "";
-  return `${champName(g.champion, byId)}${vs}${date && g.ended_at ? `, ${gameDate(g, lang)}` : ""}`;
+  return `${champName(g.champion, byId)}${vs}${date && g.ended_at ? ` (${gameDate(g, lang)})` : ""}`;
 }
 
 /** The one thing to work on: what, the drill, the goal and how it's going. */
@@ -250,6 +251,8 @@ function Progress({
   onBusy,
   onGoToSettings,
   onGoToModels,
+  onAsk,
+  onContext,
 }: {
   providers: ProvidersState;
   lang: Lang;
@@ -258,6 +261,10 @@ function Progress({
   onBusy: (busy: boolean) => void;
   onGoToSettings: () => void;
   onGoToModels: () => void;
+  /** Opens "Ask the coach". */
+  onAsk: () => void;
+  /** What Ask should know about this screen (null: no review yet). */
+  onContext: (c: AskContext | null) => void;
 }) {
   const ready = useMemo(() => providers.list.filter((p) => p.logged_in), [providers.list]);
   const [kind, setKind] = useState<ProviderKind | null>(null);
@@ -423,9 +430,9 @@ function Progress({
   // The review cites games as G1, G2…; the screen names them instead.
   const refNames = useMemo(
     () =>
-      (latest?.game_refs ?? []).map((id, i) => {
+      (latest?.game_refs ?? []).map((id) => {
         const g = view.games.find((x) => x.id === id);
-        return g ? gameName(g, byId, lang) : `G${i + 1}`;
+        return g ? gameName(g, byId, lang) : t("an older game", "una partida anterior");
       }),
     [latest, view.games, byId, lang],
   );
@@ -439,6 +446,39 @@ function Progress({
     target: named(p.target),
   }));
   const [focus, ...watch] = points;
+  const contextPrompt = focus
+    ? [
+        t("Context from League Coach (not my question):", "Contexto de League Coach (no es mi pregunta):"),
+        t(
+          `From my last ${view.games.length} games, the main thing to fix is: ${focus.title}. ${focus.evidence}`,
+          `De mis últimas ${view.games.length} partidas, lo principal a corregir es: ${focus.title}. ${focus.evidence}`,
+        ),
+        t(`My drill: ${focus.drill}`, `Mi ejercicio: ${focus.drill}`),
+        focus.target ? t(`My goal: ${focus.target}`, `Mi meta: ${focus.target}`) : "",
+        watch.length ? t(`Also watching: ${watch.map((p) => p.title).join("; ")}.`, `También vigilo: ${watch.map((p) => p.title).join("; ")}.`) : "",
+        t(
+          "Answer in plain text (not JSON), short and direct, as a few bullets.",
+          "Responde en texto normal (no JSON), corto y directo, en unas pocas viñetas.",
+        ),
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : null;
+  const focusTitle = focus?.title ?? null;
+  useEffect(() => {
+    onContext(
+      contextPrompt && focusTitle
+        ? {
+            label: focusTitle,
+            prompt: contextPrompt,
+            suggestions: t(
+              ["How do I practice this in a normal game?", "Why does this lose me games?", "What should I look for in a replay?"],
+              ["¿Cómo practico esto en una partida normal?", "¿Por qué esto me hace perder partidas?", "¿Qué miro en una repetición?"],
+            ),
+          }
+        : null,
+    );
+  }, [contextPrompt, focusTitle, lang, onContext]);
   const shown = allGames ? view.games : view.games.slice(0, 5);
 
   return (
@@ -457,8 +497,9 @@ function Progress({
             </p>
           )}
         </div>
+        <div className="update">
         {configured && (
-          <div className="update">
+          <>
             {toReview > 0 && !busy && (
               <span className="warn-text small">
                 {toReview === 1
@@ -482,8 +523,10 @@ function Progress({
                 {syncing ? t("Updating…", "Actualizando…") : t("Update", "Actualizar")}
               </button>
             )}
-          </div>
+          </>
         )}
+          <AskButton onClick={onAsk} />
+        </div>
       </header>
 
       {!loaded && <p className="muted">{t("Loading…", "Cargando…")}</p>}

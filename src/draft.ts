@@ -8,7 +8,6 @@ export type DraftState = {
   enemies: (string | null)[];
   /** Rival de línea: siempre es uno de `enemies` o null. */
   lane: string | null;
-  notes: string;
 };
 
 export type Slot = { team: "me" | "ally" | "enemy"; index: number };
@@ -19,7 +18,6 @@ export const EMPTY_DRAFT: DraftState = {
   allies: [null, null, null, null],
   enemies: [null, null, null, null, null],
   lane: null,
-  notes: "",
 };
 
 const put = (list: (string | null)[], i: number, v: string | null) => list.map((x, j) => (j === i ? v : x));
@@ -54,7 +52,8 @@ export function toDraft(s: DraftState): Draft | null {
     allies: ids(s.allies),
     enemies: ids(s.enemies),
     lane_opponent: s.lane && s.enemies.includes(s.lane) ? s.lane : null,
-    notes: s.notes.trim() || null,
+    // Free-text notes moved to the Ask panel; the build request has none.
+    notes: null,
   };
 }
 
@@ -67,8 +66,7 @@ export function sameDraft(a: Draft | null, b: Draft | null): boolean {
     a.champion === b.champion &&
     set(a.allies) === set(b.allies) &&
     set(a.enemies) === set(b.enemies) &&
-    a.lane_opponent === b.lane_opponent &&
-    a.notes === b.notes
+    a.lane_opponent === b.lane_opponent
   );
 }
 

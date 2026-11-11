@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Card, Champion, Ref, RuneTree, Shard, Stat } from "./game";
 import { currentLang, missingText, t } from "./i18n";
 import SafeMarkdown from "./SafeMarkdown";
+import { AskButton } from "./AskPanel";
 import { Key, parseKeys, skillPath, SPECIAL_R } from "./skills";
 
 const norm = (s: string) =>
@@ -425,6 +426,7 @@ type Props = {
   /** "Get a different build"; missing while it can't be asked. */
   onRetry?: () => void;
   onChangePicks: () => void;
+  onAsk: () => void;
   trees: RuneTree[];
   shards: Shard[][];
   champion?: Champion;
@@ -446,6 +448,7 @@ function BuildCard({
   retried,
   onRetry,
   onChangePicks,
+  onAsk,
   trees,
   shards,
   champion,
@@ -484,6 +487,7 @@ function BuildCard({
             {t("Change picks", "Cambiar picks")}
           </button>
         </div>
+        <AskButton onClick={onAsk} />
       </header>
       <p className="sheet-summary">{card.summary}</p>
 

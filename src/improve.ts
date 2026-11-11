@@ -44,7 +44,8 @@ export function pointMetric(p: { metric: string; title: string }): MetricKey | n
  * remembers them. `refs[i]` is the name of G(i+1); unknown refs stay.
  */
 export function nameRefs(text: string, refs: string[]): string {
-  return text.replace(/\bG(\d{1,2})\b/g, (m, n) => refs[Number(n) - 1] ?? m);
+  // A code we can't name (an older game no longer stored) is never shown raw.
+  return text.replace(/\bG(\d{1,2})\b/g, (_, n) => refs[Number(n) - 1] ?? t("an older game", "una partida anterior"));
 }
 
 /** A number in plain words: "6 behind", "1.3 per game", "62%". */

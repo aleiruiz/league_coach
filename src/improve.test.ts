@@ -40,8 +40,8 @@ describe("Improve", () => {
 
 describe("game references", () => {
   it("names G codes the way the player remembers the game", () => {
-    const refs = ["Ahri vs Syndra, Nov 9", "Orianna vs Yasuo, Nov 9"];
-    expect(nameRefs("Behind in G1 and G2; see G12.", refs)).toBe("Behind in Ahri vs Syndra, Nov 9 and Orianna vs Yasuo, Nov 9; see G12.");
+    const refs = ["Ahri vs Syndra (Nov 9)", "Orianna vs Yasuo (Nov 9)"];
+    expect(nameRefs("Behind in G1 and G2; see G12.", refs)).toBe("Behind in Ahri vs Syndra (Nov 9) and Orianna vs Yasuo (Nov 9); see an older game.");
     expect(nameRefs("GG2 stays", refs)).toBe("GG2 stays");
   });
 });
