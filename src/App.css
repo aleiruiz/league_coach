@@ -2784,10 +2784,46 @@ button.tab.on {
 .rune-list ul {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.rune-list li,
+.rune-shards li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rune-list li .icon,
+.rune-shards li .icon {
+  margin: 0;
+  flex: none;
+}
+
+.rune-list li .icon img {
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+ul.rune-shards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.rune-shards li .icon img {
+  border-radius: 50%;
+  background: var(--bg);
+  padding: 2px;
 }
 
 .sheet-pair {
