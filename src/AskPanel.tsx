@@ -108,7 +108,11 @@ function AskPanel({
   // Escape closes the panel (focus goes back to the screen).
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // A picker open beside the panel takes Escape for itself.
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" &&
+      !document.querySelector('[aria-modal="true"]') &&
+      onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
