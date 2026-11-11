@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import SafeMarkdown from "./SafeMarkdown";
 import {
   applyEvent,
   cancelPrompt,
@@ -50,23 +49,6 @@ const general = () =>
       "¿Cómo juego el early de Lee Sin contra un Kha'Zix?",
     ],
   );
-
-/** The AI's links open in the system browser, never inside the app. */
-const markdownComponents = {
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        if (href?.startsWith("https://")) openUrl(href);
-      }}
-    >
-      {children}
-    </a>
-  ),
-};
-
-const safeUrl = (url: string) => (url.startsWith("https://") ? url : "");
 
 /** What is sent: the screen's context (when it changed since the last question) and the question. */
 export function withContext(
@@ -279,12 +261,7 @@ function AskPanel({
               ) : (
                 <div key={i} className="ask-a">
                   <span className="muted small">{t("Coach", "Coach")}</span>
-                  <Markdown
-                    components={markdownComponents}
-                    urlTransform={safeUrl}
-                  >
-                    {m.text}
-                  </Markdown>
+                  <SafeMarkdown>{m.text}</SafeMarkdown>
                   {m.error && <p className="error">⚠ {m.error}</p>}
                   {busy &&
                     i === messages.length - 1 &&
