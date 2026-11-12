@@ -6,6 +6,7 @@ mod providers;
 mod recommend;
 mod riot;
 mod secrets;
+mod tierlist;
 mod usage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -45,6 +46,8 @@ pub fn run() {
             history::review_matches,
             history::match_details,
             history::fill_match_details,
+            tierlist::saved_tier_lists,
+            tierlist::fetch_tier_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while starting League Coach");

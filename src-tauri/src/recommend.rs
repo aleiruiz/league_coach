@@ -209,7 +209,7 @@ const STAT_SITES: &[(&str, &str)] = &[
 /// Parsea la URL como lo haría el navegador (WHATWG) y la acepta solo si es
 /// https, sin usuario ni puerto, y de un sitio conocido. Devuelve la URL ya
 /// normalizada: lo que se abre es exactamente lo que se validó.
-fn stat_url(raw: &str) -> Option<(url::Url, &'static str)> {
+pub(crate) fn stat_url(raw: &str) -> Option<(url::Url, &'static str)> {
     let u = url::Url::parse(raw.trim()).ok()?;
     if u.scheme() != "https"
         || !u.username().is_empty()
@@ -228,14 +228,14 @@ fn stat_url(raw: &str) -> Option<(url::Url, &'static str)> {
 
 /// Clave para comparar una URL citada con las de los resultados de búsqueda:
 /// host sin `www.` y ruta sin `/` final (sin query ni fragmento).
-fn url_key(u: &url::Url) -> String {
+pub(crate) fn url_key(u: &url::Url) -> String {
     let host = u.host_str().unwrap_or_default();
     let host = host.strip_prefix("www.").unwrap_or(host);
     format!("{host}{}", u.path().trim_end_matches('/'))
 }
 
 /// Primer `N.N` de un texto («Parche 25.22», «25.22.1» → «25.22»).
-fn patch_of(text: &str) -> Option<String> {
+pub(crate) fn patch_of(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {

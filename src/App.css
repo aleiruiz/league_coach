@@ -4206,3 +4206,165 @@ button.ask-close:hover {
     height: 44px;
   }
 }
+
+/* ---------- Champions: tier list and your mains ---------- */
+
+.champions {
+  max-width: 1180px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ch-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ch-panel-head .panel-title {
+  margin: 0;
+}
+
+.ch-face {
+  border-radius: 6px;
+  flex: none;
+}
+
+.ch-main-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.ch-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.ch-main.pinned {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
+}
+
+.ch-main-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ch-main-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.ch-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ch-roles button.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ch-source p {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
+.ch-stale {
+  color: var(--warn);
+}
+
+.ch-table {
+  margin: 12px 0 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ch-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 90px 90px 90px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.ch-row > :nth-child(n + 3) {
+  text-align: right;
+  font-weight: 700;
+}
+
+.ch-row-head {
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ch-row-head > :nth-child(n + 3) {
+  font-weight: 800;
+}
+
+.ch-tier-group {
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+}
+
+.ch-row.mine {
+  background: color-mix(in srgb, var(--gold) 9%, transparent);
+}
+
+.ch-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.ch-name .badge {
+  margin-left: 2px;
+}
+
+@media (max-width: 760px) {
+  .ch-row {
+    grid-template-columns: 40px minmax(0, 1fr) 64px 64px;
+  }
+  .ch-row > :nth-child(5) {
+    display: none;
+  }
+}
+
+.badge.mine {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 45%, transparent);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+}
