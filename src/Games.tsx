@@ -21,12 +21,12 @@ import {
   rowTags,
   won,
 } from "./gameRows";
-import { GameStats, matchHistory, riotAccount, riotIdOf, roleName, asSyncError, syncMatches } from "./history";
+import { GameStats, loadOlderMatches, matchHistory, riotAccount, riotIdOf, roleName, asSyncError, syncMatches } from "./history";
 import { plainValue } from "./improve";
 import { Lang, t } from "./i18n";
 import { humanizeError } from "./providers";
 
-const EMPTY: GamesView = { configured: false, games: [], missing: 0 };
+const EMPTY: GamesView = { configured: false, games: [], missing: 0, keep: 200 };
 const PAGE = 10;
 
 function Team({ d, teamId, art, label }: { d: MatchDetail; teamId: number; art: Art | null; label: string }) {
@@ -188,6 +188,8 @@ export default function Games({
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
   const [shown, setShown] = useState(PAGE);
   const [openGame, setOpenGame] = useState<string | null>(null);
+  // Riot had no older games the last time we asked.
+  const [noOlder, setNoOlder] = useState(false);
   // Back from a game puts focus on its row again.
   const lastOpened = useRef<string | null>(null);
 
@@ -257,6 +259,42 @@ export default function Games({
               `Riot ya no tiene los detalles de ${gone === 1 ? "1 partida antigua" : `${gone} partidas antiguas`}. ${gone === 1 ? "Conserva" : "Conservan"} su resumen en Mejorar y no se volverán a pedir.`,
             )
           : null,
+      );
+    } catch (e) {
+      failed(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Games before the oldest stored one, one page from Riot per press (about
+  // two requests per game), only when the player asks.
+  const older = async () => {
+    setBusy(true);
+    setError(null);
+    setStatus(t("Looking for older games…", "Buscando partidas anteriores…"));
+    try {
+      const r = await loadOlderMatches((ev) => ev.type === "status" && setStatus(ev.text));
+      await reload();
+      if (r.new_games > 0) {
+        onChanged();
+        setShown((n) => n + r.new_games);
+      }
+      if (r.reached_end) setNoOlder(true);
+      setStatus(
+        r.new_games > 0
+          ? t(
+              `Added ${r.new_games === 1 ? "1 older game" : `${r.new_games} older games`}.`,
+              `Se ${r.new_games === 1 ? "agregó 1 partida anterior" : `agregaron ${r.new_games} partidas anteriores`}.`,
+            )
+          : r.at_limit
+            ? t(`The app keeps your last ${view.keep} games.`, `La app guarda tus últimas ${view.keep} partidas.`)
+            : r.reached_end
+              ? t("No older Summoner's Rift games.", "No hay partidas anteriores en la Grieta.")
+              : t(
+                  "Only other modes in that stretch. Press again to look further back.",
+                  "Solo otros modos en ese tramo. Pulsa de nuevo para buscar más atrás.",
+                ),
       );
     } catch (e) {
       failed(e);
@@ -429,10 +467,18 @@ export default function Games({
         </section>
       ))}
 
-      {filtered.length > shown && (
+      {filtered.length > shown ? (
         <button type="button" className="g-older" onClick={() => setShown((n) => n + PAGE)}>
           {t("Show older games", "Ver partidas anteriores")}
         </button>
+      ) : (
+        history.length > 0 &&
+        history.length < view.keep &&
+        !noOlder && (
+          <button type="button" className="g-older" disabled={busy} onClick={older}>
+            {t("Load older games", "Cargar partidas anteriores")}
+          </button>
+        )
       )}
     </section>
   );

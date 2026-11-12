@@ -90,6 +90,8 @@ export type GamesView = {
   games: MatchDetail[];
   /** Stored games still without details (synced before details were kept). */
   missing: number;
+  /** Most games kept: "Load older games" stops there. */
+  keep: number;
 };
 
 export const matchDetails = () => invoke<GamesView>("match_details");

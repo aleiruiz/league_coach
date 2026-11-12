@@ -25,8 +25,14 @@ use crate::riot::{self, Profile, RiotError};
 const RIFT_QUEUES: &[u32] = &[400, 420, 430, 440, 480, 490];
 /// How many recent game ids each sync asks Riot for.
 const FETCH_COUNT: u32 = 20;
-/// Games kept in the local cache and shown in "My progress".
-const KEEP_GAMES: usize = 40;
+/// Games kept in the local cache and shown in Games ("Load older games"
+/// pages back until this many).
+pub const KEEP_GAMES: usize = 200;
+/// Ids of skipped games (ARAM, remakes…) remembered so they aren't read again.
+const KEEP_SKIPPED: usize = 1000;
+/// Pages of ids "Load older games" looks through for Summoner's Rift games
+/// before giving up for this press (other modes are skipped without a request each).
+const OLDER_ID_PAGES: u32 = 5;
 /// Games the model reviews (most recent first).
 const REVIEW_GAMES: usize = 20;
 /// Fewer games than this aren't a pattern.
@@ -1266,6 +1272,8 @@ pub struct HistoryView {
     pub previous: Option<SavedReport>,
     /// There are games newer than the last review.
     pub needs_review: bool,
+    /// How many of the newest games a review covers (`REVIEW_GAMES` at most).
+    pub review_size: usize,
 }
 
 fn needs_review(store: &Store) -> bool {
@@ -1291,6 +1299,7 @@ pub fn match_history(app: AppHandle) -> HistoryView {
         needs_review: needs_review(&store),
         latest: store.reports.first().cloned(),
         previous: store.reports.get(1).cloned(),
+        review_size: reviewed.len(),
         games: store.games,
     }
 }
@@ -1302,6 +1311,8 @@ pub struct GamesView {
     pub games: Vec<MatchDetail>,
     /// Stored games still without details (synced before they were kept).
     pub missing: usize,
+    /// Most games kept: "Load older games" stops there.
+    pub keep: usize,
 }
 
 /// The Games screen: every stored game with its full details.
@@ -1313,6 +1324,7 @@ pub fn match_details(app: AppHandle) -> GamesView {
             configured: false,
             games: Vec::new(),
             missing: 0,
+            keep: KEEP_GAMES,
         };
     }
     let mut store = load_store(&app, &profile.store_id());
@@ -1326,6 +1338,7 @@ pub fn match_details(app: AppHandle) -> GamesView {
         configured: true,
         games,
         missing,
+        keep: KEEP_GAMES,
     }
 }
 
@@ -1500,16 +1513,8 @@ pub async fn sync_matches(
     }
     let store_id = profile.store_id();
     let mut store = load_store(&app, &store_id);
-    let known: HashSet<&str> = store
-        .games
-        .iter()
-        .map(|g| g.id.as_str())
-        .chain(store.skipped.iter().map(String::as_str))
-        .collect();
-    let new_ids: Vec<String> = ids
-        .into_iter()
-        .filter(|id| !known.contains(id.as_str()))
-        .collect();
+    let known = known_ids(&store);
+    let new_ids: Vec<String> = ids.into_iter().filter(|id| !known.contains(id)).collect();
     if new_ids.is_empty() {
         return Ok(SyncResult {
             new_games: 0,
@@ -1521,9 +1526,33 @@ pub async fn sync_matches(
         .await
         .map(|d| legendary_items(&d))
         .unwrap_or_default();
+    let read = read_games(
+        &client, &mut store, &new_ids, &puuid, &profile, &legendary, &status,
+    )
+    .await;
+    finish_store(&mut store);
+    save_store(&app, &store_id, &store)?;
+    let new_games = read?;
+    Ok(SyncResult {
+        new_games,
+        needs_review: needs_review(&store),
+    })
+}
+/// Reads these games from Riot into the store: their numbers (with the
+/// timeline) and full details. Other modes and remakes go to `skipped`.
+/// On an error, what was read so far stays in the store.
+async fn read_games(
+    client: &riot::Client,
+    store: &mut Store,
+    ids: &[String],
+    puuid: &str,
+    profile: &Profile,
+    legendary: &HashSet<u32>,
+    status: &impl Fn(String),
+) -> Result<usize, SyncError> {
     let mut new_games = 0;
-    let total = new_ids.len();
-    for (i, id) in new_ids.iter().enumerate() {
+    let total = ids.len();
+    for (i, id) in ids.iter().enumerate() {
         status(format!(
             "{} {}/{total}…",
             tr("Reading game", "Leyendo partida"),
@@ -1536,41 +1565,180 @@ pub async fn sync_matches(
                 store.skipped.push(id.clone());
                 continue;
             }
-            Err(e) => {
-                // Keep what was already read.
-                save_store(&app, &store_id, &store)?;
-                return Err(e.into());
-            }
+            Err(e) => return Err(e.into()),
         };
-        if compute(&m, None, &puuid, &legendary).is_none() {
+        if compute(&m, None, puuid, legendary).is_none() {
             store.skipped.push(id.clone());
             continue;
         }
         let timeline: Option<TimelineDto> = match client.timeline(id).await {
             Ok(t) => Some(t),
             Err(RiotError::NotFound) => None,
-            Err(e) => {
-                save_store(&app, &store_id, &store)?;
-                return Err(e.into());
-            }
+            Err(e) => return Err(e.into()),
         };
-        if let Some(g) = compute(&m, timeline.as_ref(), &puuid, &legendary) {
-            let mut d = match_detail(&m, &puuid);
+        if let Some(g) = compute(&m, timeline.as_ref(), puuid, legendary) {
+            let mut d = match_detail(&m, puuid);
             d.mark_me_by_riot_id(&profile.game_name, &profile.tag_line);
             store.details.insert(g.id.clone(), d);
             store.games.push(g);
             new_games += 1;
         }
     }
+    Ok(new_games)
+}
+
+/// Newest first, at most `KEEP_GAMES`, details only for kept games.
+fn finish_store(store: &mut Store) {
     store.games.sort_by_key(|g| std::cmp::Reverse(g.ended_at));
+    store.games.dedup_by(|a, b| a.id == b.id);
     store.games.truncate(KEEP_GAMES);
     store.prune_details();
-    let skip_from = store.skipped.len().saturating_sub(200);
+    let skip_from = store.skipped.len().saturating_sub(KEEP_SKIPPED);
     store.skipped.drain(..skip_from);
+}
+
+/// Ids already in the store (kept or skipped).
+fn known_ids(store: &Store) -> HashSet<String> {
+    store
+        .games
+        .iter()
+        .map(|g| g.id.clone())
+        .chain(store.skipped.iter().cloned())
+        .collect()
+}
+
+/// Epoch seconds of the oldest stored game: older pages start there.
+fn older_than(store: &Store) -> Option<i64> {
+    store
+        .games
+        .iter()
+        .map(|g| g.ended_at)
+        .filter(|&t| t > 0)
+        .min()
+        .map(|ms| ms / 1000)
+}
+
+#[derive(Debug, Serialize)]
+pub struct OlderResult {
+    pub new_games: usize,
+    /// Riot has no older games for this account.
+    pub reached_end: bool,
+    /// The store already holds `KEEP_GAMES` games.
+    pub at_limit: bool,
+}
+
+/// Reads the next page of games older than the oldest stored one: up to
+/// `FETCH_COUNT` ids per page, looking through a few pages when they are
+/// all other modes.
+#[tauri::command]
+pub async fn load_older_matches(
+    app: AppHandle,
+    cache: State<'_, ddragon::Cache>,
+    lock: State<'_, Lock>,
+    on_event: Channel<ChatEvent>,
+) -> Result<OlderResult, SyncError> {
+    let Ok(_guard) = lock.0.try_lock() else {
+        return Err(SyncError {
+            kind: "busy",
+            message: tr(
+                "Already checking for games.",
+                "Ya se están buscando partidas.",
+            )
+            .into(),
+        });
+    };
+    let status = |t: String| {
+        let _ = on_event.send(ChatEvent::Status { text: t });
+    };
+    let mut profile = riot::load_profile(&app);
+    if !profile.is_complete() {
+        return Err(SyncError {
+            kind: "setup",
+            message: tr(
+                "Add your Riot ID and region in Settings.",
+                "Agrega tu Riot ID y tu región en Ajustes.",
+            )
+            .into(),
+        });
+    }
+    let store_id = profile.store_id();
+    let mut store = load_store(&app, &store_id);
+    if store.games.len() >= KEEP_GAMES {
+        return Ok(OlderResult {
+            new_games: 0,
+            reached_end: false,
+            at_limit: true,
+        });
+    }
+    let region = riot::find_region(&profile.region).expect("checked by is_complete");
+    let client = riot::Client::new(region)?;
+    let (name, tag) = (profile.game_name.clone(), profile.tag_line.clone());
+    let lookup = || {
+        status(tr("Looking up your account…", "Buscando tu cuenta…").into());
+        client.puuid(&name, &tag)
+    };
+    let cached = profile.puuid.is_some();
+    let mut puuid = match profile.puuid.clone() {
+        Some(p) => p,
+        None => lookup().await?,
+    };
+    let before = older_than(&store);
+    let known = known_ids(&store);
+    status(tr("Looking for older games…", "Buscando partidas anteriores…").into());
+    let mut new_ids = Vec::new();
+    let mut reached_end = false;
+    for page in 0..OLDER_ID_PAGES {
+        let start = page * FETCH_COUNT;
+        let ids = match client
+            .match_ids_page(&puuid, before, start, FETCH_COUNT)
+            .await
+        {
+            // A PUUID cached with another API key isn't valid for this one.
+            Err(RiotError::BadRequest | RiotError::NotFound) if cached && page == 0 => {
+                puuid = lookup().await?;
+                client
+                    .match_ids_page(&puuid, before, start, FETCH_COUNT)
+                    .await?
+            }
+            other => other?,
+        };
+        let full_page = ids.len() as u32 >= FETCH_COUNT;
+        new_ids.extend(ids.into_iter().filter(|id| !known.contains(id)));
+        if !full_page {
+            reached_end = true;
+            break;
+        }
+        if !new_ids.is_empty() {
+            break;
+        }
+    }
+    if profile.puuid.as_deref() != Some(puuid.as_str()) {
+        profile.puuid = Some(puuid.clone());
+        riot::save_profile(&app, &profile)?;
+    }
+    new_ids.truncate(KEEP_GAMES - store.games.len());
+    if new_ids.is_empty() {
+        return Ok(OlderResult {
+            new_games: 0,
+            reached_end,
+            at_limit: false,
+        });
+    }
+    let legendary = ddragon::get(&app, &cache)
+        .await
+        .map(|d| legendary_items(&d))
+        .unwrap_or_default();
+    let read = read_games(
+        &client, &mut store, &new_ids, &puuid, &profile, &legendary, &status,
+    )
+    .await;
+    finish_store(&mut store);
     save_store(&app, &store_id, &store)?;
-    Ok(SyncResult {
+    let new_games = read?;
+    Ok(OlderResult {
         new_games,
-        needs_review: needs_review(&store),
+        reached_end,
+        at_limit: store.games.len() >= KEEP_GAMES,
     })
 }
 
@@ -2118,5 +2286,57 @@ mod tests {
         assert!(needs_review(&store));
         store.games.truncate(2);
         assert!(!needs_review(&store));
+    }
+
+    fn at(id: &str, ended_at: i64) -> GameStats {
+        GameStats {
+            ended_at,
+            ..game(id, true, None, None)
+        }
+    }
+
+    #[test]
+    fn older_pages_start_before_the_oldest_stored_game() {
+        assert_eq!(older_than(&Store::default()), None);
+        let store = Store {
+            games: vec![at("M3", 3_000_500), at("M2", 0), at("M1", 2_000_900)],
+            ..Default::default()
+        };
+        // Seconds, and a game without an end time doesn't count.
+        assert_eq!(older_than(&store), Some(2_000));
+    }
+
+    #[test]
+    fn older_games_merge_in_order_up_to_the_limit() {
+        let mut store = Store {
+            games: (0..KEEP_GAMES as i64)
+                .map(|i| at(&format!("N{i}"), 1_000_000 + i))
+                .collect(),
+            skipped: (0..KEEP_SKIPPED + 5).map(|i| format!("S{i}")).collect(),
+            ..Default::default()
+        };
+        // An older page read after the store is almost full, plus a duplicate.
+        store.games.push(at("OLD", 10));
+        store.games.push(at("N5", 1_000_005));
+        store
+            .details
+            .insert("OLD".into(), match_detail(&sample_match(420), "me"));
+        finish_store(&mut store);
+        assert_eq!(store.games.len(), KEEP_GAMES);
+        assert!(
+            store
+                .games
+                .windows(2)
+                .all(|w| w[0].ended_at >= w[1].ended_at)
+        );
+        let ids: HashSet<&str> = store.games.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids.len(), KEEP_GAMES, "no duplicates");
+        // The oldest beyond the limit is dropped with its details.
+        assert!(!ids.contains("OLD"));
+        assert!(store.details.is_empty());
+        assert_eq!(store.skipped.len(), KEEP_SKIPPED);
+        assert_eq!(store.skipped[0], "S5", "the oldest skipped ids go first");
+        let known = known_ids(&store);
+        assert!(known.contains("N0") && known.contains("S5") && !known.contains("S0"));
     }
 }

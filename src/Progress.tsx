@@ -23,7 +23,7 @@ import { Lang, t } from "./i18n";
 import { AskButton, type AskContext } from "./AskPanel";
 import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers";
 
-const EMPTY: HistoryView = { configured: false, games: [], summary: null, latest: null, previous: null, needs_review: false };
+const EMPTY: HistoryView = { configured: false, games: [], summary: null, latest: null, previous: null, needs_review: false, review_size: 0 };
 
 function ChampIcon({ id, byId, size = 28 }: { id: string; byId: Map<string, Champion>; size?: number }) {
   const c = byId.get(id.toLowerCase());
@@ -383,7 +383,9 @@ function Progress({
   const tooFew = view.games.length < 3;
   const latest = view.latest;
   const newSince = latest ? view.games.findIndex((g) => g.id === latest.newest_game) : -1;
-  const toReview = latest ? (newSince < 0 ? 0 : newSince) : view.games.length >= 3 ? view.games.length : 0;
+  const toReview = latest ? (newSince < 0 ? 0 : newSince) : view.review_size >= 3 ? view.review_size : 0;
+  // A review covers the newest games only, not every stored game.
+  const reviewed = latest?.game_refs.length || view.review_size;
   const [numbers, setNumbers] = useState(false);
   // The review cites games as G1, G2…; the screen names them instead.
   const refNames = useMemo(
@@ -408,8 +410,8 @@ function Progress({
     ? [
         t("Context from League Coach (not my question):", "Contexto de League Coach (no es mi pregunta):"),
         t(
-          `From my last ${view.games.length} games, the main thing to fix is: ${focus.title}. ${focus.evidence}`,
-          `De mis últimas ${view.games.length} partidas, lo principal a corregir es: ${focus.title}. ${focus.evidence}`,
+          `From my last ${reviewed} games, the main thing to fix is: ${focus.title}. ${focus.evidence}`,
+          `De mis últimas ${reviewed} partidas, lo principal a corregir es: ${focus.title}. ${focus.evidence}`,
         ),
         t(`My drill: ${focus.drill}`, `Mi ejercicio: ${focus.drill}`),
         focus.target ? t(`My goal: ${focus.target}`, `Mi meta: ${focus.target}`) : "",
@@ -447,8 +449,8 @@ function Progress({
             <p className="muted">
               {latest
                 ? t(
-                    `From your last ${view.games.length} games as ${riotIdOf(profile)}.`,
-                    `De tus últimas ${view.games.length} partidas como ${riotIdOf(profile)}.`,
+                    `From your last ${reviewed} games as ${riotIdOf(profile)}.`,
+                    `De tus últimas ${reviewed} partidas como ${riotIdOf(profile)}.`,
                   )
                 : t(`Your games as ${riotIdOf(profile)}.`, `Tus partidas como ${riotIdOf(profile)}.`)}
             </p>

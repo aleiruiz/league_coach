@@ -42,6 +42,7 @@ pub fn run() {
             live::current_game,
             history::match_history,
             history::sync_matches,
+            history::load_older_matches,
             history::review_matches,
             history::match_details,
             history::fill_match_details,

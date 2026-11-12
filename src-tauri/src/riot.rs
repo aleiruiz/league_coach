@@ -379,13 +379,30 @@ impl Client {
 
     /// Match-V5: ids of the most recent games, newest first.
     pub async fn match_ids(&self, puuid: &str, count: u32) -> Result<Vec<String>, RiotError> {
+        self.match_ids_page(puuid, None, 0, count).await
+    }
+
+    /// Match-V5 ids, newest first, skipping the first `start`; with
+    /// `before_secs`, only games played before then (epoch seconds).
+    pub async fn match_ids_page(
+        &self,
+        puuid: &str,
+        before_secs: Option<i64>,
+        start: u32,
+        count: u32,
+    ) -> Result<Vec<String>, RiotError> {
         let mut url = Self::url(
             self.region.match_cluster,
             &["lol", "match", "v5", "matches", "by-puuid", puuid, "ids"],
         );
-        url.query_pairs_mut()
-            .append_pair("start", "0")
-            .append_pair("count", &count.to_string());
+        {
+            let mut q = url.query_pairs_mut();
+            if let Some(t) = before_secs {
+                q.append_pair("endTime", &t.to_string());
+            }
+            q.append_pair("start", &start.to_string())
+                .append_pair("count", &count.to_string());
+        }
         self.get(url).await
     }
 
