@@ -7,12 +7,15 @@ mod recommend;
 mod riot;
 mod secrets;
 mod tierlist;
+mod updater;
 mod usage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::Pending::default())
         .manage(providers::Running::default())
         .manage(ddragon::Cache::default())
         .manage(history::Lock::default())
@@ -50,6 +53,8 @@ pub fn run() {
             history::fill_match_details,
             tierlist::saved_tier_lists,
             tierlist::fetch_tier_list,
+            updater::check_update,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while starting League Coach");
