@@ -30,9 +30,15 @@ fn checks_enabled() -> bool {
     !cfg!(debug_assertions)
 }
 
-/// First non-empty line of the release notes, trimmed and capped.
+/// First non-empty line of the release notes, trimmed and capped. A merge
+/// commit's "Merge pull request #N from …" line is skipped, so the PR title
+/// that follows it is shown instead.
 pub fn short_notes(body: Option<&str>) -> Option<String> {
-    let line = body?.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let line = body?
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .find(|l| !l.starts_with("Merge pull request") && !l.starts_with("Merge branch"))?;
     const MAX: usize = 140;
     if line.chars().count() > MAX {
         let cut: String = line.chars().take(MAX - 1).collect();
@@ -92,6 +98,17 @@ mod tests {
         );
         assert_eq!(short_notes(Some("  \n ")), None);
         assert_eq!(short_notes(None), None);
+    }
+
+    #[test]
+    fn merge_lines_give_way_to_the_pr_title() {
+        assert_eq!(
+            short_notes(Some(
+                "Merge pull request #30 from aleiruiz/claude/x\n\nRewrite the README"
+            )),
+            Some("Rewrite the README".into())
+        );
+        assert_eq!(short_notes(Some("Merge branch 'main' into x")), None);
     }
 
     #[test]

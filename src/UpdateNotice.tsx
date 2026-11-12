@@ -73,8 +73,8 @@ export default function UpdateNotice({ busy }: { busy: boolean }) {
           {state.kind === "failed" && (
             <span className="update-error" role="alert" title={state.error}>
               {t(
-                "Couldn't update. Check your connection and try again.",
-                "No se pudo actualizar. Revisa tu conexión y reinténtalo.",
+                "Couldn't download the update. Check your connection and try again.",
+                "No se pudo descargar la actualización. Revisa tu conexión y vuelve a intentarlo.",
               )}
             </span>
           )}
