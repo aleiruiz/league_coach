@@ -99,6 +99,8 @@ export type HistoryView = {
   latest: SavedReport | null;
   previous: SavedReport | null;
   needs_review: boolean;
+  /** How many of the newest games a review covers. */
+  review_size: number;
 };
 
 export const riotAccount = () => invoke<{ profile: RiotProfile; regions: Region[] }>("riot_account");
@@ -112,6 +114,15 @@ export function syncMatches(onEvent: (ev: ChatEvent) => void) {
   const channel = new Channel<ChatEvent>();
   channel.onmessage = onEvent;
   return invoke<{ new_games: number; needs_review: boolean }>("sync_matches", { onEvent: channel });
+}
+
+export type OlderResult = { new_games: number; reached_end: boolean; at_limit: boolean };
+
+/** Reads games older than the oldest stored one from Riot (one page per call). */
+export function loadOlderMatches(onEvent: (ev: ChatEvent) => void) {
+  const channel = new Channel<ChatEvent>();
+  channel.onmessage = onEvent;
+  return invoke<OlderResult>("load_older_matches", { onEvent: channel });
 }
 
 /** Error from `sync_matches`. `setup`: something to fix in Settings. */
