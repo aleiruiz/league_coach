@@ -27,6 +27,8 @@ export type TierList = {
   entries: TierEntry[];
   dropped: number;
   fetched_at: number;
+  /** Claude opened the page itself (older lists, and fallbacks, only saw search snippets). */
+  opened?: boolean;
 };
 
 export const savedTierLists = () => invoke<Partial<Record<Role, TierList>>>("saved_tier_lists");

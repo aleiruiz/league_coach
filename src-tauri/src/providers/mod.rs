@@ -94,6 +94,11 @@ pub enum ChatEvent {
     Sources {
         urls: Vec<String>,
     },
+    /// A page WebFetch opened successfully (HTTP 200), as the tool reported
+    /// it. Only possible in a call that allows fetching (`run_with`).
+    Fetched {
+        url: String,
+    },
     /// Tokens of the answer, as the CLI reports them. Recorded in the usage
     /// store by `run`, never sent to the UI.
     Usage {
@@ -295,6 +300,23 @@ pub async fn run(
     cancel: Option<oneshot::Receiver<()>>,
     send: &(dyn Fn(ChatEvent) + Send + Sync),
 ) -> Result<(), String> {
+    run_with(app, kind, prompt, session_id, timeout, cancel, send, &[]).await
+}
+
+/// Like `run`, but Claude Code may also open pages with WebFetch on exactly
+/// these hosts (nothing else: other fetches are denied by `dontAsk`). Codex
+/// ignores it.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_with(
+    app: &AppHandle,
+    kind: ProviderKind,
+    prompt: &str,
+    session_id: Option<&str>,
+    timeout: Duration,
+    cancel: Option<oneshot::Receiver<()>>,
+    send: &(dyn Fn(ChatEvent) + Send + Sync),
+    fetch_hosts: &[&str],
+) -> Result<(), String> {
     if session_id.is_some_and(|id| !valid_session_id(id)) {
         return Err(tr("Invalid conversation id.", "Id de conversación inválido.").into());
     }
@@ -331,7 +353,7 @@ pub async fn run(
             let prompt_file = workdir.with_file_name(format!("coach-prompt.{}.md", lang.locale()));
             std::fs::write(&prompt_file, &system).map_err(|e| e.to_string())?;
             (
-                claude_code::args(&prompt_file, session_id, model),
+                claude_code::args(&prompt_file, session_id, model, fetch_hosts),
                 prompt.to_string(),
             )
         }
@@ -440,6 +462,8 @@ pub struct Collected {
     pub error: Option<String>,
     /// URLs de los resultados de búsqueda vistos en esta consulta.
     pub sources: Vec<String>,
+    /// Pages WebFetch opened in this query.
+    pub fetched: Vec<String>,
 }
 
 impl Collected {
@@ -458,6 +482,7 @@ impl Collected {
             ChatEvent::Final { text } if self.text.trim().is_empty() => self.text = text.clone(),
             ChatEvent::Error { message } => self.error = Some(message.clone()),
             ChatEvent::Sources { urls } => self.sources.extend(urls.iter().cloned()),
+            ChatEvent::Fetched { url } => self.fetched.push(url.clone()),
             _ => {}
         }
     }

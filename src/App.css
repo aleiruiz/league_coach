@@ -4402,3 +4402,10 @@ button.ask-close:hover {
   border-color: color-mix(in srgb, var(--gold) 45%, transparent);
   background: color-mix(in srgb, var(--gold) 12%, transparent);
 }
+
+.ch-full-list {
+  display: inline-block;
+  margin: 2px 0 6px;
+  font-weight: 700;
+  color: var(--accent);
+}
