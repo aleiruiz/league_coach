@@ -13,6 +13,7 @@ import {
   Main,
   mains as pickMains,
   MAIN_MIN_GAMES,
+  MAX_PINS,
   savedTierLists,
   savePins,
   saveRole,
@@ -83,6 +84,9 @@ function MainCard({
             {tierHere.tier}
           </span>
         )}
+        {tierHere && tierHere.role !== m.role && (
+          <span className="muted small">{t(`in ${roleLabel(tierHere.role)}`, `en ${roleLabel(tierHere.role)}`)}</span>
+        )}
         {m.pinned && (
           <button type="button" className="link-button small" onClick={onUnpin} aria-label={t(`Unpin ${name}`, `Desfijar a ${name}`)}>
             {t("Unpin", "Desfijar")}
@@ -135,7 +139,7 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
   const mains = useMemo(() => pickMains(games, pins), [games, pins]);
   const shownRole: Role = role ?? usualRole(games) ?? mains.find((m) => m.role)?.role ?? "mid";
   const list = lists[shownRole];
-  const mainIds = new Set(mains.map((m) => m.champion));
+  const mainIds = new Set(mains.map((m) => m.champion.toLowerCase()));
   const claude = providers.list.find((p) => p.kind === "claude_code" && p.logged_in);
 
   const setPinsSaved = (next: string[]) => {
@@ -151,7 +155,7 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
   /** A main's tier: in the list for its own role if it's been read, else in the one on screen. */
   const tierOf = (m: Main): { tier: string; role: Role } | null => {
     for (const r of [m.role, shownRole]) {
-      const e = r ? lists[r]?.entries.find((x) => x.champion === m.champion) : undefined;
+      const e = r ? lists[r]?.entries.find((x) => x.champion.toLowerCase() === m.champion.toLowerCase()) : undefined;
       if (r && e) return { tier: e.tier, role: r };
     }
     return null;
@@ -200,7 +204,9 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           <h3 id="mains-title" className="panel-title">
             {t("Your mains", "Tus mains")}
           </h3>
-          <button type="button" className="secondary" onClick={() => setPicking(true)} disabled={champs.length === 0}>
+          <button type="button" className="secondary" onClick={() => setPicking(true)} disabled={champs.length === 0 || pins.length >= MAX_PINS}
+            title={pins.length >= MAX_PINS ? t(`Up to ${MAX_PINS} pinned champions`, `Hasta ${MAX_PINS} campeones fijados`) : undefined}
+          >
             {t("Pin a champion", "Fijar un campeón")}
           </button>
         </div>
@@ -293,8 +299,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           ) : (
             <p className="muted small">
               {t(
-                `No ${roleLabel(shownRole)} tier list yet. The AI looks it up on a stats site (u.gg, op.gg, Mobalytics…) and every number links to that page.`,
-                `Aún no hay tier list de ${roleLabel(shownRole)}. La IA la busca en un sitio de estadísticas (u.gg, op.gg, Mobalytics…) y cada número enlaza a esa página.`,
+                `No ${roleLabel(shownRole)} tier list yet. The AI looks it up on a stats site (u.gg, op.gg, Mobalytics…) and links the page it used.`,
+                `Aún no hay tier list de ${roleLabel(shownRole)}. La IA la busca en un sitio de estadísticas (u.gg, op.gg, Mobalytics…) y enlaza la página que usó.`,
               )}
             </p>
           )}
@@ -309,8 +315,11 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
                 {t("Stop", "Detener")}
               </button>
             ) : (
-              <button type="button" className={list && !stale ? "secondary" : "primary"} disabled={!claude} onClick={getList}>
-                {list ? t("Refresh", "Actualizar") : t("Get the tier list", "Traer la tier list")}
+              <button type="button" className={list && !stale ? "secondary" : "primary"} disabled={!claude}
+                onClick={getList}
+                title={t("One request to Claude Code, which searches the web", "Una consulta a Claude Code, que busca en la web")}
+              >
+                {list ? t("Look it up again", "Buscarla de nuevo") : t("Get the tier list", "Traer la tier list")}
               </button>
             )}
           </div>
@@ -359,10 +368,10 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
                 <div key={g.tier} className="ch-tier-group" role="rowgroup">
                   {g.entries.map((e, i) => {
                     const c = champ(e.champion);
-                    const mine = mainIds.has(e.champion);
+                    const mine = mainIds.has(e.champion.toLowerCase());
                     return (
                       <div key={e.champion} className={mine ? "ch-row mine" : "ch-row"} role="row">
-                        <span role="cell">{i === 0 && <span className="tier">{g.tier}</span>}</span>
+                        <span role="cell">{i === 0 ? <span className="tier">{g.tier}</span> : <span className="visually-hidden">{g.tier}</span>}</span>
                         <span role="cell" className="ch-name">
                           <Face c={c} size={28} />
                           {c?.name ?? e.champion}
@@ -379,8 +388,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
             </div>
             <p className="muted small">
               {t(
-                `The AI copied this from ${list.site}, a page that came up in its web search: open it to confirm. League Coach doesn't compute win rates.`,
-                `La IA copió esto de ${list.site}, una página que salió en su búsqueda web: ábrela para confirmarlo. League Coach no calcula win rates.`,
+                `What the AI found for ${list.site}'s ${roleLabel(shownRole)} tier list in its web search (${list.entries.length} champions). Open the page for the full list and to confirm the numbers. League Coach doesn't compute win rates.`,
+                `Lo que la IA encontró de la tier list de ${roleLabel(shownRole)} de ${list.site} en su búsqueda web (${list.entries.length} campeones). Abre la página para ver la lista completa y confirmar los números. League Coach no calcula win rates.`,
               )}
               {list.dropped > 0 &&
                 t(

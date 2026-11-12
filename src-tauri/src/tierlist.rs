@@ -21,6 +21,8 @@ use crate::recommend::{self, null_default};
 pub const ROLES: &[&str] = &["top", "jungle", "mid", "adc", "support"];
 /// Enough for every tier that matters in one role; the rest is noise.
 const MAX_ENTRIES: usize = 40;
+/// Fewer rows than this is a few search snippets, not a tier list.
+pub const MIN_ENTRIES: usize = 8;
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
 
 #[derive(Debug, Deserialize, Default)]
@@ -112,6 +114,7 @@ pub fn clean_list(
     data: &GameData,
     seen: &[String],
     now: i64,
+    min_entries: usize,
 ) -> Result<TierList, String> {
     let lang = data.lang;
     let (url, site) = recommend::stat_url(&raw.url).ok_or_else(|| {
@@ -153,10 +156,10 @@ pub fn clean_list(
     }
     let dropped = raw.champions.len() - entries.len();
     entries.truncate(MAX_ENTRIES);
-    if entries.is_empty() {
+    if entries.len() < min_entries.max(1) {
         return Err(lang.pick(
-            "The AI's answer had no champion we could check against this patch. Try again.".to_string(),
-            "La respuesta de la IA no traía ningún campeón que se pudiera comprobar con este parche. Inténtalo de nuevo.".to_string(),
+            "The AI found too few champions on that page to make a tier list. Try again.".to_string(),
+            "La IA encontró muy pocos campeones en esa página para armar una tier list. Inténtalo de nuevo.".to_string(),
         ));
     }
     let rank = raw.rank.trim();
@@ -164,7 +167,10 @@ pub fn clean_list(
         role: role.to_string(),
         site: site.to_string(),
         url: url.to_string(),
-        patch: recommend::patch_of(&raw.patch).unwrap_or_default(),
+        // Sites may show the client version ("16.22"): same patch as "26.22".
+        patch: recommend::patch_of(&raw.patch)
+            .map(|p| ddragon::patch_name(&p))
+            .unwrap_or_default(),
         app_patch: data.patch.clone(),
         rank: (!rank.is_empty()).then(|| rank.chars().take(24).collect()),
         entries,
@@ -314,7 +320,7 @@ pub async fn fetch_tier_list(
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64);
-    let list = clean_list(&raw, &role, &data, &answer.sources, now)?;
+    let list = clean_list(&raw, &role, &data, &answer.sources, now, MIN_ENTRIES)?;
     let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut lists = load(&app);
     lists.insert(role, list.clone());
@@ -337,7 +343,7 @@ mod tests {
     fn keeps_a_list_from_a_searched_page() {
         let r = raw(&format!(
             r#"```json
-{{"url": "{URL}", "patch": "25.22", "rank": "Emerald+", "champions": [
+{{"url": "{URL}", "patch": "15.22", "rank": "Emerald+", "champions": [
   {{"champion": "Ahri", "tier": "S+", "win_rate": 52.3, "pick_rate": 8.1, "ban_rate": 4.0}},
   {{"champion": "darius", "tier": "a tier", "win_rate": 140, "pick_rate": null}},
   {{"champion": "Yasuo", "tier": "S"}},
@@ -346,7 +352,7 @@ mod tests {
 ]}}
 ```"#
         ));
-        let l = clean_list(&r, "mid", &fixtures::data(), &[format!("{URL}/")], 7).unwrap();
+        let l = clean_list(&r, "mid", &fixtures::data(), &[format!("{URL}/")], 7, 1).unwrap();
         assert_eq!(l.site, "u.gg");
         assert_eq!(l.patch, "25.22");
         assert_eq!(l.rank.as_deref(), Some("Emerald+"));
@@ -364,18 +370,28 @@ mod tests {
     }
 
     #[test]
+    fn a_list_shorter_than_the_minimum_is_refused() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}, {{"champion": "Jax", "tier": "A"}}]}}"#
+        ));
+        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 3).is_err());
+        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 2).is_ok());
+    }
+
+    #[test]
     fn a_page_not_in_the_search_is_refused() {
         let r = raw(&format!(
             r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}]}}"#
         ));
-        assert!(clean_list(&r, "mid", &fixtures::data(), &[], 0).is_err());
+        assert!(clean_list(&r, "mid", &fixtures::data(), &[], 0, 1).is_err());
         assert!(
             clean_list(
                 &r,
                 "mid",
                 &fixtures::data(),
                 &["https://u.gg/lol/top-lane-tier-list".into()],
-                0
+                0,
+                1
             )
             .is_err()
         );
@@ -392,7 +408,7 @@ mod tests {
                 r#"{{"url": "{url}", "champions": [{{"champion": "Ahri", "tier": "S"}}]}}"#
             ));
             assert!(
-                clean_list(&r, "mid", &fixtures::data(), &[url.to_string()], 0).is_err(),
+                clean_list(&r, "mid", &fixtures::data(), &[url.to_string()], 0, 1).is_err(),
                 "{url}"
             );
         }
@@ -403,7 +419,7 @@ mod tests {
         let r = raw(&format!(
             r#"{{"url": "{URL}", "champions": [{{"champion": "Yasuo", "tier": "S"}}]}}"#
         ));
-        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0).is_err());
+        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 1).is_err());
     }
 
     #[test]

@@ -104,11 +104,14 @@ export function mains(games: GameStats[], pinned: string[], max = 6): Main[] {
     };
   };
   const pins = [...new Set(pinned)];
+  // Match-V5 names and Data Dragon ids differ only in case (FiddleSticks / Fiddlesticks).
+  const pinned_ = new Set(pins.map((c) => c.toLowerCase()));
+  const played = new Map([...by.keys()].map((c) => [c.toLowerCase(), c]));
   const auto = [...by.entries()]
-    .filter(([c, a]) => a.games >= MAIN_MIN_GAMES && !pins.includes(c))
+    .filter(([c, a]) => a.games >= MAIN_MIN_GAMES && !pinned_.has(c.toLowerCase()))
     .sort(([, x], [, y]) => y.games - x.games || y.wins - x.wins || y.last - x.last)
     .map(([c]) => make(c, false));
-  return [...pins.map((c) => make(c, true)), ...auto].slice(0, Math.max(max, pins.length));
+  return [...pins.map((c) => ({ ...make(played.get(c.toLowerCase()) ?? c, true), champion: c })), ...auto].slice(0, Math.max(max, pins.length));
 }
 
 /** The role the player plays most (for the tier list to open on), or null. */
@@ -124,12 +127,13 @@ export function usualRole(games: GameStats[]): Role | null {
 // Pins and the last role are per-device conveniences: losing them only means
 // picking again, so a broken or blocked storage is ignored.
 const PINS = "league-coach.pinned-mains";
+export const MAX_PINS = 10;
 const ROLE = "league-coach.tier-role";
 
 export function loadPins(): string[] {
   try {
     const v = JSON.parse(localStorage.getItem(PINS) ?? "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 10) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, MAX_PINS) : [];
   } catch {
     return [];
   }
@@ -137,7 +141,7 @@ export function loadPins(): string[] {
 
 export function savePins(pins: string[]) {
   try {
-    localStorage.setItem(PINS, JSON.stringify(pins));
+    localStorage.setItem(PINS, JSON.stringify(pins.slice(0, MAX_PINS)));
   } catch {
     // ignored: see above
   }

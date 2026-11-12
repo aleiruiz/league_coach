@@ -48,6 +48,12 @@ describe("mains", () => {
     // B and C both 2 wins; C played more recently than B (ended_at 1).
     expect(mains(games, []).map((x) => x.champion)).toEqual(["C", "B", "A"]);
   });
+
+  it("matches a pin to games played under another casing", () => {
+    const m = mains([game("FiddleSticks"), game("FiddleSticks")], ["Fiddlesticks"]);
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatchObject({ champion: "Fiddlesticks", pinned: true, games: 2 });
+  });
 });
 
 describe("tier list helpers", () => {
@@ -70,6 +76,11 @@ describe("pins", () => {
       getItem: (k: string) => m.get(k) ?? null,
       setItem: (k: string, v: string) => void m.set(k, v),
     };
+  });
+
+  it("are capped when saved", () => {
+    savePins(Array.from({ length: 12 }, (_, i) => `C${i}`));
+    expect(loadPins()).toHaveLength(10);
   });
 
   it("survive a reload and ignore broken data", () => {
