@@ -104,7 +104,9 @@ CI publishes a GitHub Release on every push to `main`: the NSIS installer, its s
 2. In GitHub, open **Settings › Secrets and variables › Actions** and add two repository secrets: `TAURI_SIGNING_PRIVATE_KEY` with the full contents of `league-coach.key`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` with the password.
 3. Put the contents of `league-coach.key.pub` in `src-tauri/tauri.conf.json`, under `plugins.updater.pubkey`.
 
-If the private key is lost, installed apps can't update to builds signed with a new key: install the new version by hand once. Without the secret, CI still runs its checks but skips the release with a warning.
+If the private key is lost, installed apps can't update to builds signed with a new key: install the new version by hand once. Without the secret, CI still runs its checks but skips the release with a warning, and it refuses to publish while `pubkey` is not a real Tauri public key.
+
+The version comes from the workflow's run number. If `.github/workflows/ci.yml` is ever renamed or recreated, the count starts again at 1 and installed apps would see every new build as older: raise the base then (for example `0.2.<run number>`, in the `VERSION` line of the `release` job). Re-running a `main` run reuses its version, so it updates that release instead of making a new one.
 
 Checks that CI runs (on Ubuntu and Windows):
 
