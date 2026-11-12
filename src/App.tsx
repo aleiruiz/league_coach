@@ -3,6 +3,7 @@ import AskPanel, { type AskContext } from "./AskPanel";
 import DraftView from "./DraftView";
 import Progress from "./Progress";
 import Games from "./Games";
+import Champions from "./Champions";
 import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
@@ -11,11 +12,12 @@ import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
 import "./App.css";
 
-type View = "draft" | "progress" | "games" | "settings";
+type View = "draft" | "champions" | "progress" | "games" | "settings";
 
-/** The two moments the app is for (before a game and after it), then the games themselves. */
-const nav = (): { view: "draft" | "progress" | "games"; label: string; hint: string }[] => [
+/** The two moments the app is for (before a game and after it), what to pick, then the games themselves. */
+const nav = (): { view: "draft" | "champions" | "progress" | "games"; label: string; hint: string }[] => [
   { view: "draft", label: t("Next game", "Próxima partida"), hint: t("Build and matchup plan", "Build y plan de la línea") },
+  { view: "champions", label: t("Champions", "Campeones"), hint: t("Tier list and your mains", "Tier list y tus mains") },
   { view: "progress", label: t("Improve", "Mejorar"), hint: t("What to work on", "En qué trabajar") },
   { view: "games", label: t("Games", "Partidas"), hint: t("Your match history", "Tu historial") },
 ];
@@ -37,7 +39,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<Lang>(currentLang());
   // Views with a request in flight: the language can't change mid-request.
-  const [busy, setBusy] = useState({ draft: false, coach: false, progress: false });
+  const [busy, setBusy] = useState({ draft: false, coach: false, progress: false, champions: false });
   const [accountVersion, setAccountVersion] = useState(0);
   // Bumped when Improve or Games read new games, so the other one reloads.
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -45,6 +47,7 @@ function App() {
   const accountSaved = useCallback(() => setAccountVersion((v) => v + 1), []);
   const draftBusy = useCallback((b: boolean) => setBusy((s) => (s.draft === b ? s : { ...s, draft: b })), []);
   const coachBusy = useCallback((b: boolean) => setBusy((s) => (s.coach === b ? s : { ...s, coach: b })), []);
+  const championsBusy = useCallback((b: boolean) => setBusy((s) => (s.champions === b ? s : { ...s, champions: b })), []);
   const progressBusy = useCallback((b: boolean) => setBusy((s) => (s.progress === b ? s : { ...s, progress: b })), []);
 
   const refresh = useCallback(async () => {
@@ -213,6 +216,15 @@ function App() {
             onContext={draftContext}
           />
         </div>
+        <div hidden={view !== "champions"}>
+          <Champions
+            providers={providers}
+            lang={lang}
+            version={historyVersion + accountVersion}
+            onBusy={championsBusy}
+            onGoToSettings={() => setView("settings")}
+          />
+        </div>
         <div hidden={view !== "progress"}>
           <Progress
             providers={providers}
@@ -243,7 +255,7 @@ function App() {
           <Settings
             lang={lang}
             onLanguage={changeLanguage}
-            locked={busy.draft || busy.coach || busy.progress}
+            locked={busy.draft || busy.coach || busy.progress || busy.champions}
             onRiotAccount={accountSaved}
             providers={providers}
             active={view === "settings"}
