@@ -5,7 +5,8 @@
 //! Riot policy: read only when the player presses the button (never
 //! polled), never from the game process, and it never gives advice on its
 //! own: it only fills the slots, and the player still asks for the build.
-//! In champ select it reads only champions and the assigned position, never
+//! In champ select it reads only champions, the assigned position and
+//! whether a teammate carries Smite (to guess roles), never
 //! other players' names.
 
 use std::path::{Path, PathBuf};
@@ -32,7 +33,20 @@ pub struct LiveDraft {
     /// `allies` (None in blind pick). Empty for a game in progress, which
     /// has no positions.
     pub ally_roles: Vec<Option<&'static str>>,
+    /// Whether each ally carries Smite, in the order of `allies` (a hint
+    /// for guessing roles the client doesn't give).
+    pub ally_smite: Vec<bool>,
     pub enemies: Vec<String>,
+    /// Whether each enemy carries Smite (game in progress only: champ
+    /// select hides the enemy team's spells).
+    pub enemy_smite: Vec<bool>,
+}
+
+/// Summoner spell key of Smite (Data Dragon `SummonerSmite`).
+const SMITE: u32 = 11;
+
+fn has_smite(a: u32, b: u32) -> bool {
+    a == SMITE || b == SMITE
 }
 
 // ---------- League client (champ select) ----------
@@ -128,6 +142,10 @@ struct SelectPlayer {
     /// top, jungle, middle, bottom, utility; empty in blind pick.
     #[serde(rename = "assignedPosition", default)]
     position: String,
+    #[serde(rename = "spell1Id", default)]
+    spell1: u32,
+    #[serde(rename = "spell2Id", default)]
+    spell2: u32,
 }
 
 fn role_of(position: &str) -> Option<&'static str> {
@@ -143,11 +161,13 @@ fn role_of(position: &str) -> Option<&'static str> {
 
 fn from_champ_select(s: &ChampSelect, name: impl Fn(u32) -> Option<String>) -> LiveDraft {
     let me = s.my_team.iter().find(|p| p.cell == s.local_cell);
-    let allies: Vec<(String, Option<&'static str>)> = s
+    let allies: Vec<(String, Option<&'static str>, bool)> = s
         .my_team
         .iter()
         .filter(|p| p.cell != s.local_cell && p.champion != 0)
-        .filter_map(|p| name(p.champion).map(|c| (c, role_of(&p.position))))
+        .filter_map(|p| {
+            name(p.champion).map(|c| (c, role_of(&p.position), has_smite(p.spell1, p.spell2)))
+        })
         .collect();
     LiveDraft {
         source: "champ_select",
@@ -159,14 +179,16 @@ fn from_champ_select(s: &ChampSelect, name: impl Fn(u32) -> Option<String>) -> L
                 .find(|&k| k != 0)
                 .and_then(&name)
         }),
-        allies: allies.iter().map(|(c, _)| c.clone()).collect(),
-        ally_roles: allies.iter().map(|&(_, r)| r).collect(),
+        allies: allies.iter().map(|(c, _, _)| c.clone()).collect(),
+        ally_roles: allies.iter().map(|&(_, r, _)| r).collect(),
+        ally_smite: allies.iter().map(|&(_, _, smite)| smite).collect(),
         enemies: s
             .their_team
             .iter()
             .filter(|p| p.champion != 0)
             .filter_map(|p| name(p.champion))
             .collect(),
+        enemy_smite: Vec::new(),
     }
 }
 
@@ -210,20 +232,24 @@ fn from_game(
         .participants
         .iter()
         .find(|p| p.puuid.as_deref() == Some(puuid))?;
-    let team = |same: bool| -> Vec<String> {
+    let team = |same: bool| -> Vec<(String, bool)> {
         g.participants
             .iter()
             .filter(|p| !std::ptr::eq(*p, me) && (p.team_id == me.team_id) == same)
-            .filter_map(|p| name(p.champion_id))
+            .filter_map(|p| name(p.champion_id).map(|c| (c, has_smite(p.spell1, p.spell2))))
             .collect()
     };
+    let (allies, ally_smite) = team(true).into_iter().unzip();
+    let (enemies, enemy_smite) = team(false).into_iter().unzip();
     Some(LiveDraft {
         source: "game",
         role: None,
         me: name(me.champion_id),
-        allies: team(true),
+        allies,
         ally_roles: Vec::new(),
-        enemies: team(false),
+        ally_smite,
+        enemies,
+        enemy_smite,
     })
 }
 
@@ -361,7 +387,7 @@ mod tests {
     fn champ_select_fills_me_role_allies_and_revealed_enemies() {
         let s: ChampSelect = serde_json::from_str(
             r#"{"localPlayerCellId":2,
-                "myTeam":[{"cellId":0,"championId":122,"assignedPosition":"top"},
+                "myTeam":[{"cellId":0,"championId":122,"assignedPosition":"top","spell1Id":4,"spell2Id":12},
                           {"cellId":1,"championId":0,"championPickIntent":103,"assignedPosition":"middle"},
                           {"cellId":2,"championId":0,"championPickIntent":141,"assignedPosition":"jungle"}],
                 "theirTeam":[{"cellId":5,"championId":121},{"cellId":6,"championId":0}]}"#,
@@ -375,7 +401,10 @@ mod tests {
         assert_eq!(d.allies, vec!["Darius"]);
         // Each ally comes with the role the client assigned them.
         assert_eq!(d.ally_roles, vec![Some("top")]);
+        assert_eq!(d.ally_smite, vec![false]);
         assert_eq!(d.enemies, vec!["Khazix"]);
+        // The enemy team's spells aren't shown in champ select.
+        assert!(d.enemy_smite.is_empty());
     }
 
     #[test]
@@ -384,6 +413,9 @@ mod tests {
             team_id: team,
             champion_id: champ,
             puuid: Some(puuid.into()),
+            spell1: 4,
+            // The enemy Kha'Zix carries Smite.
+            spell2: if champ == 121 { SMITE } else { 14 },
         };
         let g = ActiveGame {
             participants: vec![
@@ -399,6 +431,8 @@ mod tests {
         assert_eq!(d.me.as_deref(), Some("Kayn"));
         assert_eq!(d.allies, vec!["Darius", "Soraka"]);
         assert_eq!(d.enemies, vec!["Khazix", "Ahri"]);
+        assert_eq!(d.enemy_smite, vec![true, false]);
+        assert_eq!(d.ally_smite, vec![false, false]);
         assert!(from_game(&g, "someone else", names).is_none());
     }
 }

@@ -3918,6 +3918,7 @@ button.ask-close:hover {
 }
 
 .cs-row-main {
+  position: relative;
   width: 100%;
   min-height: 84px;
   display: flex;
@@ -3940,6 +3941,22 @@ button.ask-close:hover {
 
 .cs-row-main:hover {
   border-color: var(--line-2);
+  filter: none;
+}
+
+/* One button stretched over the whole row picks the slot. */
+.cs-row-hit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cs-row-hit:hover {
   filter: none;
 }
 
@@ -4049,19 +4066,36 @@ button.ask-close:hover {
   position: static;
 }
 
-.cs-row .cs-set-lane {
-  position: absolute;
-  bottom: 6px;
-  left: 10px;
-  font-size: 12px;
-  opacity: 0;
+/* The row's role line as a picker: looks like the label until hovered. */
+.cs-row .cs-role-select {
+  position: relative;
+  z-index: 1;
+  field-sizing: content;
+  padding: 0 2px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 
-/* Until there is a lane opponent, "Set as my lane" shows on every enemy. */
-.cs.no-lane .cs-set-lane,
-.cs-row:hover .cs-set-lane,
-.cs-set-lane:focus-visible {
-  opacity: 1;
+.cs-row .cs-role-select.cs-guess {
+  font-style: italic;
+}
+
+.cs-row .cs-role-select:hover,
+.cs-row .cs-role-select:focus-visible {
+  border-color: var(--line-2);
+  background: var(--panel-2, var(--panel));
+  color: var(--text);
+}
+
+.cs-row .cs-role-select option {
+  font-style: normal;
+  color: var(--text);
+  background: var(--panel);
 }
 
 .cs-center {
@@ -4153,13 +4187,9 @@ button.ask-close:hover {
   font-weight: 600;
 }
 
-.cs-unknown {
+.cs-guess {
   color: var(--muted);
   font-style: italic;
-}
-
-.cs-set-lane {
-  white-space: nowrap;
 }
 
 .cs-against {

@@ -12,8 +12,8 @@ import {
   EMPTY_DRAFT,
   laneOpponent,
   laneRow,
-  markLane,
   ROLE_ORDER,
+  setRole,
   sameDraft,
   setSlot,
   Slot,
@@ -95,6 +95,8 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
 }
 
 const roleName = (r: Role) => ROLES.find((x) => x.id === r)?.label() ?? r;
+/** "jungle", "ADC": the role inside a sentence. */
+const roleLower = (r: Role) => (r === "adc" ? "ADC" : roleName(r).toLowerCase());
 
 /** "Fill from my game" found no champ select or game: a normal state, not an error. */
 const NOT_IN_GAME = /^(You're not in|No estás en)/;
@@ -107,10 +109,12 @@ function TeamRow({
   selected,
   me,
   lane,
-  unplaced,
+  guessed,
+  roles,
+  myRole,
   onSelect,
   onClear,
-  onMarkLane,
+  onSetRole,
 }: {
   side: "ally" | "enemy";
   role: Role;
@@ -118,46 +122,65 @@ function TeamRow({
   selected: boolean;
   me?: boolean;
   lane?: boolean;
-  /** Filled from a list without positions: the row isn't its role. */
-  unplaced?: boolean;
+  /** The row's role is guessed from the champion, not known. */
+  guessed?: boolean;
+  /** Roles this champion can be moved to (its team's rows). */
+  roles?: Role[];
+  /** Your role, to point out your lane among an enemy's roles. */
+  myRole?: Role;
   onSelect: () => void;
   onClear?: () => void;
-  onMarkLane?: () => void;
+  onSetRole?: (role: Role) => void;
 }) {
   const who = me ? t("You", "Tú") : side === "ally" ? t("Ally", "Aliado") : t("Enemy", "Rival");
-  const roleText = unplaced ? t("Role unknown", "Rol desconocido") : roleName(role);
+  const roleText = guessed ? t(`Likely ${roleLower(role)}`, `${roleName(role)} probable`) : roleName(role);
   const label = `${who}, ${roleText}: ${champ ? champ.name : t("empty", "vacío")}`;
+  // The role line is a picker on a filled row (not your own: your role is set
+  // in the matchup). The row is a div with one button stretched over it, so
+  // the picker can sit inside the row without nesting controls.
+  const picker = onSetRole && champ && roles;
   return (
     <div className={`cs-row ${side}${selected ? " selected" : ""}${me ? " me" : ""}${lane ? " lane" : ""}${champ ? " filled" : ""}`}>
-      <button type="button" className="cs-row-main" onClick={onSelect} aria-pressed={selected} aria-label={label}>
+      <div className="cs-row-main">
+        <button type="button" className="cs-row-hit" onClick={onSelect} aria-pressed={selected} aria-label={label} />
         {champ ? <img src={champ.image} alt="" /> : <span className="plus" aria-hidden="true">+</span>}
         <span className="cs-row-text">
           <span className="cs-row-role">
-            <span className={unplaced ? "cs-unknown" : undefined}>{roleText}</span>
+            {picker ? (
+              <select
+                className={`cs-role-select${guessed ? " cs-guess" : ""}`}
+                value={role}
+                onChange={(e) => onSetRole(e.target.value as Role)}
+                aria-label={t(`${champ.name}'s role`, `Rol de ${champ.name}`)}
+                title={
+                  guessed
+                    ? t("Guessed from the champion. Pick the right role if it's wrong.", "Deducido por el campeón. Elige el rol correcto si no es así.")
+                    : t("Change this champion's role", "Cambia el rol de este campeón")
+                }
+              >
+                {roles.map((r) => (
+                  <option key={r} value={r}>
+                    {r === role ? roleText : roleName(r)}
+                    {r === myRole && r !== role ? t(" (your lane)", " (tu línea)") : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className={guessed ? "cs-guess" : undefined}>{roleText}</span>
+            )}
             {me && <span className="cs-badge you">{t("You", "Tú")}</span>}
             {lane && <span className="cs-badge lane">{t("Your lane", "Tu línea")}</span>}
             {selected && <span className="cs-badge picking">{t("Picking", "Eligiendo")}</span>}
           </span>
           <strong>{champ?.name ?? (me ? t("Pick your champion", "Elige tu campeón") : side === "ally" ? t("Add teammate", "Añadir aliado") : t("Add enemy", "Añadir rival"))}</strong>
         </span>
-      </button>
+      </div>
       {onClear && champ && (
         <span className="cs-row-actions">
           <button type="button" className="slot-x" onClick={onClear} aria-label={t(`Remove ${champ.name}`, `Quitar ${champ.name}`)}>
             ×
           </button>
         </span>
-      )}
-      {onMarkLane && (
-        <button
-          type="button"
-          className="link-button small cs-set-lane"
-          onClick={onMarkLane}
-          title={t("This is who you face in lane", "Este es tu rival de línea")}
-          aria-label={champ ? t(`Set ${champ.name} as your lane opponent`, `Marcar a ${champ.name} como tu rival de línea`) : undefined}
-        >
-          {t("Set as my lane", "Es mi línea")}
-        </button>
       )}
     </div>
   );
@@ -324,7 +347,7 @@ function DraftView({
     try {
       const live = await currentGame();
       const ids = new Set(data.champions.map((c) => c.id));
-      const next = applyLive(latest.current, live, (id) => ids.has(id));
+      const next = applyLive(latest.current, live, (id) => ids.has(id), (id) => byId.get(id)?.tags ?? []);
       setD(next);
       setPicking(nextEmpty(next));
       const filled =
@@ -426,10 +449,9 @@ function DraftView({
               <p className={liveNote?.error ? "error small" : "muted"} role="status">
                 {liveNote?.text ??
                   t("Click a slot and pick, or fill both teams from your champ select.", "Haz clic en una casilla y elige, o rellena ambos equipos con tu selección de campeones.")}
-                {/* Enemies filled without roles: say so rather than guess the lane. */}
-                {!laneId &&
-                  d.unplaced.enemies.some((u, i) => u && d.enemies[i]) &&
-                  ` ${t("Enemy roles aren't known, so pick “Set as my lane” on the one you face.", "No se saben los roles rivales: pulsa “Es mi línea” en tu rival.")}`}
+                {/* Roles guessed from the champions: say so, and how to fix one. */}
+                {d.guessed.enemies.some((g, i) => g && d.enemies[i]) &&
+                  ` ${t("Enemy roles are guessed from their champions; pick the right role on any that's wrong.", "Los roles rivales se deducen por sus campeones; si alguno está mal, elige su rol en la casilla.")}`}
               </p>
             </div>
             <div className="cs-head-actions">
@@ -449,7 +471,7 @@ function DraftView({
           </header>
           {data.notice && <p className="muted small">{data.notice}</p>}
 
-          <div className={laneId ? "cs" : "cs no-lane"}>
+          <div className="cs">
             <section className="cs-team ally" aria-labelledby="cs-ally">
               <h3 id="cs-ally">{t("Your team", "Tu equipo")}</h3>
               {ROLE_ORDER.map((r) => {
@@ -474,10 +496,12 @@ function DraftView({
                     side="ally"
                     role={r}
                     champ={champ(d.allies[i])}
-                    unplaced={!!d.allies[i] && d.unplaced.allies[i]}
+                    guessed={!!d.allies[i] && d.guessed.allies[i]}
+                    roles={allyRoles(d.role)}
                     selected={picking?.team === "ally" && picking.index === i}
                     onSelect={() => select({ team: "ally", index: i })}
                     onClear={() => setD((s) => setSlot(s, { team: "ally", index: i }, null))}
+                    onSetRole={(role) => setD((s) => setRole(s, "ally", i, role))}
                   />
                 );
               })}
@@ -566,11 +590,13 @@ function DraftView({
                     role={r}
                     champ={champ(id)}
                     lane={isLane}
-                    unplaced={!!id && d.unplaced.enemies[i]}
+                    guessed={!!id && d.guessed.enemies[i]}
+                    roles={ROLE_ORDER}
+                    myRole={d.role}
                     selected={picking?.team === "enemy" && picking.index === i}
                     onSelect={() => select({ team: "enemy", index: i })}
                     onClear={() => setD((s) => setSlot(s, { team: "enemy", index: i }, null))}
-                    onMarkLane={id && !isLane ? () => setD((s) => markLane(s, id)) : undefined}
+                    onSetRole={(role) => setD((s) => setRole(s, "enemy", i, role))}
                   />
                 );
               })}

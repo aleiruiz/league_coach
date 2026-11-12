@@ -248,6 +248,10 @@ pub struct ActiveParticipant {
     pub champion_id: u32,
     #[serde(default)]
     pub puuid: Option<String>,
+    #[serde(rename = "spell1Id", default)]
+    pub spell1: u32,
+    #[serde(rename = "spell2Id", default)]
+    pub spell2: u32,
 }
 
 impl Client {
