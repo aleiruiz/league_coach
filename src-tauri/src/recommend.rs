@@ -26,6 +26,10 @@ pub struct Draft {
     /// Rival directo de línea, si se conoce.
     #[serde(default)]
     pub lane_opponent: Option<String>,
+    /// The lane opponent is guessed from the champions (its role wasn't
+    /// known), not set by the player: the prompt says so.
+    #[serde(default)]
+    pub lane_guessed: bool,
     #[serde(default)]
     pub notes: Option<String>,
 }
@@ -449,7 +453,15 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
     );
     let _ = writeln!(p, "YOUR CHAMPION: {} — role {}", describe(me), draft.role);
     if let Some(l) = lane {
-        let _ = writeln!(p, "LANE OPPONENT: {}", describe(l));
+        if draft.lane_guessed {
+            let _ = writeln!(
+                p,
+                "LANE OPPONENT (likely, guessed from the champion picks, may be wrong): {}",
+                describe(l)
+            );
+        } else {
+            let _ = writeln!(p, "LANE OPPONENT: {}", describe(l));
+        }
     }
     let _ = writeln!(p, "\nALLIES (your team, NOT enemies):");
     for a in &allies {
@@ -1272,8 +1284,22 @@ mod tests {
             allies: vec!["Ahri".into()],
             enemies: vec!["Darius".into(), "Soraka".into()],
             lane_opponent: Some("Darius".into()),
+            lane_guessed: false,
             notes: Some("voy 0/2".into()),
         }
+    }
+
+    #[test]
+    fn prompt_says_when_the_lane_opponent_is_a_guess() {
+        let data = fixtures::data();
+        let p = analysis_prompt(&draft(), &data).unwrap();
+        assert!(p.contains("LANE OPPONENT: "));
+        let guessed = Draft {
+            lane_guessed: true,
+            ..draft()
+        };
+        let p = analysis_prompt(&guessed, &data).unwrap();
+        assert!(p.contains("LANE OPPONENT (likely, guessed"));
     }
 
     #[test]
