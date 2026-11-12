@@ -10,6 +10,7 @@ import {
   changeRole,
   DraftState,
   EMPTY_DRAFT,
+  laneGuessed,
   laneOpponent,
   laneRow,
   ROLE_ORDER,
@@ -63,7 +64,11 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
   const lines = [
     t("Context from League Coach (not my question):", "Contexto de League Coach (no es mi pregunta):"),
     t(`I'm playing ${me.name} ${role}.`, `Juego ${me.name} ${role}.`),
-    lane ? t(`My lane opponent is ${lane}.`, `Mi rival de línea es ${lane}.`) : "",
+    lane
+      ? laneGuessed(d)
+        ? t(`My lane opponent is probably ${lane} (guessed from the champions).`, `Mi rival de línea es probablemente ${lane} (deducido por los campeones).`)
+        : t(`My lane opponent is ${lane}.`, `Mi rival de línea es ${lane}.`)
+      : "",
     list(d.allies) ? t(`My team: ${list(d.allies)}.`, `Mi equipo: ${list(d.allies)}.`) : "",
     list(d.enemies) ? t(`Enemy team: ${list(d.enemies)}.`, `Equipo rival: ${list(d.enemies)}.`) : "",
   ];
