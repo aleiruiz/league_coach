@@ -190,15 +190,26 @@ export default function Games({
   const [openGame, setOpenGame] = useState<string | null>(null);
   // Riot had no older games the last time we asked.
   const [noOlder, setNoOlder] = useState(false);
+  // "Load older games" reports under its button, at the bottom of the list.
+  const [olderStatus, setOlderStatus] = useState<string | null>(null);
+  const [olderError, setOlderError] = useState<string | null>(null);
   // Back from a game puts focus on its row again.
   const lastOpened = useRef<string | null>(null);
+  const account = useRef<string | null>(null);
 
   const reload = useCallback(async (): Promise<GamesView | null> => {
     try {
       const [v, h, a] = await Promise.all([matchDetails(), matchHistory(), riotAccount()]);
       setView(v);
       setHistory(h.games);
-      setRiotId(riotIdOf(a.profile));
+      const id = riotIdOf(a.profile);
+      // Another account: its history may go further back.
+      if (account.current !== id) {
+        account.current = id;
+        setNoOlder(false);
+        setOlderStatus(null);
+      }
+      setRiotId(id);
       return v;
     } catch (e) {
       setError(humanizeError(String(e)));
@@ -267,37 +278,50 @@ export default function Games({
     }
   };
 
+  function passes(g: MatchDetail) {
+    if (filter.kind === "ranked") return RANKED_QUEUES.includes(g.queue_id);
+    if (filter.kind === "champ") return me(g)?.champion === filter.id;
+    return true;
+  }
+
   // Games before the oldest stored one, one page from Riot per press (about
   // two requests per game), only when the player asks.
   const older = async () => {
     setBusy(true);
-    setError(null);
-    setStatus(t("Looking for older games…", "Buscando partidas anteriores…"));
+    setOlderError(null);
+    setOlderStatus(t("Looking for older games…", "Buscando partidas anteriores…"));
+    const before = new Set(view.games.map((g) => g.id));
     try {
-      const r = await loadOlderMatches((ev) => ev.type === "status" && setStatus(ev.text));
-      await reload();
+      const r = await loadOlderMatches((ev) => ev.type === "status" && setOlderStatus(ev.text));
+      const v = await reload();
       if (r.new_games > 0) {
         onChanged();
         setShown((n) => n + r.new_games);
       }
       if (r.reached_end) setNoOlder(true);
-      setStatus(
+      // With a filter on, say how many of the new games it shows.
+      const added = v ? v.games.filter((g) => !before.has(g.id)) : [];
+      const visible = added.filter(passes).length;
+      const hidden = filter.kind !== "all" && visible < r.new_games;
+      setOlderStatus(
         r.new_games > 0
           ? t(
-              `Added ${r.new_games === 1 ? "1 older game" : `${r.new_games} older games`}.`,
-              `Se ${r.new_games === 1 ? "agregó 1 partida anterior" : `agregaron ${r.new_games} partidas anteriores`}.`,
+              `Added ${r.new_games === 1 ? "1 older game" : `${r.new_games} older games`}${hidden ? ` (${visible} shown with this filter)` : ""}.`,
+              `Se ${r.new_games === 1 ? "agregó 1 partida anterior" : `agregaron ${r.new_games} partidas anteriores`}${hidden ? ` (${visible} con este filtro)` : ""}.`,
             )
           : r.at_limit
             ? t(`The app keeps your last ${view.keep} games.`, `La app guarda tus últimas ${view.keep} partidas.`)
             : r.reached_end
-              ? t("No older Summoner's Rift games.", "No hay partidas anteriores en la Grieta.")
+              ? t("No older Summoner's Rift games.", "No hay partidas anteriores en la Grieta del Invocador.")
               : t(
                   "Only other modes in that stretch. Press again to look further back.",
                   "Solo otros modos en ese tramo. Pulsa de nuevo para buscar más atrás.",
                 ),
       );
     } catch (e) {
-      failed(e);
+      const err = asSyncError(e);
+      setOlderStatus(err.kind === "busy" ? err.message : null);
+      if (err.kind !== "busy") setOlderError(humanizeError(err.message));
     } finally {
       setBusy(false);
     }
@@ -332,11 +356,7 @@ export default function Games({
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`.g-row-head[data-game="${CSS.escape(id)}"]`)?.focus());
   }, [openGame]);
   const champs = useMemo(() => mainChampions(view.games), [view.games]);
-  const filtered = view.games.filter((g) => {
-    if (filter.kind === "ranked") return RANKED_QUEUES.includes(g.queue_id);
-    if (filter.kind === "champ") return me(g)?.champion === filter.id;
-    return true;
-  });
+  const filtered = view.games.filter(passes);
   const days = byDay(filtered.slice(0, shown), Date.now(), lang === "es" ? "es-MX" : "en-US");
   const wins = filtered.filter(won).length;
   const chip = (f: Filter, label: string) => {
@@ -480,6 +500,10 @@ export default function Games({
           </button>
         )
       )}
+      {olderError && <p className="error g-older-note">⚠ {olderError}</p>}
+      <p className="muted small g-older-note" role="status">
+        {olderStatus}
+      </p>
     </section>
   );
 }

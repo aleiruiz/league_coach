@@ -30,8 +30,9 @@ const FETCH_COUNT: u32 = 20;
 pub const KEEP_GAMES: usize = 200;
 /// Ids of skipped games (ARAM, remakes…) remembered so they aren't read again.
 const KEEP_SKIPPED: usize = 1000;
-/// Pages of ids "Load older games" looks through for Summoner's Rift games
-/// before giving up for this press (other modes are skipped without a request each).
+/// Pages of ids "Load older games" looks through for unread games in one
+/// press. Ids already known cost nothing; a new ARAM or Arena id still costs
+/// one match request before it is skipped.
 const OLDER_ID_PAGES: u32 = 5;
 /// Games the model reviews (most recent first).
 const REVIEW_GAMES: usize = 20;
@@ -1132,6 +1133,11 @@ struct Store {
     /// Stored games Riot no longer has details for: not asked for again.
     #[serde(default)]
     no_details: Vec<String>,
+    /// Where "Load older games" stopped: the anchor (`older_than`) and the
+    /// next id offset, so a run of other modes longer than one press moves
+    /// on instead of rereading the same ids. Reset when the anchor changes.
+    #[serde(default)]
+    older_scan: Option<(i64, u32)>,
 }
 
 impl Store {
@@ -1607,6 +1613,15 @@ fn known_ids(store: &Store) -> HashSet<String> {
         .collect()
 }
 
+/// Id offset the next "Load older games" press starts at: where the last
+/// one stopped, unless older games were stored since (new anchor).
+fn scan_start(store: &Store, before: Option<i64>) -> u32 {
+    match (store.older_scan, before) {
+        (Some((anchor, next)), Some(t)) if anchor == t => next,
+        _ => 0,
+    }
+}
+
 /// Epoch seconds of the oldest stored game: older pages start there.
 fn older_than(store: &Store) -> Option<i64> {
     store
@@ -1683,12 +1698,14 @@ pub async fn load_older_matches(
         None => lookup().await?,
     };
     let before = older_than(&store);
+    let first = scan_start(&store, before);
     let known = known_ids(&store);
     status(tr("Looking for older games…", "Buscando partidas anteriores…").into());
     let mut new_ids = Vec::new();
     let mut reached_end = false;
+    let mut next = first;
     for page in 0..OLDER_ID_PAGES {
-        let start = page * FETCH_COUNT;
+        let start = first + page * FETCH_COUNT;
         let ids = match client
             .match_ids_page(&puuid, before, start, FETCH_COUNT)
             .await
@@ -1709,8 +1726,15 @@ pub async fn load_older_matches(
             break;
         }
         if !new_ids.is_empty() {
+            // Read below; if they all turn out to be other modes, the next
+            // press starts at this page again (now all known, so free).
+            next = start;
             break;
         }
+        next = start + FETCH_COUNT;
+    }
+    if let Some(t) = before {
+        store.older_scan = Some((t, next));
     }
     if profile.puuid.as_deref() != Some(puuid.as_str()) {
         profile.puuid = Some(puuid.clone());
@@ -1718,6 +1742,7 @@ pub async fn load_older_matches(
     }
     new_ids.truncate(KEEP_GAMES - store.games.len());
     if new_ids.is_empty() {
+        save_store(&app, &store_id, &store)?;
         return Ok(OlderResult {
             new_games: 0,
             reached_end,
@@ -2304,6 +2329,19 @@ mod tests {
         };
         // Seconds, and a game without an end time doesn't count.
         assert_eq!(older_than(&store), Some(2_000));
+    }
+
+    #[test]
+    fn older_scan_resumes_until_older_games_are_stored() {
+        let mut store = Store {
+            games: vec![at("M1", 2_000_900)],
+            older_scan: Some((2_000, 100)),
+            ..Default::default()
+        };
+        assert_eq!(scan_start(&store, older_than(&store)), 100);
+        store.games.push(at("M0", 1_500_000));
+        assert_eq!(scan_start(&store, older_than(&store)), 0);
+        assert_eq!(scan_start(&Store::default(), None), 0);
     }
 
     #[test]

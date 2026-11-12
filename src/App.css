@@ -3434,6 +3434,10 @@ button.ask-close:hover {
 .g-older {
   align-self: center;
 }
+.g-older-note {
+  text-align: center;
+  margin: 6px 0 0;
+}
 
 .pic-missing {
   display: inline-block;
