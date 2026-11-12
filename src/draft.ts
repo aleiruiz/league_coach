@@ -63,6 +63,13 @@ export function laneOpponent(s: DraftState): string | null {
   return s.enemies[laneRow(s.role)];
 }
 
+/** Your lane opponent is only a guess (the row across from you, its role guessed). */
+export function laneGuessed(s: DraftState): boolean {
+  if (s.lane && s.enemies.includes(s.lane)) return false;
+  const row = laneRow(s.role);
+  return !!s.enemies[row] && s.guessed.enemies[row];
+}
+
 /**
  * Marks an enemy as your lane opponent. One whose role was only guessed
  * moves into your lane's row instead (the guess was wrong); one across from
@@ -109,6 +116,7 @@ export function toDraft(s: DraftState): Draft | null {
     allies: ids(s.allies),
     enemies: ids(s.enemies),
     lane_opponent: laneOpponent(s),
+    lane_guessed: laneGuessed(s),
     // Free-text notes moved to the Ask panel; the build request has none.
     notes: null,
   };

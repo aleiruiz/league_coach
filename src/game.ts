@@ -53,6 +53,8 @@ export type Draft = {
   allies: string[];
   enemies: string[];
   lane_opponent: string | null;
+  /** The lane opponent is guessed from the champions, not set by the player. */
+  lane_guessed?: boolean;
   notes: string | null;
 };
 

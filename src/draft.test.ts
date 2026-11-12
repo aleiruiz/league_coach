@@ -39,6 +39,7 @@ describe("draft", () => {
     s = setSlot(s, enemy(0), "Darius");
     expect(laneOpponent(s)).toBe("Darius");
     expect(toDraft(s)?.lane_opponent).toBe("Darius");
+    expect(toDraft(s)?.lane_guessed).toBe(false);
     // Lanes swapped: the mark wins over the row.
     s = markLane(s, "Vi");
     expect(laneOpponent(s)).toBe("Vi");
@@ -124,6 +125,9 @@ describe("applyLive", () => {
     expect(s.guessed.enemies).toEqual([false, true, false, false, true]);
     expect(laneOpponent(s)).toBe("Lillia");
     expect(toDraft(s)?.lane_opponent).toBe("Lillia");
+    // The AI is told it's a guess, until the player sets the role.
+    expect(toDraft(s)?.lane_guessed).toBe(true);
+    expect(toDraft(setRole(s, "enemy", 1, "jungle"))?.lane_guessed).toBe(false);
   });
 
   it("Smite settles who the jungler is", () => {
