@@ -255,12 +255,18 @@ pub fn saved_tier_lists(app: AppHandle) -> HashMap<String, TierList> {
     load(&app)
 }
 
+/// Serializes writes to `tierlists.json` so two runs can't drop each other's role.
+#[derive(Default)]
+pub struct Lock(std::sync::Mutex<()>);
+
 /// Asks the AI for this patch's tier list in `role` and saves it.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn fetch_tier_list(
     app: AppHandle,
     cache: State<'_, ddragon::Cache>,
     running: State<'_, Running>,
+    lock: State<'_, Lock>,
     kind: ProviderKind,
     role: String,
     request_id: String,
@@ -274,8 +280,8 @@ pub async fn fetch_tier_list(
     if kind != ProviderKind::ClaudeCode {
         // Only Claude Code shows its search results, which is how a page is checked.
         return Err(lang.pick(
-            "The tier list needs Claude Code: it's the AI that shows where its numbers come from. Connect it in Settings › Models.".to_string(),
-            "La tier list necesita Claude Code: es la IA que muestra de dónde salen sus números. Conéctalo en Ajustes › Modelos.".to_string(),
+            "The tier list needs Claude Code: it's the AI that shows where its numbers come from. Connect it in Settings › Your AI.".to_string(),
+            "La tier list necesita Claude Code: es la IA que muestra de dónde salen sus números. Conéctalo en Ajustes › Tu IA.".to_string(),
         ));
     }
     let _ = on_event.send(ChatEvent::Status {
@@ -309,6 +315,7 @@ pub async fn fetch_tier_list(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64);
     let list = clean_list(&raw, &role, &data, &answer.sources, now)?;
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut lists = load(&app);
     lists.insert(role, list.clone());
     save(&app, &lists)?;

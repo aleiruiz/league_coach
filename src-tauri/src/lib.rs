@@ -17,6 +17,7 @@ pub fn run() {
         .manage(ddragon::Cache::default())
         .manage(history::Lock::default())
         .manage(usage::Store::default())
+        .manage(tierlist::Lock::default())
         .setup(|app| {
             i18n::load(app.handle());
             Ok(())
