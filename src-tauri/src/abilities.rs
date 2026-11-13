@@ -107,10 +107,10 @@ async fn kit(app: &AppHandle, data: &GameData, id: &str) -> Result<Kit, String> 
         return Err(format!("Unknown champion: {id}"));
     }
     let file = kit_file(&ddragon::cache_root(app)?, data, id);
-    if let Ok(text) = tokio::fs::read_to_string(&file).await {
-        if let Ok(k) = parse_kit(&text, id) {
-            return Ok(k);
-        }
+    if let Ok(text) = tokio::fs::read_to_string(&file).await
+        && let Ok(k) = parse_kit(&text, id)
+    {
+        return Ok(k);
     }
     let text = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
@@ -132,10 +132,10 @@ async fn kit(app: &AppHandle, data: &GameData, id: &str) -> Result<Kit, String> 
         .map_err(|e| e.to_string())?;
     let k = parse_kit(&text, id)?;
     // Best effort: a cache that can't be written only costs a download.
-    if let Some(dir) = file.parent() {
-        if tokio::fs::create_dir_all(dir).await.is_ok() {
-            let _ = tokio::fs::write(&file, &text).await;
-        }
+    if let Some(dir) = file.parent()
+        && tokio::fs::create_dir_all(dir).await.is_ok()
+    {
+        let _ = tokio::fs::write(&file, &text).await;
     }
     Ok(k)
 }
