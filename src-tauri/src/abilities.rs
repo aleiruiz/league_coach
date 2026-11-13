@@ -7,6 +7,7 @@
 //! A failed download never blocks a build: the block is simply left out.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -141,19 +142,29 @@ async fn kit(app: &AppHandle, data: &GameData, id: &str) -> Result<Kit, String> 
 }
 
 /// The ability block for these champions (duplicates and failures skipped).
-pub async fn for_champions(app: &AppHandle, data: &GameData, ids: &[&str]) -> Option<String> {
-    let mut kits = Vec::new();
-    let mut done: Vec<&str> = Vec::new();
+/// The downloads run at the same time: a slow Data Dragon costs one timeout,
+/// not one per champion.
+pub async fn for_champions(app: &AppHandle, data: &Arc<GameData>, ids: &[&str]) -> Option<String> {
+    let mut unique: Vec<String> = Vec::new();
     for id in ids {
-        if done.contains(id) {
-            continue;
-        }
-        done.push(id);
-        if let Ok(k) = kit(app, data, id).await {
-            kits.push(k);
+        if !unique.iter().any(|u| u == id) {
+            unique.push(id.to_string());
         }
     }
-    block(&kits)
+    let mut set = tokio::task::JoinSet::new();
+    for (i, id) in unique.into_iter().enumerate() {
+        let (app, data) = (app.clone(), data.clone());
+        set.spawn(async move { (i, kit(&app, &data, &id).await) });
+    }
+    let mut kits: Vec<(usize, Kit)> = Vec::new();
+    while let Some(done) = set.join_next().await {
+        if let Ok((i, Ok(k))) = done {
+            kits.push((i, k));
+        }
+    }
+    // Same order as asked: your champion first.
+    kits.sort_by_key(|(i, _)| *i);
+    block(&kits.into_iter().map(|(_, k)| k).collect::<Vec<_>>())
 }
 
 /// For the Ask panel's context: the same block the build prompt gets.

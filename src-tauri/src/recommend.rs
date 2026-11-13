@@ -1056,6 +1056,9 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 
 // ---------- comando ----------
 
+/// Longest player question sent with a build (`MAX_QUESTION` in DraftView.tsx).
+const MAX_NOTES: usize = 300;
+
 /// El análisis busca en la web y razona: se le da más margen que a los pasos
 /// de formato, que solo convierten texto ya escrito.
 const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
@@ -1097,6 +1100,12 @@ pub async fn recommend_build(
     on_event: Channel<ChatEvent>,
 ) -> Result<Recommendation, String> {
     let data = ddragon::get(&app, &cache).await?;
+    // The player's question: same cap as the box in the UI, whoever calls.
+    let mut draft = draft;
+    draft.notes = draft
+        .notes
+        .map(|n| n.trim().chars().take(MAX_NOTES).collect::<String>())
+        .filter(|n| !n.is_empty());
     // Your kit and your lane opponent's: what models most often get wrong.
     let kit_ids: Vec<&str> = std::iter::once(draft.champion.as_str())
         .chain(draft.lane_opponent.as_deref())
