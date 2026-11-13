@@ -21,7 +21,8 @@ use crate::recommend::{self, null_default};
 pub const ROLES: &[&str] = &["top", "jungle", "mid", "adc", "support"];
 /// Enough for every tier that matters in one role; the rest is noise.
 const MAX_ENTRIES: usize = 40;
-/// Fewer rows than this is a few search snippets, not a tier list.
+/// Fewer rows than this is a few search snippets, not a full tier list: it
+/// is still shown, labelled as partial, instead of refused.
 pub const MIN_ENTRIES: usize = 8;
 /// The only hosts this call may open pages on (Alei, 2026-11-12: let Claude
 /// read the tier list page itself; search snippets alone gave thin lists).
@@ -97,6 +98,9 @@ pub struct TierList {
     /// The AI opened the page itself (else it only saw search snippets).
     #[serde(default)]
     pub opened: bool,
+    /// Fewer than `MIN_ENTRIES` champions: shown with a "partial list" label.
+    #[serde(default)]
+    pub partial: bool,
 }
 
 /// Champion by id or by name in the app's language, ignoring case and signs.
@@ -191,12 +195,15 @@ pub fn clean_list_with(
     }
     let dropped = raw.champions.len() - entries.len();
     entries.truncate(MAX_ENTRIES);
-    if entries.len() < min_entries.max(1) {
+    // A short list is still worth showing (labelled partial); an empty one isn't.
+    if entries.is_empty() {
         return Err(lang.pick(
-            "The AI found too few champions on that page to make a tier list. Try again.".to_string(),
-            "La IA encontró muy pocos campeones en esa página para armar una tier list. Inténtalo de nuevo.".to_string(),
+            "The AI found no champions of this patch on that page. Try again.".to_string(),
+            "La IA no encontró campeones de este parche en esa página. Inténtalo de nuevo."
+                .to_string(),
         ));
     }
+    let partial = entries.len() < min_entries;
     let rank = raw.rank.trim();
     Ok(TierList {
         role: role.to_string(),
@@ -212,6 +219,7 @@ pub fn clean_list_with(
         dropped,
         fetched_at: now,
         opened: was_opened,
+        partial,
     })
 }
 
@@ -368,9 +376,20 @@ pub async fn fetch_tier_list(
     )?;
     let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut lists = load(&app);
-    lists.insert(role, list.clone());
-    save(&app, &lists)?;
+    // A partial result is shown, but never replaces a full list of this patch on disk.
+    if should_replace(lists.get(&role), &list) {
+        lists.insert(role, list.clone());
+        save(&app, &lists)?;
+    }
     Ok(list)
+}
+
+/// Whether `new` should be saved over the list already saved for its role.
+fn should_replace(old: Option<&TierList>, new: &TierList) -> bool {
+    match old {
+        Some(old) => !(new.partial && !old.partial && old.app_patch == new.app_patch),
+        None => true,
+    }
 }
 
 #[cfg(test)]
@@ -415,12 +434,44 @@ mod tests {
     }
 
     #[test]
-    fn a_list_shorter_than_the_minimum_is_refused() {
+    fn a_partial_list_never_replaces_a_full_one_of_the_same_patch() {
         let r = raw(&format!(
             r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}, {{"champion": "Jax", "tier": "A"}}]}}"#
         ));
-        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 3).is_err());
-        assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 2).is_ok());
+        let data = fixtures::data();
+        let full = clean_list(&r, "mid", &data, &[URL.into()], 0, 2).unwrap();
+        let partial = clean_list(&r, "mid", &data, &[URL.into()], 0, 3).unwrap();
+        assert!(should_replace(None, &partial));
+        assert!(!should_replace(Some(&full), &partial));
+        assert!(should_replace(Some(&partial), &partial));
+        assert!(should_replace(Some(&partial), &full));
+        assert!(should_replace(Some(&full), &full));
+        // A full list from an older patch is stale: a partial one replaces it.
+        let old = TierList {
+            app_patch: "25.21".into(),
+            ..full
+        };
+        assert!(should_replace(Some(&old), &partial));
+    }
+
+    #[test]
+    fn a_list_shorter_than_the_minimum_is_kept_as_partial() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}, {{"champion": "Jax", "tier": "A"}}]}}"#
+        ));
+        let short = clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 3).unwrap();
+        assert!(short.partial);
+        assert_eq!(short.entries.len(), 2);
+        assert!(
+            !clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 2)
+                .unwrap()
+                .partial
+        );
+        // Nothing usable is still refused.
+        let none = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Nobody", "tier": "S"}}]}}"#
+        ));
+        assert!(clean_list(&none, "mid", &fixtures::data(), &[URL.into()], 0, 3).is_err());
     }
 
     #[test]

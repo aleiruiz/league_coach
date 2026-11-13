@@ -609,7 +609,7 @@ function DraftView({
                       ? t("Pick at least your champion.", "Elige al menos tu campeón.")
                       : busy
                         ? (status ?? t("Preparing the build…", "Preparando la build…"))
-                        : t("About 20 seconds. Adapts to everyone picked.", "Unos 20 segundos. Se adapta a todos los elegidos.")}
+                        : t("About a minute: it searches this patch. Adapts to everyone picked.", "Cerca de un minuto: busca en este parche. Se adapta a todos los elegidos.")}
                   </span>
                   {rec && !busy && (
                     <button type="button" className="link-button" onClick={() => setEditing(false)}>

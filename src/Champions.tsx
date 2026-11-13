@@ -354,6 +354,16 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           </p>
         )}
 
+        {list?.partial && (
+          <p className="ch-stale small">
+            <strong>{t("Partial list.", "Lista parcial.")}</strong>{" "}
+            {t(
+              `The AI could only read ${list.entries.length} champions from ${list.site}. Open the page for the full list, or look it up again.`,
+              `La IA solo pudo leer ${list.entries.length} campeones de ${list.site}. Abre la página para ver la lista completa, o búscala de nuevo.`,
+            )}
+          </p>
+        )}
+
         {list && (
           <>
             <div className="ch-table" role="table" aria-label={t(`${roleLabel(shownRole)} tier list`, `Tier list de ${roleLabel(shownRole)}`)}>

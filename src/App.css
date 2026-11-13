@@ -4110,6 +4110,7 @@ button.ask-close:hover {
 }
 
 .cs-matchup {
+  container-type: inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4122,7 +4123,8 @@ button.ask-close:hover {
 
 .cs-vs {
   display: grid;
-  grid-template-columns: auto minmax(0, auto) auto auto minmax(0, auto);
+  /* min-content: a name or "You · role" never gets narrower than its longest word. */
+  grid-template-columns: auto minmax(min-content, auto) auto auto minmax(min-content, auto);
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -4161,11 +4163,22 @@ button.ask-close:hover {
   min-width: 0;
 }
 
-/* Names wrap rather than cut off ("Your champion", "Not picked"). */
+/* Names wrap between words ("Your champion", "Not picked"), never inside one. */
 .cs-vs-text strong {
   font-size: 20px;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+/* Too narrow for one row: you on top, "against", then your lane opponent. */
+@container (max-width: 520px) {
+  .cs-vs {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cs-against {
+    grid-column: 1 / -1;
+  }
 }
 
 .cs-you-line {
