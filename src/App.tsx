@@ -6,6 +6,7 @@ import Games from "./Games";
 import Champions from "./Champions";
 import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
+import UpdateNotice from "./UpdateNotice";
 import { riotAccount, riotIdOf, RiotProfile } from "./history";
 import { NavIcon } from "./icons";
 import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus, savePreferred, shortName } from "./providers";
@@ -194,6 +195,7 @@ function App() {
               : t("No AI connected", "Ninguna IA conectada")}
           </span>
           {patch && <span>{t(`Patch ${patch}`, `Parche ${patch}`)}</span>}
+          <UpdateNotice busy={Object.values(busy).some(Boolean)} />
         </div>
         <button
           className={view === "settings" ? "nav active" : "nav"}

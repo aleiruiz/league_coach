@@ -4409,3 +4409,33 @@ button.ask-close:hover {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* Auto-update card at the bottom of the sidebar (UpdateNotice.tsx). */
+.update-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  color: var(--text);
+}
+
+.update-notes,
+.update-hint {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.update-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
