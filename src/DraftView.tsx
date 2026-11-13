@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES, RuneTree, Shard } from "./game";
+import { Champion, championAbilities, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES, RuneTree, Shard } from "./game";
 import { damageProfile } from "./draft";
 import {
   allyRoles,
@@ -51,7 +51,13 @@ function cardFailure(e: string): string {
 }
 
 /** "Jax top against Darius" and what the AI should know about the game and its build. */
-export function askContext(d: DraftState, rec: Result | null, byId: Map<string, Champion>): AskContext | null {
+export function askContext(
+  d: DraftState,
+  rec: Result | null,
+  byId: Map<string, Champion>,
+  /** Riot's ability text for you and your lane opponent, if loaded. */
+  abilities: string | null = null,
+): AskContext | null {
   const me = d.me ? byId.get(d.me) : undefined;
   if (!me) return null;
   const name = (id: string | null) => (id ? (byId.get(id)?.name ?? id) : null);
@@ -71,6 +77,7 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
       : "",
     list(d.allies) ? t(`My team: ${list(d.allies)}.`, `Mi equipo: ${list(d.allies)}.`) : "",
     list(d.enemies) ? t(`Enemy team: ${list(d.enemies)}.`, `Equipo rival: ${list(d.enemies)}.`) : "",
+    abilities ?? "",
   ];
   if (rec && !rec.card_error) {
     const c = rec.card;
@@ -98,6 +105,16 @@ export function askContext(d: DraftState, rec: Result | null, byId: Map<string, 
     ),
   };
 }
+
+/** Longest question sent with a build. */
+const MAX_QUESTION = 300;
+
+/** One-click questions for the build (planning ahead: never read from a game in progress). */
+const questionPresets = () =>
+  t(
+    ["What if I fall behind?", "Do I need anti-heal?", "How do I win this lane?"],
+    ["¿Y si voy por detrás?", "¿Necesito antisanación?", "¿Cómo gano esta línea?"],
+  );
 
 const roleName = (r: Role) => ROLES.find((x) => x.id === r)?.label() ?? r;
 /** "jungle", "ADC": the role inside a sentence. */
@@ -271,6 +288,10 @@ function DraftView({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rec, setRec] = useState<Result | null>(null);
+  /** "Anything specific?": sent with the build as the player's notes. */
+  const [question, setQuestion] = useState("");
+  /** Riot's ability text for you and your lane opponent, for Ask. */
+  const [abilities, setAbilities] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
   const top = useRef<HTMLElement>(null);
   // The build replaces the picks (and back): start at the top of the screen.
@@ -312,10 +333,24 @@ function DraftView({
   // The build no longer matches what is on screen.
   const stale = !!rec && !sameDraft(rec.draft, draft);
 
+  const kitIds = [d.me, laneOpponent(d)].filter((x): x is string => !!x).join(",");
+  useEffect(() => {
+    let current = true;
+    setAbilities(null);
+    if (kitIds && data)
+      championAbilities(kitIds.split(","))
+        .then((a) => current && setAbilities(a))
+        // Without it Ask still works, just without Riot's ability text.
+        .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [kitIds, data]);
+
   // Ask the coach knows the picks and, once there is one, the build.
   useEffect(() => {
-    onContext(askContext(d, rec && !stale ? rec : null, byId));
-  }, [d, rec, stale, byId, lang, onContext]);
+    onContext(askContext(d, rec && !stale ? rec : null, byId, abilities));
+  }, [d, rec, stale, byId, lang, onContext, abilities]);
 
   function select(slot: Slot) {
     setPicking(slot);
@@ -391,10 +426,11 @@ function DraftView({
     setRec(null);
     setStatus(t("Preparing the build…", "Preparando la build…"));
     try {
-      const r = await recommendBuild(usedKind, draft, id, (ev) => {
+      const asked = question.trim().slice(0, MAX_QUESTION) || null;
+      const r = await recommendBuild(usedKind, { ...draft, notes: asked }, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
       });
-      setRec({ ...r, kind: usedKind, draft, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
+      setRec({ ...r, kind: usedKind, draft: { ...draft, notes: asked }, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
       setEditing(false);
     } catch (e) {
       setError(humanizeError(String(e)));
@@ -546,6 +582,27 @@ function DraftView({
                   </span>
                 </div>
                 <div className="cs-build">
+                  <label className="cs-question">
+                    <span className="small">{t("Anything specific? (optional)", "¿Algo en concreto? (opcional)")}</span>
+                    <input
+                      type="text"
+                      value={question}
+                      maxLength={MAX_QUESTION}
+                      disabled={busy}
+                      placeholder={t("e.g. what if I fall behind?", "p. ej. ¿y si voy por detrás?")}
+                      onChange={(e) => setQuestion(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && draft && kind && !busy) recommend();
+                      }}
+                    />
+                  </label>
+                  <div className="cs-presets" role="group" aria-label={t("Common questions", "Preguntas frecuentes")}>
+                    {questionPresets().map((q) => (
+                      <button key={q} type="button" className={`chip${question === q ? " on" : ""}`} disabled={busy} onClick={() => setQuestion(question === q ? "" : q)}>
+                        {q}
+                      </button>
+                    ))}
+                  </div>
                   {getBuild}
                   <span className="muted small">
                     {!d.me
