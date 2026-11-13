@@ -1081,11 +1081,13 @@ pub(crate) async fn ask(
         cancel,
         on_event,
         &[],
+        false,
     )
     .await
 }
 
-/// `ask`, letting Claude Code open pages on `fetch_hosts` (see `providers::run_with`).
+/// `ask`, letting Claude Code open pages on `fetch_hosts` (see `providers::run_with`);
+/// `fast` runs it on the provider's cheaper model (`providers::fast_model`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn ask_with(
     app: &AppHandle,
@@ -1096,6 +1098,7 @@ pub(crate) async fn ask_with(
     cancel: oneshot::Receiver<()>,
     on_event: &Channel<ChatEvent>,
     fetch_hosts: &[&str],
+    fast: bool,
 ) -> Result<Collected, String> {
     let collected = Mutex::new(Collected::default());
     let send = |ev: ChatEvent| {
@@ -1114,6 +1117,7 @@ pub(crate) async fn ask_with(
         Some(cancel),
         &send,
         fetch_hosts,
+        fast,
     )
     .await?;
     let c = collected.into_inner().unwrap();
@@ -1180,7 +1184,11 @@ pub async fn recommend_build(
         Some(_) => card_prompt(&data, None),
         None => card_prompt(&data, Some(&analysis_text)),
     };
-    let first = ask(
+    // Step 2 only turns the analysis into JSON: a cheaper, faster model does
+    // it (step 1 keeps the chosen one). If that model fails, the chosen one
+    // tries once, so a plan without it still gets a card.
+    let fast = providers::fast_model(kind).is_some();
+    let mut first = ask_with(
         &app,
         kind,
         &card_req,
@@ -1188,8 +1196,25 @@ pub async fn recommend_build(
         providers::DEFAULT_TIMEOUT,
         card_cancel,
         &on_event,
+        &[],
+        fast,
     )
     .await;
+    let mut fast_failed = false;
+    if fast && first.as_ref().is_err_and(|e| !providers::is_stopped(e)) {
+        fast_failed = true;
+        let again = running.register(&request_id);
+        first = ask(
+            &app,
+            kind,
+            &card_req,
+            analysis.session_id.as_deref(),
+            providers::DEFAULT_TIMEOUT,
+            again,
+            &on_event,
+        )
+        .await;
+    }
     let retry_cancel = running.register(&request_id);
     let mut session_id = analysis.session_id.clone();
     // Si la tarjeta falla pero el análisis existe, se devuelve el análisis en
@@ -1248,7 +1273,7 @@ pub async fn recommend_build(
             let fix_prompt = format!(
                 "{reason} Without searching again, reply again with ONLY the complete JSON object, in the same shape."
             );
-            let second = ask(
+            let second = ask_with(
                 &app,
                 kind,
                 &fix_prompt,
@@ -1256,6 +1281,8 @@ pub async fn recommend_build(
                 providers::DEFAULT_TIMEOUT,
                 retry_cancel,
                 &on_event,
+                &[],
+                fast && !fast_failed,
             )
             .await;
             running.finish(&request_id);

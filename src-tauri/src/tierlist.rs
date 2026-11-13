@@ -344,6 +344,7 @@ pub async fn fetch_tier_list(
         rx,
         &on_event,
         FETCH_HOSTS,
+        false,
     )
     .await;
     running.finish(&request_id);

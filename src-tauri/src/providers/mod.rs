@@ -300,12 +300,34 @@ pub async fn run(
     cancel: Option<oneshot::Receiver<()>>,
     send: &(dyn Fn(ChatEvent) + Send + Sync),
 ) -> Result<(), String> {
-    run_with(app, kind, prompt, session_id, timeout, cancel, send, &[]).await
+    run_with(
+        app,
+        kind,
+        prompt,
+        session_id,
+        timeout,
+        cancel,
+        send,
+        &[],
+        false,
+    )
+    .await
+}
+
+/// A cheaper, faster model for steps that only reformat text the chosen
+/// model already wrote (the build card's JSON). `None`: no such model is
+/// known for this provider, so the chosen one is used.
+pub fn fast_model(kind: ProviderKind) -> Option<&'static str> {
+    match kind {
+        ProviderKind::ClaudeCode => Some("haiku"),
+        ProviderKind::Codex => None,
+    }
 }
 
 /// Like `run`, but Claude Code may also open pages with WebFetch on exactly
 /// these hosts (nothing else: other fetches are denied by `dontAsk`). Codex
-/// ignores it.
+/// ignores it. `fast`: run on the provider's `fast_model` instead of the
+/// model the player chose in Models.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_with(
     app: &AppHandle,
@@ -316,6 +338,7 @@ pub async fn run_with(
     cancel: Option<oneshot::Receiver<()>>,
     send: &(dyn Fn(ChatEvent) + Send + Sync),
     fetch_hosts: &[&str],
+    fast: bool,
 ) -> Result<(), String> {
     if session_id.is_some_and(|id| !valid_session_id(id)) {
         return Err(tr("Invalid conversation id.", "Id de conversación inválido.").into());
@@ -343,8 +366,13 @@ pub async fn run_with(
     // build, review), so the model never has to guess it.
     let system = prompts::coach(lang, live_patch(app).await.as_ref());
 
-    let model = models::selected(app, kind);
+    let fast = fast.then(|| fast_model(kind)).flatten();
+    let model = fast
+        .map(String::from)
+        .or_else(|| models::selected(app, kind));
     let model = model.as_deref();
+    // Only the player's own choice is ever reset when the CLI rejects it.
+    let chosen = if fast.is_some() { None } else { model };
     let (args, stdin) = match kind {
         ProviderKind::ClaudeCode => {
             // Fuera del workdir, para que no quede a la vista del modelo.
@@ -390,13 +418,13 @@ pub async fn run_with(
         ),
         ChatEvent::Limits { windows } => store.record_limits(app, kind, windows),
         ChatEvent::Error { message } => send(ChatEvent::Error {
-            message: model_gone(app, kind, model, message),
+            message: model_gone(app, kind, chosen, message),
         }),
         ev => send(ev),
     };
     process::stream(&bin, &args, opts, parse, &send)
         .await
-        .map_err(|e| model_gone(app, kind, model, e))
+        .map_err(|e| model_gone(app, kind, chosen, e))
 }
 
 /// If the CLI rejected the chosen model (it no longer exists, or the plan
@@ -510,6 +538,14 @@ mod tests {
         ));
         assert!(!mentions_model("Opus is overloaded, try again", "opus"));
         assert!(!mentions_model("Session not found (opus)", "opus"));
+    }
+
+    #[test]
+    fn only_claude_code_has_a_fast_model() {
+        // Claude Code takes the alias as `--model=haiku`, also on `--resume`.
+        assert_eq!(fast_model(ProviderKind::ClaudeCode), Some("haiku"));
+        assert!(models::valid_id("haiku"));
+        assert_eq!(fast_model(ProviderKind::Codex), None);
     }
 
     #[test]
