@@ -592,13 +592,13 @@ function DraftView({
                       placeholder={t("e.g. what if I fall behind?", "p. ej. ¿y si voy por detrás?")}
                       onChange={(e) => setQuestion(e.currentTarget.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && draft && kind && !busy) recommend();
+                        if (e.key === "Enter" && !e.nativeEvent.isComposing && draft && kind && !busy) recommend();
                       }}
                     />
                   </label>
                   <div className="cs-presets" role="group" aria-label={t("Common questions", "Preguntas frecuentes")}>
                     {questionPresets().map((q) => (
-                      <button key={q} type="button" className={`chip${question === q ? " on" : ""}`} disabled={busy} onClick={() => setQuestion(question === q ? "" : q)}>
+                      <button key={q} type="button" className={`chip${question === q ? " on" : ""}`} aria-pressed={question === q} disabled={busy} onClick={() => setQuestion(question === q ? "" : q)}>
                         {q}
                       </button>
                     ))}
