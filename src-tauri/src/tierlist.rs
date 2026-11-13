@@ -376,9 +376,20 @@ pub async fn fetch_tier_list(
     )?;
     let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut lists = load(&app);
-    lists.insert(role, list.clone());
-    save(&app, &lists)?;
+    // A partial result is shown, but never replaces a full list of this patch on disk.
+    if should_replace(lists.get(&role), &list) {
+        lists.insert(role, list.clone());
+        save(&app, &lists)?;
+    }
     Ok(list)
+}
+
+/// Whether `new` should be saved over the list already saved for its role.
+fn should_replace(old: Option<&TierList>, new: &TierList) -> bool {
+    match old {
+        Some(old) => !(new.partial && !old.partial && old.app_patch == new.app_patch),
+        None => true,
+    }
 }
 
 #[cfg(test)]
@@ -420,6 +431,27 @@ mod tests {
         // Unknown champion, a repeat and a row with no tier.
         assert_eq!(l.dropped, 3);
         assert_eq!(l.fetched_at, 7);
+    }
+
+    #[test]
+    fn a_partial_list_never_replaces_a_full_one_of_the_same_patch() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}, {{"champion": "Jax", "tier": "A"}}]}}"#
+        ));
+        let data = fixtures::data();
+        let full = clean_list(&r, "mid", &data, &[URL.into()], 0, 2).unwrap();
+        let partial = clean_list(&r, "mid", &data, &[URL.into()], 0, 3).unwrap();
+        assert!(should_replace(None, &partial));
+        assert!(!should_replace(Some(&full), &partial));
+        assert!(should_replace(Some(&partial), &partial));
+        assert!(should_replace(Some(&partial), &full));
+        assert!(should_replace(Some(&full), &full));
+        // A full list from an older patch is stale: a partial one replaces it.
+        let old = TierList {
+            app_patch: "25.21".into(),
+            ..full
+        };
+        assert!(should_replace(Some(&old), &partial));
     }
 
     #[test]
