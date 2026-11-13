@@ -9,6 +9,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tokio::sync::oneshot;
 
+use crate::abilities;
 use crate::ddragon::{self, Champion, GameData, RuneTree};
 use crate::i18n::{Lang, tr};
 use crate::providers::{self, ChatEvent, Collected, ProviderKind, Running};
@@ -421,7 +422,11 @@ const SCHEMA: &str = r#"{
 
 /// Step 1: the analysis, just like a question to the coach (free text and
 /// web search), with no item lists or schema to distract it.
-pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String> {
+pub fn analysis_prompt(
+    draft: &Draft,
+    data: &GameData,
+    abilities: Option<&str>,
+) -> Result<String, String> {
     let get = |id: &str| {
         data.champion(id).ok_or_else(|| {
             data.lang.pick(
@@ -478,6 +483,9 @@ pub fn analysis_prompt(draft: &Draft, data: &GameData) -> Result<String, String>
         let _ = writeln!(p, "- (not set)");
     } else {
         let _ = writeln!(p, "Enemy profile: {}", team_profile(&enemies));
+    }
+    if let Some(a) = abilities {
+        let _ = writeln!(p, "\n{a}");
     }
     if let Some(n) = draft.notes.as_deref().filter(|n| !n.trim().is_empty()) {
         let _ = writeln!(p, "\nPLAYER NOTES: {}", n.trim());
@@ -1048,6 +1056,9 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 
 // ---------- comando ----------
 
+/// Longest player question sent with a build (`MAX_QUESTION` in DraftView.tsx).
+const MAX_NOTES: usize = 300;
+
 /// El análisis busca en la web y razona: se le da más margen que a los pasos
 /// de formato, que solo convierten texto ya escrito.
 const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
@@ -1124,7 +1135,18 @@ pub async fn recommend_build(
     on_event: Channel<ChatEvent>,
 ) -> Result<Recommendation, String> {
     let data = ddragon::get(&app, &cache).await?;
-    let prompt = analysis_prompt(&draft, &data)?;
+    // The player's question: same cap as the box in the UI, whoever calls.
+    let mut draft = draft;
+    draft.notes = draft
+        .notes
+        .map(|n| n.trim().chars().take(MAX_NOTES).collect::<String>())
+        .filter(|n| !n.is_empty());
+    // Your kit and your lane opponent's: what models most often get wrong.
+    let kit_ids: Vec<&str> = std::iter::once(draft.champion.as_str())
+        .chain(draft.lane_opponent.as_deref())
+        .collect();
+    let abilities = abilities::for_champions(&app, &data, &kit_ids).await;
+    let prompt = analysis_prompt(&draft, &data, abilities.as_deref())?;
 
     let status = |t: &str| {
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
@@ -1327,20 +1349,38 @@ mod tests {
     #[test]
     fn prompt_says_when_the_lane_opponent_is_a_guess() {
         let data = fixtures::data();
-        let p = analysis_prompt(&draft(), &data).unwrap();
+        let p = analysis_prompt(&draft(), &data, None).unwrap();
         assert!(p.contains("LANE OPPONENT: "));
         let guessed = Draft {
             lane_guessed: true,
             ..draft()
         };
-        let p = analysis_prompt(&guessed, &data).unwrap();
+        let p = analysis_prompt(&guessed, &data, None).unwrap();
         assert!(p.contains("LANE OPPONENT (likely, guessed"));
+    }
+
+    #[test]
+    fn prompt_carries_the_official_ability_text_before_the_notes() {
+        let data = fixtures::data();
+        let p = analysis_prompt(
+            &draft(),
+            &data,
+            Some("ABILITIES (Riot's official text…):\nJax:"),
+        )
+        .unwrap();
+        let a = p.find("ABILITIES").unwrap();
+        assert!(a > p.find("ENEMIES").unwrap() && a < p.find("PLAYER NOTES").unwrap());
+        assert!(
+            !analysis_prompt(&draft(), &data, None)
+                .unwrap()
+                .contains("ABILITIES")
+        );
     }
 
     #[test]
     fn prompt_separates_allies_and_enemies_and_names_patch() {
         let data = fixtures::data();
-        let p = analysis_prompt(&draft(), &data).unwrap();
+        let p = analysis_prompt(&draft(), &data, None).unwrap();
         assert!(p.contains("CURRENT PATCH: 25.22"));
         let allies = p.find("ALLIES").unwrap();
         let enemies = p.find("ENEMIES (enemy team)").unwrap();
@@ -1362,7 +1402,7 @@ mod tests {
     fn unknown_champion_is_an_error() {
         let mut d = draft();
         d.enemies.push("Inventado".into());
-        assert!(analysis_prompt(&d, &fixtures::data()).is_err());
+        assert!(analysis_prompt(&d, &fixtures::data(), None).is_err());
     }
 
     #[test]
@@ -1380,7 +1420,7 @@ mod tests {
 
     #[test]
     fn prompt_groups_items_and_asks_to_search_first() {
-        let a = analysis_prompt(&draft(), &fixtures::data()).unwrap();
+        let a = analysis_prompt(&draft(), &fixtures::data(), None).unwrap();
         assert!(a.contains("look up the Jax top build for patch 25.22"));
         let p = card_prompt(&fixtures::data(), None);
         assert!(p.contains("- STARTERS (only for starting_items): Escudo de Doran"));

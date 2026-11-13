@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 
 use crate::i18n::{self, Lang, tr};
 
-const BASE: &str = "https://ddragon.leagueoflegends.com";
+pub(crate) const BASE: &str = "https://ddragon.leagueoflegends.com";
 const FILES: [&str; 4] = [
     "champion.json",
     "item.json",
@@ -473,7 +473,7 @@ pub fn build(version: &str, files: &HashMap<&str, String>, lang: Lang) -> Result
 
 // ---------- descarga y caché ----------
 
-fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()

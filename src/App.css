@@ -4207,6 +4207,24 @@ button.ask-close:hover {
   gap: 6px;
 }
 
+.cs-question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cs-question input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cs-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .picker.inline {
   width: auto;
   height: auto;

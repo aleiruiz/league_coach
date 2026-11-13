@@ -1,3 +1,4 @@
+mod abilities;
 mod ddragon;
 mod history;
 mod i18n;
@@ -38,6 +39,7 @@ pub fn run() {
             providers::models::set_provider_model,
             usage::usage_overview,
             ddragon::game_data,
+            abilities::champion_abilities,
             recommend::recommend_build,
             i18n::get_language,
             i18n::set_language,

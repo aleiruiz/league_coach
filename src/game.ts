@@ -154,3 +154,8 @@ export function searchChampions(list: Champion[], query: string): Champion[] {
 export function currentGame() {
   return invoke<import("./draft").LiveDraft>("current_game");
 }
+
+/** Riot's own ability text for these champions (this patch), for a prompt; null if none could be read. */
+export function championAbilities(ids: string[]) {
+  return invoke<string | null>("champion_abilities", { ids });
+}
