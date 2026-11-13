@@ -21,6 +21,20 @@ The first time you open the app, a short setup asks you to connect one AI and se
 
 The current patch is loaded from Data Dragon on startup and included in every prompt, so answers match the live patch.
 
+## Install
+
+Windows 10 or 11:
+
+1. Open the [latest release](https://github.com/aleiruiz/league_coach/releases/latest) and download the file ending in `_x64-setup.exe`.
+2. Run it. It installs for your user only, so it doesn't ask for admin rights. The installer isn't code-signed, so Windows SmartScreen may warn you: choose **More info**, then **Run anyway**.
+3. Open **League Coach** from the Start menu and follow the first-run setup.
+
+### Updates
+
+Every change merged into `main` publishes a new release, numbered `0.1.<build>`. When the app opens (and every 6 hours while it stays open) it checks the latest release. If there is a newer one, a card at the bottom of the left navigation shows the new version and what changed. Press **Restart and update**: the app downloads the installer, checks its signature, closes, installs and opens again. Your settings, saved games and AI sign-ins are kept. Press **Later** to hide the card until the next check. While an AI answer is still coming in, the update waits for it.
+
+The current version is shown at the bottom of the left navigation. Builds run with `npm run tauri dev` never check for updates.
+
 ## Connect your AI
 
 Install [Claude Code](https://code.claude.com/docs/en/setup), [Codex CLI](https://developers.openai.com/codex/cli), or both. Then, in the first-run setup or in **Settings › Your AI**, press **Sign in**: a terminal opens with the CLI's official login, you finish it in your browser, and the app checks the connection. One connected model is enough. If you connect both, pick the default one in **Settings › Your AI**.
@@ -74,7 +88,25 @@ npm install
 npm run tauri dev
 ```
 
-Build the Windows installer with `npm run tauri build -- --bundles nsis`. It produces a per-user `.exe` that installs without admin rights. CI also uploads it as the `league-coach-windows` artifact on every push to `main`. The installer is not signed, so Windows SmartScreen shows a warning: choose "More info", then "Run anyway".
+Build a Windows installer yourself with `npm run tauri build -- --bundles nsis`. It produces a per-user `.exe` that installs without admin rights.
+
+### Publishing releases
+
+CI publishes a GitHub Release on every push to `main`: the NSIS installer, its signature and `latest.json`, which the app's updater reads. The updater only installs files signed with the project's key, so CI needs that key as a secret. One-time setup:
+
+1. Generate the key pair on your computer, in the repo folder:
+
+   ```bash
+   npm run tauri signer generate -- -w ~/.tauri/league-coach.key
+   ```
+
+   Pick a password when asked. This writes `league-coach.key` (private, keep it safe and never commit it) and `league-coach.key.pub` (public).
+2. In GitHub, open **Settings › Secrets and variables › Actions** and add two repository secrets: `TAURI_SIGNING_PRIVATE_KEY` with the full contents of `league-coach.key`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` with the password.
+3. Put the contents of `league-coach.key.pub` in `src-tauri/tauri.conf.json`, under `plugins.updater.pubkey`.
+
+If the private key is lost, installed apps can't update to builds signed with a new key: install the new version by hand once. Without the secret, CI still runs its checks but skips the release with a warning, and it refuses to publish while `pubkey` is not a real Tauri public key.
+
+The version comes from the workflow's run number. If `.github/workflows/ci.yml` is ever renamed or recreated, the count starts again at 1 and installed apps would see every new build as older: raise the base then (for example `0.2.<run number>`, in the `VERSION` line of the `release` job). Re-running a `main` run reuses its version, so it updates that release instead of making a new one.
 
 Checks that CI runs (on Ubuntu and Windows):
 

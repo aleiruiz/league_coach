@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a main run halfway: it may be publishing a release.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -60,31 +61,69 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked
 
-  # Instalador de Windows descargable, solo en main o a mano.
-  windows-installer:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+  # Every push to main publishes a GitHub Release: the Windows installer
+  # plus latest.json, which installed apps read to update themselves.
+  # Version = 0.1.<run number>, so each build is newer than the last.
+  # Needs the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) secrets (see README).
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: windows-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    env:
+      HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      VERSION: 0.1.${{ github.run_number }}
     steps:
+      - name: Signing key missing
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, so no release was published. See the README, section 'Publishing releases'."
+
       - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
 
       - uses: actions/setup-node@v4
+        if: env.HAS_KEY == 'true'
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        if: env.HAS_KEY == 'true'
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: env.HAS_KEY == 'true'
         with:
           workspaces: src-tauri
 
-      - name: Build NSIS
+      # A build with a bad public key could never verify its own updates,
+      # leaving every install stuck: refuse to publish one.
+      - name: Check the updater public key
+        if: env.HAS_KEY == 'true'
+        run: node -e "const c=require('./src-tauri/tauri.conf.json');const k=(c.plugins&&c.plugins.updater&&c.plugins.updater.pubkey)||'';const t=Buffer.from(k,'base64').toString('utf8');if(!t.startsWith('untrusted comment:')){console.log('::error::plugins.updater.pubkey in src-tauri/tauri.conf.json is not a Tauri public key. Paste the contents of league-coach.key.pub there (see README).');process.exit(1)}"
+
+      - name: Set version and turn on updater artifacts
+        if: env.HAS_KEY == 'true'
         run: |
           npm ci
-          npm run tauri build -- --bundles nsis
+          node -e "const f='src-tauri/tauri.conf.json';const fs=require('fs');const c=JSON.parse(fs.readFileSync(f));c.version=process.env.VERSION;c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(f,JSON.stringify(c,null,2))"
 
-      - uses: actions/upload-artifact@v4
+      - name: Build and publish
+        if: env.HAS_KEY == 'true'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          name: league-coach-windows
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          tagName: v${{ env.VERSION }}
+          releaseName: League Coach ${{ env.VERSION }}
+          releaseBody: ${{ github.event.head_commit.message }}
+          releaseCommitish: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: --bundles nsis
