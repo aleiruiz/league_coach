@@ -386,11 +386,27 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
                 </div>
               ))}
             </div>
+            <a
+              className="ch-full-list"
+              href={list.url}
+              title={list.url}
+              onClick={(e) => {
+                e.preventDefault();
+                openUrl(list.url);
+              }}
+            >
+              {t(`Open the full ${roleLabel(shownRole)} tier list on ${list.site} ↗`, `Abrir la tier list completa de ${roleLabel(shownRole)} en ${list.site} ↗`)}
+            </a>
             <p className="muted small">
-              {t(
-                `What the AI found for ${list.site}'s ${roleLabel(shownRole)} tier list in its web search (${list.entries.length} champions). Open the page for the full list and to confirm the numbers. League Coach doesn't compute win rates.`,
-                `Lo que la IA encontró de la tier list de ${roleLabel(shownRole)} de ${list.site} en su búsqueda web (${list.entries.length} campeones). Abre la página para ver la lista completa y confirmar los números. League Coach no calcula win rates.`,
-              )}
+              {list.opened
+                ? t(
+                    `Read by the AI from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions). The AI can misread a page: open it to confirm the numbers. League Coach doesn't compute win rates.`,
+                    `Leída por la IA de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones). La IA puede leer mal una página: ábrela para confirmar los números. League Coach no calcula win rates.`,
+                  )
+                : t(
+                    `What the AI found for ${list.site}'s ${roleLabel(shownRole)} tier list in its web search (${list.entries.length} champions). Open the page for the full list and to confirm the numbers. League Coach doesn't compute win rates.`,
+                    `Lo que la IA encontró de la tier list de ${roleLabel(shownRole)} de ${list.site} en su búsqueda web (${list.entries.length} campeones). Abre la página para ver la lista completa y confirmar los números. League Coach no calcula win rates.`,
+                  )}
               {list.dropped > 0 &&
                 t(
                   ` ${list.dropped} row${list.dropped > 1 ? "s" : ""} that didn't match this patch's champions ${list.dropped > 1 ? "were" : "was"} dropped.`,

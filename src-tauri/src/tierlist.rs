@@ -23,6 +23,22 @@ pub const ROLES: &[&str] = &["top", "jungle", "mid", "adc", "support"];
 const MAX_ENTRIES: usize = 40;
 /// Fewer rows than this is a few search snippets, not a tier list.
 pub const MIN_ENTRIES: usize = 8;
+/// The only hosts this call may open pages on (Alei, 2026-11-12: let Claude
+/// read the tier list page itself; search snippets alone gave thin lists).
+pub const FETCH_HOSTS: &[&str] = &[
+    "u.gg",
+    "www.u.gg",
+    "op.gg",
+    "www.op.gg",
+    "mobalytics.gg",
+    "www.mobalytics.gg",
+    "lolalytics.com",
+    "www.lolalytics.com",
+    "leagueofgraphs.com",
+    "www.leagueofgraphs.com",
+    "metasrc.com",
+    "www.metasrc.com",
+];
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
 
 #[derive(Debug, Deserialize, Default)]
@@ -78,6 +94,9 @@ pub struct TierList {
     pub dropped: usize,
     /// Unix time in ms.
     pub fetched_at: i64,
+    /// The AI opened the page itself (else it only saw search snippets).
+    #[serde(default)]
+    pub opened: bool,
 }
 
 /// Champion by id or by name in the app's language, ignoring case and signs.
@@ -106,13 +125,27 @@ fn clean_tier(t: &str) -> Option<String> {
     ok.then_some(t)
 }
 
-/// Keeps the list only if its page is a known stats site that came up in this
-/// run's search (`seen`). `Err` says why it was thrown away.
-pub fn clean_list(
+#[cfg(test)]
+fn clean_list(
     raw: &RawList,
     role: &str,
     data: &GameData,
     seen: &[String],
+    now: i64,
+    min_entries: usize,
+) -> Result<TierList, String> {
+    clean_list_with(raw, role, data, seen, &[], now, min_entries)
+}
+
+/// Keeps the list only if its page is a known stats site that came up in this
+/// run's search (`seen`) or that the AI opened (`opened`). `Err` says why it
+/// was thrown away.
+pub fn clean_list_with(
+    raw: &RawList,
+    role: &str,
+    data: &GameData,
+    seen: &[String],
+    opened: &[String],
     now: i64,
     min_entries: usize,
 ) -> Result<TierList, String> {
@@ -124,11 +157,13 @@ pub fn clean_list(
         )
     })?;
     let key = recommend::url_key(&url);
-    let found = seen
-        .iter()
-        .filter_map(|u| url::Url::parse(u).ok())
-        .any(|u| recommend::url_key(&u) == key);
-    if !found {
+    let has = |list: &[String]| {
+        list.iter()
+            .filter_map(|u| url::Url::parse(u).ok())
+            .any(|u| recommend::url_key(&u) == key)
+    };
+    let was_opened = has(opened);
+    if !was_opened && !has(seen) {
         return Err(lang.pick(
             "The page the AI named didn't come up in its web search, so its numbers can't be trusted. Try again.".to_string(),
             "La página que nombró la IA no salió en su búsqueda web, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
@@ -176,6 +211,7 @@ pub fn clean_list(
         entries,
         dropped,
         fetched_at: now,
+        opened: was_opened,
     })
 }
 
@@ -200,9 +236,9 @@ pub fn prompt(role: &str, data: &GameData) -> String {
     );
     let _ = writeln!(
         p,
-        "TASK: search the web for this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Pick one page from your search results that shows patch {patch} and copy what it shows for up to {max} champions, best first.\n\n\
+        "TASK: find this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Search the web for it, then open that tier list page with WebFetch and copy what it shows for up to {max} champions, best first. Opening pages works only on those sites. If the page you open doesn't show the list (some sites only render it in a browser), try the same list on another of these sites; METAsrc and Lolalytics usually work.\n\n\
 RULES:\n\
-- \"url\" is the exact URL of that page as it came up in your search results. Pages that didn't come up in your search are thrown away.\n\
+- \"url\" is the exact URL of the page you opened (or, if no page opened, the one from your search results). Any other page is thrown away.\n\
 - Copy only what the page shows: its tier for each champion and, if it shows them, win rate, pick rate and ban rate as numbers (52.3, not \"52.3%\"). null for whatever it doesn't show. Never numbers from memory or from another page.\n\
 - \"patch\" is the patch the page says it shows; \"rank\" is its rank filter (e.g. \"Emerald+\"), \"\" if it doesn't say.\n\
 - Write each champion's name exactly as in this list: {names}\n\
@@ -299,7 +335,7 @@ pub async fn fetch_tier_list(
             .into(),
     });
     let rx = running.register(&request_id);
-    let answer = recommend::ask(
+    let answer = recommend::ask_with(
         &app,
         kind,
         &prompt(&role, &data),
@@ -307,6 +343,7 @@ pub async fn fetch_tier_list(
         TIMEOUT,
         rx,
         &on_event,
+        FETCH_HOSTS,
     )
     .await;
     running.finish(&request_id);
@@ -320,7 +357,15 @@ pub async fn fetch_tier_list(
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64);
-    let list = clean_list(&raw, &role, &data, &answer.sources, now, MIN_ENTRIES)?;
+    let list = clean_list_with(
+        &raw,
+        &role,
+        &data,
+        &answer.sources,
+        &answer.fetched,
+        now,
+        MIN_ENTRIES,
+    )?;
     let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut lists = load(&app);
     lists.insert(role, list.clone());
@@ -376,6 +421,36 @@ mod tests {
         ));
         assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 3).is_err());
         assert!(clean_list(&r, "mid", &fixtures::data(), &[URL.into()], 0, 2).is_ok());
+    }
+
+    #[test]
+    fn a_page_the_ai_opened_counts_even_if_not_in_the_search() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}]}}"#
+        ));
+        let l = clean_list_with(
+            &r,
+            "mid",
+            &fixtures::data(),
+            &[],
+            &[format!("{URL}/")],
+            0,
+            1,
+        )
+        .unwrap();
+        assert!(l.opened);
+        let l = clean_list_with(&r, "mid", &fixtures::data(), &[URL.into()], &[], 0, 1).unwrap();
+        assert!(!l.opened);
+    }
+
+    #[test]
+    fn fetch_hosts_are_only_the_stat_sites() {
+        for h in FETCH_HOSTS {
+            assert!(
+                recommend::stat_url(&format!("https://{h}/x")).is_some(),
+                "{h}"
+            );
+        }
     }
 
     #[test]
@@ -438,6 +513,9 @@ mod tests {
         assert!(p.contains("ADC"));
         assert!(p.contains("25.22"));
         assert!(p.contains("Ahri, "));
-        assert!(p.contains("came up in your search"));
+        assert!(p.contains("WebFetch"));
+        assert!(
+            p.contains("url of the page you opened") || p.contains("URL of the page you opened")
+        );
     }
 }

@@ -67,30 +67,48 @@ pub fn parse_auth_status(stdout: &str) -> (bool, Option<String>) {
 /// Aislamos la sesión de la configuración del usuario: sin sus MCP, hooks,
 /// plugins, skills ni settings, y con todo lo que no sea búsqueda web denegado.
 /// No usamos `--bare` porque desactiva el login con suscripción.
-pub fn args(prompt_file: &Path, session_id: Option<&str>, model: Option<&str>) -> Vec<String> {
-    let mut a: Vec<String> = [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--include-partial-messages",
-        // Solo búsqueda web: sin shell, archivos ni descarga libre de páginas.
-        "--tools",
-        "WebSearch",
-        "--allowedTools",
-        "WebSearch",
-        "--disallowedTools",
-        "Bash,Edit,Write,NotebookEdit,WebFetch",
-        "--permission-mode",
-        "dontAsk",
-        "--strict-mcp-config",
-        "--setting-sources=",
-        "--disable-slash-commands",
-        "--append-system-prompt-file",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+pub fn args(
+    prompt_file: &Path,
+    session_id: Option<&str>,
+    model: Option<&str>,
+    fetch_hosts: &[&str],
+) -> Vec<String> {
+    // Solo búsqueda web: sin shell ni archivos. Abrir páginas (WebFetch) solo
+    // en los hosts que pida la consulta; cualquier otro fetch lo niega `dontAsk`.
+    let fetch = !fetch_hosts.is_empty();
+    let allowed = std::iter::once("WebSearch".to_string())
+        .chain(fetch_hosts.iter().map(|h| format!("WebFetch(domain:{h})")))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut a: Vec<String> = vec![
+        "-p".into(),
+        "--output-format".into(),
+        "stream-json".into(),
+        "--verbose".into(),
+        "--include-partial-messages".into(),
+        "--tools".into(),
+        if fetch {
+            "WebSearch,WebFetch"
+        } else {
+            "WebSearch"
+        }
+        .into(),
+        "--allowedTools".into(),
+        allowed,
+        "--disallowedTools".into(),
+        if fetch {
+            "Bash,Edit,Write,NotebookEdit"
+        } else {
+            "Bash,Edit,Write,NotebookEdit,WebFetch"
+        }
+        .into(),
+        "--permission-mode".into(),
+        "dontAsk".into(),
+        "--strict-mcp-config".into(),
+        "--setting-sources=".into(),
+        "--disable-slash-commands".into(),
+        "--append-system-prompt-file".into(),
+    ];
     a.push(prompt_file.to_string_lossy().into_owned());
     if let Some(id) = session_id {
         // Forma pegada: `--resume` tiene valor opcional y no debe poder leerse
@@ -120,7 +138,11 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
         Some("stream_event") => parse_stream_event(&v["event"]),
         // Resultados de herramientas (WebSearch de Claude Code devuelve los
         // enlaces en un tool_result). Nunca se miran los textos del modelo.
-        Some("user") => sources(tool_results(&v)),
+        Some("user") => {
+            let mut ev = sources(tool_results(&v));
+            ev.extend(fetched(&v));
+            ev
+        }
         Some("assistant") => sources(
             v["message"]["content"]
                 .as_array()
@@ -199,6 +221,16 @@ fn limits(info: &Value) -> Vec<ChatEvent> {
     } else {
         vec![ChatEvent::Limits { windows }]
     }
+}
+
+/// A WebFetch result that loaded (`tool_use_result.code` 200 with its `url`).
+/// Denied or failed fetches come back as errors with no `code`.
+fn fetched(v: &Value) -> Option<ChatEvent> {
+    let r = &v["tool_use_result"];
+    let url = r["url"].as_str()?;
+    (r["code"].as_u64() == Some(200) && url.starts_with("https://")).then(|| ChatEvent::Fetched {
+        url: url.to_string(),
+    })
 }
 
 fn sources(urls: Vec<String>) -> Vec<ChatEvent> {
@@ -359,7 +391,7 @@ mod tests {
 
     #[test]
     fn args_isolate_user_config() {
-        let a = args(Path::new("coach.md"), None, None);
+        let a = args(Path::new("coach.md"), None, None, &[]);
         for flag in [
             "--strict-mcp-config",
             "--setting-sources=",
@@ -373,13 +405,53 @@ mod tests {
         assert!(after("--disallowedTools").contains("Bash"));
         assert!(a.contains(&"coach.md".to_string()));
         assert!(!a.iter().any(|x| x.starts_with("--resume")));
+        assert!(after("--disallowedTools").contains("WebFetch"));
+        assert_eq!(after("--allowedTools"), "WebSearch");
+    }
+
+    #[test]
+    fn fetch_is_allowed_only_on_the_given_hosts() {
+        let a = args(
+            Path::new("coach.md"),
+            None,
+            None,
+            &["u.gg", "www.metasrc.com"],
+        );
+        let after = |f: &str| &a[a.iter().position(|x| x == f).unwrap() + 1];
+        assert_eq!(after("--tools"), "WebSearch,WebFetch");
+        assert_eq!(
+            after("--allowedTools"),
+            "WebSearch,WebFetch(domain:u.gg),WebFetch(domain:www.metasrc.com)"
+        );
+        assert!(!after("--disallowedTools").contains("WebFetch"));
+        assert_eq!(after("--permission-mode"), "dontAsk");
+    }
+
+    #[test]
+    fn a_loaded_fetch_is_reported_and_a_denied_one_is_not() {
+        let ok = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"summary"}]},"tool_use_result":{"bytes":5239,"code":200,"codeText":"OK","result":"summary","durationMs":1600,"url":"https://www.metasrc.com/lol/tier-list/mid"}}"#;
+        assert!(parse_events(ok).iter().any(
+            |e| matches!(e, ChatEvent::Fetched { url } if url == "https://www.metasrc.com/lol/tier-list/mid")
+        ));
+        let denied = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Permission to use WebFetch has been denied","is_error":true,"tool_use_id":"t"}]},"tool_use_result":"Error: Permission to use WebFetch has been denied"}"#;
+        assert!(
+            !parse_events(denied)
+                .iter()
+                .any(|e| matches!(e, ChatEvent::Fetched { .. }))
+        );
+        let failed = r#"{"type":"user","message":{"role":"user","content":[]},"tool_use_result":{"code":403,"url":"https://u.gg/lol/mid-lane-tier-list"}}"#;
+        assert!(
+            !parse_events(failed)
+                .iter()
+                .any(|e| matches!(e, ChatEvent::Fetched { .. }))
+        );
     }
 
     #[test]
     fn resume_uses_attached_form() {
-        let a = args(Path::new("coach.md"), Some("abc-123"), None);
+        let a = args(Path::new("coach.md"), Some("abc-123"), None, &[]);
         assert_eq!(a.last().unwrap(), "--resume=abc-123");
-        let a = args(Path::new("coach.md"), None, Some("sonnet"));
+        let a = args(Path::new("coach.md"), None, Some("sonnet"), &[]);
         assert_eq!(a.last().unwrap(), "--model=sonnet");
     }
 

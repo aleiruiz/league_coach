@@ -1072,6 +1072,31 @@ pub(crate) async fn ask(
     cancel: oneshot::Receiver<()>,
     on_event: &Channel<ChatEvent>,
 ) -> Result<Collected, String> {
+    ask_with(
+        app,
+        kind,
+        prompt,
+        session_id,
+        timeout,
+        cancel,
+        on_event,
+        &[],
+    )
+    .await
+}
+
+/// `ask`, letting Claude Code open pages on `fetch_hosts` (see `providers::run_with`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn ask_with(
+    app: &AppHandle,
+    kind: ProviderKind,
+    prompt: &str,
+    session_id: Option<&str>,
+    timeout: std::time::Duration,
+    cancel: oneshot::Receiver<()>,
+    on_event: &Channel<ChatEvent>,
+    fetch_hosts: &[&str],
+) -> Result<Collected, String> {
     let collected = Mutex::new(Collected::default());
     let send = |ev: ChatEvent| {
         collected.lock().unwrap().push(&ev);
@@ -1080,7 +1105,17 @@ pub(crate) async fn ask(
             let _ = on_event.send(ev);
         }
     };
-    providers::run(app, kind, prompt, session_id, timeout, Some(cancel), &send).await?;
+    providers::run_with(
+        app,
+        kind,
+        prompt,
+        session_id,
+        timeout,
+        Some(cancel),
+        &send,
+        fetch_hosts,
+    )
+    .await?;
     let c = collected.into_inner().unwrap();
     match c.error {
         Some(e) => Err(e),
