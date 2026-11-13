@@ -400,8 +400,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
             <p className="muted small">
               {list.opened
                 ? t(
-                    `Claude opened ${list.site}'s ${roleLabel(shownRole)} tier list and copied ${list.entries.length} champions from it. Open the page to confirm the numbers. League Coach doesn't compute win rates.`,
-                    `Claude abrió la tier list de ${roleLabel(shownRole)} de ${list.site} y copió ${list.entries.length} campeones. Abre la página para confirmar los números. League Coach no calcula win rates.`,
+                    `Read by the AI from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions). The AI can misread a page: open it to confirm the numbers. League Coach doesn't compute win rates.`,
+                    `Leída por la IA de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones). La IA puede leer mal una página: ábrela para confirmar los números. League Coach no calcula win rates.`,
                   )
                 : t(
                     `What the AI found for ${list.site}'s ${roleLabel(shownRole)} tier list in its web search (${list.entries.length} champions). Open the page for the full list and to confirm the numbers. League Coach doesn't compute win rates.`,
