@@ -709,7 +709,9 @@ pub fn missing(raw: &RawCard, draft: &Draft, lang: Lang) -> Vec<(String, &'stati
         "los ítems iniciales",
     );
     need(
-        raw.core_items.len() < 5,
+        // The prompt asks for 5; fewer than the 3 core items is worth a fix
+        // round, 4 isn't (it would cost ~15 s for one late item).
+        raw.core_items.len() < 3,
         "\"core_items\": the full build, 5 completed items in buy order",
         "the full build",
         "la build completa",
@@ -865,11 +867,20 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         .map(|s| Situational {
             item: item(&s.item, Slot::Core),
             when: s.when.clone(),
-            replaces: data.item_by_name(&s.replaces).map(|i| Ref {
-                name: i.name.clone(),
-                image: Some(i.image.clone()),
-                valid: true,
-            }),
+            // Only an item the player is actually building.
+            replaces: data
+                .item_by_name(&s.replaces)
+                .filter(|i| {
+                    raw.core_items
+                        .iter()
+                        .chain(std::iter::once(&raw.boots))
+                        .any(|n| ddragon::normalize(n) == ddragon::normalize(&i.name))
+                })
+                .map(|i| Ref {
+                    name: i.name.clone(),
+                    image: Some(i.image.clone()),
+                    valid: true,
+                }),
         })
         .collect();
 
@@ -1826,7 +1837,9 @@ mod tests {
         let raw = parse_card(&GOOD.replace(
             r#""situational":[]"#,
             r#""situational":[{"item":"Fuerza de Trinidad","replaces":"fuerza de trinidad","when":"a"},
-                {"item":"Fuerza de Trinidad","when":"b"},{"item":"Fuerza de Trinidad","replaces":"Nada","when":"c"}]"#,
+                {"item":"Fuerza de Trinidad","when":"b"},{"item":"Fuerza de Trinidad","replaces":"Nada","when":"c"},
+                {"item":"Fuerza de Trinidad","replaces":"Llamado del Verdugo","when":"d"},
+                {"item":"Fuerza de Trinidad","replaces":"Botas de Mercurio","when":"e"}]"#,
         ))
         .unwrap();
         let (card, _) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
@@ -1837,6 +1850,14 @@ mod tests {
         assert!(
             card.situational[2].replaces.is_none(),
             "unknown names are left out"
+        );
+        assert!(
+            card.situational[3].replaces.is_none(),
+            "an item that isn't in the build is left out"
+        );
+        assert_eq!(
+            card.situational[4].replaces.as_ref().unwrap().name,
+            "Botas de Mercurio"
         );
     }
 
@@ -1849,6 +1870,14 @@ mod tests {
             r#"["Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad"]"#,
         );
         assert!(missing(&parse_card(&five).unwrap(), &d, Lang::En).is_empty());
+        let four = GOOD.replace(
+            r#"["fuerza de trinidad"]"#,
+            r#"["Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad"]"#,
+        );
+        assert!(
+            missing(&parse_card(&four).unwrap(), &d, Lang::En).is_empty(),
+            "4 items aren't worth a fix round"
+        );
         let m = missing(&parse_card(GOOD).unwrap(), &d, Lang::En);
         assert_eq!(m[0].1, "the full build");
         assert!(
