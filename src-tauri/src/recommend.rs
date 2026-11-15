@@ -110,6 +110,9 @@ pub struct RawSituational {
     pub item: String,
     #[serde(deserialize_with = "null_default")]
     pub when: String,
+    /// The build item it takes the place of ("" if it's an extra option).
+    #[serde(deserialize_with = "null_default")]
+    pub replaces: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -173,6 +176,8 @@ pub struct Ref {
 pub struct Situational {
     pub item: Ref,
     pub when: String,
+    /// The build item it swaps out, when the model said which and it exists.
+    pub replaces: Option<Ref>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -400,9 +405,9 @@ const SCHEMA: &str = r#"{
   "answer": "answer to the PLAYER NOTES as 3-6 short markdown bullets (\"- ...\"), or \"\" if there are no notes",
   "summary": "ONE sentence: the idea of the build for THIS game",
   "starting_items": ["starting item", "..."],
-  "core_items": ["item 1", "item 2", "item 3"],
+  "core_items": ["item 1", "item 2", "item 3", "item 4", "item 5"],
   "boots": "boots",
-  "situational": [{"item": "item", "when": "when and against whom to buy it"}],
+  "situational": [{"item": "item", "replaces": "the core_items item it swaps out", "when": "when and against whom to buy it"}],
   "runes": {
     "primary_tree": "primary tree", "keystone": "keystone",
     "primary": ["rune", "rune", "rune"],
@@ -528,8 +533,8 @@ pub fn analysis_prompt_with(
         "\nINSTRUCTIONS:\n\
 {first}\n\
 - If there are PLAYER NOTES, the first and main thing is to answer in depth what they ask or what changes because of that situation (minute, gold, score…), as a coach would in chat. If they ask what to buy with some amount of gold, name the exact purchase that gold affords (a component is fine).\n\
-- Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items ({starters_hint}), 3 core items in order, boots and skill order. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
-- Don't state anything you aren't sure of: fewer, well-chosen situational items are better.\n\
+- Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items ({starters_hint}), the full build of 5 completed items in buy order (the first 3 are the core) plus boots, and skill order. Then 2-4 situational options, each saying which build item it replaces and when. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
+- Don't state anything you aren't sure of: situational options must be real answers to THESE enemies.\n\
 - Use the in-game names of the {locale} client. Be direct; no long tables.\n\
 - {answer_lang}",
         locale = data.lang.locale(),
@@ -619,6 +624,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
 - In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
+- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items).\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
@@ -703,10 +709,12 @@ pub fn missing(raw: &RawCard, draft: &Draft, lang: Lang) -> Vec<(String, &'stati
         "los ítems iniciales",
     );
     need(
+        // The prompt asks for 5; fewer than the 3 core items is worth a fix
+        // round, 4 isn't (it would cost ~15 s for one late item).
         raw.core_items.len() < 3,
-        "\"core_items\": 3 completed items",
-        "the 3 core items",
-        "los 3 ítems principales",
+        "\"core_items\": the full build, 5 completed items in buy order",
+        "the full build",
+        "la build completa",
     );
     // Cassiopeia can't buy boots.
     need(
@@ -853,12 +861,30 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         .collect();
     let core_items = raw.core_items.iter().map(|n| item(n, Slot::Core)).collect();
     let boots = item(&raw.boots, Slot::Boots);
+    let in_build = |name: &str| {
+        let n = ddragon::normalize(name);
+        raw.core_items
+            .iter()
+            .chain(std::iter::once(&raw.boots))
+            .any(|c| ddragon::normalize(c) == n)
+    };
     let situational = raw
         .situational
         .iter()
+        // "Swap in X" when X is already in the build reads as a mistake.
+        .filter(|s| !in_build(&s.item))
         .map(|s| Situational {
             item: item(&s.item, Slot::Core),
             when: s.when.clone(),
+            // Only an item the player is actually building.
+            replaces: data
+                .item_by_name(&s.replaces)
+                .filter(|i| in_build(&i.name))
+                .map(|i| Ref {
+                    name: i.name.clone(),
+                    image: Some(i.image.clone()),
+                    valid: true,
+                }),
         })
         .collect();
 
@@ -1808,6 +1834,67 @@ mod tests {
             &draft(),
             Lang::Es,
         )
+    }
+
+    #[test]
+    fn situational_options_say_what_they_replace() {
+        // The fixtures have one completed non-boots item, so the options
+        // use a name that isn't on the patch: it's still listed (flagged).
+        let raw = parse_card(&GOOD.replace(
+            r#""situational":[]"#,
+            r#""situational":[{"item":"Filo Pirata","replaces":"fuerza de trinidad","when":"a"},
+                {"item":"Filo Pirata","when":"b"},{"item":"Filo Pirata","replaces":"Nada","when":"c"},
+                {"item":"Filo Pirata","replaces":"Llamado del Verdugo","when":"d"},
+                {"item":"Filo Pirata","replaces":"Botas de Mercurio","when":"e"},
+                {"item":"Fuerza de Trinidad","replaces":"Botas de Mercurio","when":"f"}]"#,
+        ))
+        .unwrap();
+        let (card, _) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
+        assert_eq!(
+            card.situational.len(),
+            5,
+            "an item already in the build isn't an option"
+        );
+        let r = card.situational[0].replaces.as_ref().unwrap();
+        assert_eq!(r.name, "Fuerza de Trinidad");
+        assert!(r.image.is_some());
+        assert!(card.situational[1].replaces.is_none());
+        assert!(
+            card.situational[2].replaces.is_none(),
+            "unknown names are left out"
+        );
+        assert!(
+            card.situational[3].replaces.is_none(),
+            "an item that isn't in the build is left out"
+        );
+        assert_eq!(
+            card.situational[4].replaces.as_ref().unwrap().name,
+            "Botas de Mercurio"
+        );
+    }
+
+    #[test]
+    fn the_full_build_needs_five_items() {
+        let mut d = draft();
+        d.notes = None;
+        let five = GOOD.replace(
+            r#"["fuerza de trinidad"]"#,
+            r#"["Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad"]"#,
+        );
+        assert!(missing(&parse_card(&five).unwrap(), &d, Lang::En).is_empty());
+        let four = GOOD.replace(
+            r#"["fuerza de trinidad"]"#,
+            r#"["Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad","Fuerza de Trinidad"]"#,
+        );
+        assert!(
+            missing(&parse_card(&four).unwrap(), &d, Lang::En).is_empty(),
+            "4 items aren't worth a fix round"
+        );
+        let m = missing(&parse_card(GOOD).unwrap(), &d, Lang::En);
+        assert_eq!(m[0].1, "the full build");
+        assert!(
+            card_prompt(&fixtures::data(), None).contains("is the FULL build: 5 completed items")
+        );
     }
 
     #[test]
