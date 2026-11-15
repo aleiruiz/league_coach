@@ -4470,3 +4470,8 @@ button.ask-close:hover {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Matchup details: lane matchup notes under the build (src/prepare.ts). */
+.matchup-details {
+  margin-top: 16px;
+}

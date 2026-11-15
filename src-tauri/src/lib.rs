@@ -44,6 +44,7 @@ pub fn run() {
             abilities::champion_abilities,
             recommend::recommend_build,
             prep::prepare_build,
+            prep::matchup_notes,
             i18n::get_language,
             i18n::set_language,
             riot::lookup_summoner,
