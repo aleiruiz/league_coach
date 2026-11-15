@@ -807,7 +807,7 @@ function MatchupDetails({ vs, state }: { vs: string; state: { text: string | nul
       ) : (
         <>
           <p className="muted small">
-            {t("AI notes from the stats sites; any figures aren't checked.", "Notas de la IA desde las webs de estadísticas; las cifras no están comprobadas.")}
+            {t("AI notes from the stats sites. Win rates are left out here: the build shows only figures checked against their source.", "Notas de la IA desde las webs de estadísticas. Aquí no van los porcentajes de victoria: la build solo muestra cifras comprobadas con su fuente.")}
           </p>
           <div className="analysis-text">
             <SafeMarkdown>{state.text ?? ""}</SafeMarkdown>

@@ -141,7 +141,7 @@ Write matchup notes for a player about to play {me} against {them}:\n\
 - Who is favored, and when each side spikes (levels 1-3, level 6, first item).\n\
 - How to trade: which of {them}'s abilities to dodge or bait, when to all-in and when to back off.\n\
 - Runes, summoner spells, starting items or items that this matchup usually changes, if any.{jungle}\n\
-- If the results show this matchup's win rate or number of games for this patch, write each figure with the exact URL of the page it came from. Never figures from memory.\n\
+- Write no win rates, pick rates or game counts in the notes above. Only at the end, in a last section that starts with the line FIGURES:, list this matchup's win rate or number of games for this patch if the results show them, each with the exact URL of the page it came from. Never figures from memory.\n\
 Use only patch {patch} data; discard older patches. Be concrete: ability names, levels, timers. Use the in-game names of the {locale} client. No tables. {answer_lang}",
         patch = data.patch,
         version = data.version,
@@ -291,6 +291,37 @@ pub async fn for_build(
     }
 }
 
+/// Matchup notes for the player to read: figures (win rate, pick rate,
+/// games) are only shown on the build card, where they are checked against
+/// the search's URLs. Drops the FIGURES section the prompt asks for, and any
+/// other line that still names a rate.
+pub fn without_figures(notes: &str) -> String {
+    const RATES: [&str; 8] = [
+        "win rate",
+        "winrate",
+        "pick rate",
+        "ban rate",
+        "tasa de victoria",
+        "% de victorias",
+        "porcentaje de victoria",
+        "partidas analizadas",
+    ];
+    notes
+        .lines()
+        .take_while(|l| {
+            let t = l.trim_start_matches(['#', '*', ' ']).to_lowercase();
+            !(t.starts_with("figures") || t.starts_with("cifras"))
+        })
+        .filter(|l| {
+            let l = l.to_lowercase();
+            !RATES.iter().any(|r| l.contains(r))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 /// The Data Dragon id for a champion name or id, ignoring case: match
 /// history names differ from Data Dragon ids only in case (FiddleSticks /
 /// Fiddlesticks), and the key uses the Data Dragon id.
@@ -361,7 +392,7 @@ pub async fn matchup_notes(
     };
     Ok(ensure(&app, &prep, kind, &data, subject, true)
         .await?
-        .map(|p| p.notes))
+        .map(|p| without_figures(&p.notes)))
 }
 
 #[cfg(test)]
@@ -376,6 +407,20 @@ mod tests {
             version: version.into(),
             at,
         }
+    }
+
+    #[test]
+    fn matchup_notes_shown_to_the_player_carry_no_figures() {
+        let notes = "## Who's favored\n- Warwick wins levels 1-3.\n- Kayn has a 48.2% win rate here.\n- His W slows 30%.\n\n**FIGURES:**\n- Win rate 48.2% (https://u.gg/x)";
+        let shown = without_figures(notes);
+        assert!(shown.contains("Warwick wins levels 1-3"));
+        assert!(shown.contains("slows 30%"));
+        assert!(!shown.contains("48.2"));
+        assert!(!shown.contains("u.gg"));
+        assert_eq!(
+            without_figures("Tasa de victoria: 51%\nJuega seguro."),
+            "Juega seguro."
+        );
     }
 
     #[test]
