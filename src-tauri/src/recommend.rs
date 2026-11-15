@@ -515,10 +515,15 @@ pub fn analysis_prompt_with(
     if let Some((m, l)) = matchup {
         let _ = writeln!(
             p,
-            "\nMATCHUP NOTES ({} vs {} on patch {}, searched on the stats sites and guides a little earlier):\n{}",
+            "\nMATCHUP NOTES ({} vs {} on patch {}, searched on the stats sites and guides a little earlier{}):\n{}",
             me.name,
             l.name,
             data.patch,
+            if draft.lane_guessed {
+                "; the lane opponent is guessed, so use them only if it holds"
+            } else {
+                ""
+            },
             m.trim()
         );
     }
@@ -1893,6 +1898,13 @@ mod tests {
         };
         let q = analysis_prompt_with(&alone, &data, None, None, m).unwrap();
         assert!(!q.contains("MATCHUP NOTES"));
+        assert!(!p.contains("lane opponent is guessed"));
+        let guessed = Draft {
+            lane_guessed: true,
+            ..draft()
+        };
+        let g = analysis_prompt_with(&guessed, &data, None, None, m).unwrap();
+        assert!(g.contains("the lane opponent is guessed, so use them only if it holds"));
     }
 
     #[test]
