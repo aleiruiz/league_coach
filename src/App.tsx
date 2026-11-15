@@ -7,7 +7,9 @@ import Champions from "./Champions";
 import Settings, { LegalNotice } from "./Settings";
 import Onboarding from "./Onboarding";
 import UpdateNotice from "./UpdateNotice";
-import { riotAccount, riotIdOf, RiotProfile } from "./history";
+import { matchHistory, riotAccount, riotIdOf, RiotProfile } from "./history";
+import { loadPrepareOn, mainsToPrepare, prepareAll } from "./prepare";
+import { loadPins, mains } from "./tierList";
 import { NavIcon } from "./icons";
 import { loadPreferred, pickKind, ProviderKind, providerStatuses, ProviderStatus, savePreferred, shortName } from "./providers";
 import { currentLang, Lang, saveLanguage, t } from "./i18n";
@@ -128,6 +130,17 @@ function App() {
     firstCheck.current = false;
     if (aiReady && accountReady) setEntered(true);
   }, [checking, aiReady, accountReady]);
+  // Once per start: look up your mains' builds in the background, so Get
+  // build is faster for the champions you play most.
+  const prepared = useRef(false);
+  const aiKind = aiInUse?.kind ?? null;
+  useEffect(() => {
+    if (!entered || !aiKind || prepared.current || !loadPrepareOn()) return;
+    prepared.current = true;
+    matchHistory()
+      .then((h) => prepareAll(aiKind, mainsToPrepare(mains(h.games, loadPins()))))
+      .catch(() => {});
+  }, [entered, aiKind]);
 
   if (!entered) {
     return (

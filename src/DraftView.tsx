@@ -25,6 +25,7 @@ import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers
 import { AskButton, type AskContext } from "./AskPanel";
 import type { ProvidersState } from "./App";
 import { Lang, t } from "./i18n";
+import { loadPrepareOn, PICK_DELAY_MS, prepareBuild } from "./prepare";
 
 /** Build received, with the model and the draft that produced it. */
 type Result = Recommendation & {
@@ -332,6 +333,15 @@ function DraftView({
   const draft = toDraft(d);
   // The build no longer matches what is on screen.
   const stale = !!rec && !sameDraft(rec.draft, draft);
+
+  // Look up your champion's usual build as soon as you pick it, so Get build
+  // only has to adapt it to the draft.
+  useEffect(() => {
+    if (!kind || !d.me || !loadPrepareOn()) return;
+    const [me, role] = [d.me, d.role];
+    const timer = setTimeout(() => prepareBuild(kind, me, role).catch(() => {}), PICK_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [kind, d.me, d.role]);
 
   const kitIds = [d.me, laneOpponent(d)].filter((x): x is string => !!x).join(",");
   useEffect(() => {
