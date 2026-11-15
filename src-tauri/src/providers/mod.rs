@@ -6,7 +6,7 @@ pub mod claude_code;
 pub mod codex;
 pub mod models;
 mod process;
-pub use process::{DEFAULT_TIMEOUT, is_stopped};
+pub use process::{DEFAULT_TIMEOUT, is_stopped, stopped_message};
 pub mod prompts;
 mod terminal;
 

@@ -422,10 +422,22 @@ const SCHEMA: &str = r#"{
 
 /// Step 1: the analysis, just like a question to the coach (free text and
 /// web search), with no item lists or schema to distract it.
+#[cfg(test)]
 pub fn analysis_prompt(
     draft: &Draft,
     data: &GameData,
     abilities: Option<&str>,
+) -> Result<String, String> {
+    analysis_prompt_with(draft, data, abilities, None)
+}
+
+/// `analysis_prompt`, starting from base build notes searched earlier
+/// (`prep`): the model doesn't search again, which halves the wait.
+pub fn analysis_prompt_with(
+    draft: &Draft,
+    data: &GameData,
+    abilities: Option<&str>,
+    prepared: Option<&str>,
 ) -> Result<String, String> {
     let get = |id: &str| {
         data.champion(id).ok_or_else(|| {
@@ -487,22 +499,39 @@ pub fn analysis_prompt(
     if let Some(a) = abilities {
         let _ = writeln!(p, "\n{a}");
     }
+    if let Some(b) = prepared {
+        let _ = writeln!(
+            p,
+            "\nBASE BUILD NOTES ({} {} on patch {}, searched on the stats sites a little earlier; they don't know this draft):\n{}",
+            me.name,
+            draft.role,
+            data.patch,
+            b.trim()
+        );
+    }
     if let Some(n) = draft.notes.as_deref().filter(|n| !n.trim().is_empty()) {
         let _ = writeln!(p, "\nPLAYER NOTES: {}", n.trim());
     }
 
+    let first = if prepared.is_some() {
+        "- FIRST, start from the BASE BUILD NOTES: the search is already done, so don't search the web again. Adapt them to THIS draft with what you know and the ability text: they are the usual build, so change runes, boots or core items too when these enemies call for it (e.g. armor against a full AD team). Don't write figures (win rate, pick rate, games): figures go separately, on the card.".to_string()
+    } else {
+        format!(
+            "- FIRST, if you have web search, look up the {me} {role} build for patch {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) and, if there is a lane opponent, the matchup. Use only patch {patch} data; discard older patches, and don't write figures (win rate, pick rate, games): figures go separately, on the card, where they are checked against your search.",
+            me = me.name,
+            role = draft.role,
+            patch = data.patch,
+        )
+    };
     let _ = writeln!(
         p,
         "\nINSTRUCTIONS:\n\
-- FIRST, if you have web search, look up the {me} {role} build for patch {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) and, if there is a lane opponent, the matchup. Use only patch {patch} data; discard older patches, and don't write figures (win rate, pick rate, games): figures go separately, on the card, where they are checked against your search.\n\
+{first}\n\
 - If there are PLAYER NOTES, the first and main thing is to answer in depth what they ask or what changes because of that situation (minute, gold, score…), as a coach would in chat. If they ask what to buy with some amount of gold, name the exact purchase that gold affords (a component is fine).\n\
 - Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items ({starters_hint}), 3 core items in order, boots and skill order. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
 - Don't state anything you aren't sure of: fewer, well-chosen situational items are better.\n\
 - Use the in-game names of the {locale} client. Be direct; no long tables.\n\
 - {answer_lang}",
-        me = me.name,
-        role = draft.role,
-        patch = data.patch,
         locale = data.lang.locale(),
         answer_lang = data.lang.answer_instruction(),
         starters_hint = match draft.role.as_str() {
@@ -589,7 +618,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         p,
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
-- In \"stats\" put ONLY figures that came up in your web search results in this conversation (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
+- In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
@@ -1173,6 +1202,7 @@ pub async fn recommend_build(
     app: AppHandle,
     cache: State<'_, ddragon::Cache>,
     running: State<'_, Running>,
+    prep: State<'_, crate::prep::Prep>,
     kind: ProviderKind,
     draft: Draft,
     request_id: String,
@@ -1190,19 +1220,50 @@ pub async fn recommend_build(
         .chain(draft.lane_opponent.as_deref())
         .collect();
     let abilities = abilities::for_champions(&app, &data, &kit_ids).await;
-    let prompt = analysis_prompt(&draft, &data, abilities.as_deref())?;
 
     let status = |t: &str| {
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
     };
     let lang = data.lang;
-    status(lang.pick(
-        "1/2 · Analyzing the draft (searches the web, may take a while)…",
-        "1/2 · Analizando el draft (busca en la web, puede tardar)…",
-    ));
+    let mut rx = running.register(&request_id);
+    // The champion's usual build, if it was searched ahead of time (`prep`):
+    // then step 1 doesn't search again.
+    let prepared = match crate::prep::for_build(
+        &app,
+        &prep,
+        kind,
+        &data,
+        &draft.role,
+        &draft.champion,
+        &mut rx,
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            running.finish(&request_id);
+            return Err(e);
+        }
+    };
+    let prompt = analysis_prompt_with(
+        &draft,
+        &data,
+        abilities.as_deref(),
+        prepared.as_ref().map(|p| p.notes.as_str()),
+    )?;
+    status(if prepared.is_some() {
+        lang.pick(
+            "1/2 · Analyzing the draft (your champion's build was looked up earlier)…",
+            "1/2 · Analizando el draft (la build de tu campeón ya estaba buscada)…",
+        )
+    } else {
+        lang.pick(
+            "1/2 · Analyzing the draft (searches the web, may take a while)…",
+            "1/2 · Analizando el draft (busca en la web, puede tardar)…",
+        )
+    });
 
     // Paso 1: análisis libre con búsqueda, como en el chat del coach.
-    let rx = running.register(&request_id);
     let analysis = ask(&app, kind, &prompt, None, ANALYSIS_TIMEOUT, rx, &on_event).await;
     // Cada paso registra el siguiente en cuanto termina el anterior, para que
     // un «Detener» pulsado entre medias no se pierda.
@@ -1216,6 +1277,9 @@ pub async fn recommend_build(
     };
     // URLs que devolvió la búsqueda en todos los pasos (fuentes válidas para `stats`).
     let mut seen = analysis.sources.clone();
+    if let Some(p) = &prepared {
+        seen.extend(p.sources.iter().cloned());
+    }
     let analysis_text = analysis.text.trim().to_string();
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
@@ -1263,8 +1327,11 @@ pub async fn recommend_build(
     seen.extend(first.sources.iter().cloned());
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
+    // Boots in core and bad situational items are fixed here instead: they
+    // aren't worth another round trip (about 15 s).
     let first_card = parse_card(&first.text).map(|mut raw| {
         move_boots_out_of_core(&mut raw, &data);
+        drop_bad_situational(&mut raw, &data);
         raw
     });
     let retry_reason = match &first_card {
@@ -1404,6 +1471,15 @@ fn starters_in(analysis: &str, data: &GameData, draft: &Draft) -> Vec<String> {
     }
     found.sort();
     found.into_iter().map(|f| f.2.to_string()).collect()
+}
+
+/// Removes situational items that aren't completed items of this patch
+/// (unknown names, components, boots).
+pub fn drop_bad_situational(raw: &mut RawCard, data: &GameData) {
+    raw.situational.retain(|s| {
+        data.item_by_name(&s.item)
+            .is_some_and(|i| i.completed && !is_boots(i))
+    });
 }
 
 /// Arma la respuesta final a partir de la tarjeta (validada y con las cifras
@@ -1732,6 +1808,43 @@ mod tests {
             &draft(),
             Lang::Es,
         )
+    }
+
+    #[test]
+    fn bad_situational_items_are_dropped_and_good_ones_kept() {
+        let mut raw = parse_card(&GOOD.replace(
+            r#""situational":[]"#,
+            r#""situational":[{"item":"Fuerza de Trinidad","when":"a"},{"item":"Llamado del Verdugo","when":"b"},
+                {"item":"Botas de Mercurio","when":"c"},{"item":"Filo Pirata","when":"d"}]"#,
+        ))
+        .unwrap();
+        drop_bad_situational(&mut raw, &fixtures::data());
+        let kept: Vec<&str> = raw.situational.iter().map(|s| s.item.as_str()).collect();
+        assert_eq!(kept, ["Fuerza de Trinidad"]);
+        let (_, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn prepared_notes_replace_the_search_and_count_for_figures() {
+        let data = fixtures::data();
+        let searched = analysis_prompt(&draft(), &data, None).unwrap();
+        assert!(searched.contains("if you have web search, look up"));
+        assert!(!searched.contains("BASE BUILD NOTES"));
+        let p = analysis_prompt_with(
+            &draft(),
+            &data,
+            None,
+            Some("Conqueror, Trinity Force first"),
+        )
+        .unwrap();
+        assert!(p.contains("BASE BUILD NOTES"));
+        assert!(p.contains("Conqueror, Trinity Force first"));
+        assert!(p.contains("don't search the web again"));
+        assert!(!p.contains("if you have web search, look up"));
+        // The notes come before the instructions.
+        assert!(p.find("BASE BUILD NOTES").unwrap() < p.find("INSTRUCTIONS").unwrap());
+        assert!(card_prompt(&data, None).contains("or in the BASE BUILD NOTES"));
     }
 
     #[test]

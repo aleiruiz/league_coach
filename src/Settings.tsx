@@ -6,6 +6,7 @@ import { Region, riotAccount, riotIdOf, riotIdProblem, saveRiotAccount } from ".
 import { humanizeError } from "./providers";
 import { SummonerSearch } from "./SummonerSearch";
 import { YourAI } from "./YourAI";
+import { loadPrepareOn, savePrepareOn } from "./prepare";
 import type { ProvidersState } from "./App";
 
 type KeyState = "configured" | "missing" | "error" | "unknown";
@@ -340,6 +341,7 @@ function Settings({
       <section className="set-block" aria-labelledby="set-ai">
         <h3 id="set-ai">{t("Your AI", "Tu IA")}</h3>
         <YourAI providers={providers} active={active} lang={lang} />
+        <PrepareBuilds />
       </section>
 
       <section className="set-block set-columns">
@@ -463,3 +465,30 @@ export function LegalNotice({ lang }: { lang: Lang }) {
 }
 
 export default Settings;
+
+/** Faster builds: look up your champion's usual build before you ask (src/prepare.ts). */
+function PrepareBuilds() {
+  const [on, setOn] = useState(loadPrepareOn);
+  return (
+    <label className="check">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          const v = e.currentTarget.checked;
+          savePrepareOn(v);
+          setOn(v);
+        }}
+      />
+      <span>
+        {t("Look up builds ahead of time", "Buscar builds por adelantado")}
+        <span className="muted small">
+          {t(
+            "Get build answers faster: it skips the web search. When the app opens it looks up your 3 mains, and in Next game the champion you pick. Uses one AI request per champion, at most every 3 days.",
+            "Obtener build responde más rápido: se salta la búsqueda web. Al abrir la app busca tus 3 mains, y en Próxima partida el campeón que elijas. Usa una consulta a la IA por campeón, como mucho cada 3 días.",
+          )}
+        </span>
+      </span>
+    </label>
+  );
+}
