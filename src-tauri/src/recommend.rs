@@ -1348,7 +1348,24 @@ fn starters_in(analysis: &str, data: &GameData, draft: &Draft) -> Vec<String> {
     const START_WORDS: [&str; 6] = ["start", "inici", "empiez", "empez", "comienz", "salida"];
     let mut found: Vec<(usize, usize, &str)> = Vec::new();
     for (line_no, line) in analysis.lines().enumerate() {
-        let n = ddragon::normalize(line);
+        // "Start Doran's Blade, not Doran's Shield" or "(not Atlas)": asides
+        // and what comes after a negation aren't the pick.
+        let mut lower = String::new();
+        let mut depth = 0usize;
+        for c in line.to_lowercase().chars() {
+            match c {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                c if depth == 0 => lower.push(c),
+                _ => {}
+            }
+        }
+        let cut = [" not ", " no ", " instead", " en vez", " en lugar"]
+            .iter()
+            .filter_map(|w| lower.find(w))
+            .min()
+            .unwrap_or(lower.len());
+        let n = ddragon::normalize(&lower[..cut]);
         if !START_WORDS.iter().any(|w| n.contains(w)) {
             continue;
         }
@@ -1630,6 +1647,21 @@ mod tests {
         // A top laner never gets the pet or the support item.
         assert_eq!(starters_in(text, &data, &draft()), ["Poción de Vida"]);
         assert!(starters_in("Build: Fuerza de Trinidad", &data, &jungle).is_empty());
+        let mut support = draft();
+        support.role = "support".into();
+        assert_eq!(
+            starters_in(text, &data, &support),
+            ["Poción de Vida"],
+            "\"(y Mapamundi no)\" is cut off"
+        );
+        assert_eq!(
+            starters_in(
+                "Start: Escudo de Doran, not Poción de Vida",
+                &data,
+                &draft()
+            ),
+            ["Escudo de Doran"]
+        );
     }
 
     #[test]
