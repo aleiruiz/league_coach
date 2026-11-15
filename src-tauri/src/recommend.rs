@@ -861,21 +861,25 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         .collect();
     let core_items = raw.core_items.iter().map(|n| item(n, Slot::Core)).collect();
     let boots = item(&raw.boots, Slot::Boots);
+    let in_build = |name: &str| {
+        let n = ddragon::normalize(name);
+        raw.core_items
+            .iter()
+            .chain(std::iter::once(&raw.boots))
+            .any(|c| ddragon::normalize(c) == n)
+    };
     let situational = raw
         .situational
         .iter()
+        // "Swap in X" when X is already in the build reads as a mistake.
+        .filter(|s| !in_build(&s.item))
         .map(|s| Situational {
             item: item(&s.item, Slot::Core),
             when: s.when.clone(),
             // Only an item the player is actually building.
             replaces: data
                 .item_by_name(&s.replaces)
-                .filter(|i| {
-                    raw.core_items
-                        .iter()
-                        .chain(std::iter::once(&raw.boots))
-                        .any(|n| ddragon::normalize(n) == ddragon::normalize(&i.name))
-                })
+                .filter(|i| in_build(&i.name))
                 .map(|i| Ref {
                     name: i.name.clone(),
                     image: Some(i.image.clone()),
@@ -1834,15 +1838,23 @@ mod tests {
 
     #[test]
     fn situational_options_say_what_they_replace() {
+        // The fixtures have one completed non-boots item, so the options
+        // use a name that isn't on the patch: it's still listed (flagged).
         let raw = parse_card(&GOOD.replace(
             r#""situational":[]"#,
-            r#""situational":[{"item":"Fuerza de Trinidad","replaces":"fuerza de trinidad","when":"a"},
-                {"item":"Fuerza de Trinidad","when":"b"},{"item":"Fuerza de Trinidad","replaces":"Nada","when":"c"},
-                {"item":"Fuerza de Trinidad","replaces":"Llamado del Verdugo","when":"d"},
-                {"item":"Fuerza de Trinidad","replaces":"Botas de Mercurio","when":"e"}]"#,
+            r#""situational":[{"item":"Filo Pirata","replaces":"fuerza de trinidad","when":"a"},
+                {"item":"Filo Pirata","when":"b"},{"item":"Filo Pirata","replaces":"Nada","when":"c"},
+                {"item":"Filo Pirata","replaces":"Llamado del Verdugo","when":"d"},
+                {"item":"Filo Pirata","replaces":"Botas de Mercurio","when":"e"},
+                {"item":"Fuerza de Trinidad","replaces":"Botas de Mercurio","when":"f"}]"#,
         ))
         .unwrap();
         let (card, _) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
+        assert_eq!(
+            card.situational.len(),
+            5,
+            "an item already in the build isn't an option"
+        );
         let r = card.situational[0].replaces.as_ref().unwrap();
         assert_eq!(r.name, "Fuerza de Trinidad");
         assert!(r.image.is_some());

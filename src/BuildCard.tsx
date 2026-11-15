@@ -537,7 +537,11 @@ function BuildCard({
           <section className="panel">
             <h4 className="panel-title">{t("During the game", "Durante la partida")}</h4>
             <div className="sheet-block">
-              <h5>{t("Full build, in this order", "Build completa, en este orden")}</h5>
+              <h5>
+                {card.core_items.length > 3
+                  ? t("Full build, in this order", "Build completa, en este orden")
+                  : t("Items, in this order", "Objetos, en este orden")}
+              </h5>
               <div className="item-order-row">
                 <ol className="item-order">
                   {card.core_items.slice(0, 3).map((r, i) => (
@@ -560,7 +564,7 @@ function BuildCard({
                 <>
                   <p className="muted small build-note">{t("Then, to finish the build", "Después, para completar la build")}</p>
                   {/* The counter carries on from the core: 4, 5… */}
-                  <ol className="item-order" style={{ counterReset: "item 3" }}>
+                  <ol className="item-order" start={4} style={{ counterReset: "item 3" }}>
                     {card.core_items.slice(3).map((r, i) => (
                       <li key={i}>
                         <Icon r={r} size={48} />
