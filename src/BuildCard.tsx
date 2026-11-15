@@ -531,7 +531,7 @@ function BuildCard({
             <RunesSummary card={card} trees={trees} shards={shards} />
             <div className="sheet-pair">
               <IconGroup title={t("Summoner spells", "Hechizos de invocador")} refs={card.summoner_spells} />
-              {card.starting_items.length > 0 && <IconGroup title={t("Starting items", "Objetos iniciales")} refs={card.starting_items} />}
+              <IconGroup title={t("Starting items", "Objetos iniciales")} refs={card.starting_items} />
             </div>
           </section>
           <section className="panel">

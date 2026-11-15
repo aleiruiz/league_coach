@@ -168,6 +168,8 @@ pub struct Item {
     pub starter: bool,
     /// Ítem inicial de soporte (Mapamundi): el que da oro por misión.
     pub support: bool,
+    /// Jungle companion (the jungle pet): the starter only junglers buy.
+    pub jungle: bool,
     pub image: String,
 }
 
@@ -369,6 +371,8 @@ pub fn parse_items(json: &str, version: &str) -> Result<Vec<Item>, String> {
                     && ((!builds_into && gold >= 900) || (is_boots && gold > 300)),
                 starter,
                 support: starter && has("GoldPer"),
+                // Potions are tagged for lane and jungle; the pets only for jungle.
+                jungle: starter && has("Jungle") && !has("Lane"),
                 tags,
                 image: format!(
                     "{BASE}/cdn/{version}/img/item/{}",
@@ -738,6 +742,7 @@ pub mod fixtures {
       "1054":{"name":"Escudo de Doran","plaintext":"","image":{"full":"1054.png"},"gold":{"base":450,"purchasable":true,"total":450,"sell":180},"tags":["Health","HealthRegen","Lane"],"maps":{"11":true}},
       "3865":{"name":"Mapamundi","plaintext":"","image":{"full":"3865.png"},"gold":{"base":400,"purchasable":true,"total":400,"sell":160},"tags":["Health","GoldPer","Lane"],"maps":{"11":true}},
       "2003":{"name":"Poción de Vida","plaintext":"","image":{"full":"2003.png"},"gold":{"base":50,"purchasable":true,"total":50,"sell":20},"tags":["HealthRegen","Consumable","Lane","Jungle"],"maps":{"11":true}},
+      "1101":{"name":"Cachorro de Rasgafuegos","plaintext":"","image":{"full":"1101.png"},"gold":{"base":450,"purchasable":true,"total":450,"sell":0},"tags":["Jungle"],"maps":{"11":true}},
       "3599":{"name":"Lanza Negra de Kalista","plaintext":"","image":{"full":"3599.png"},"gold":{"base":0,"purchasable":true,"total":0,"sell":0},"tags":[],"maps":{"11":true},"requiredChampion":"Kalista"},
       "4403":{"name":"Espátula Dorada","plaintext":"","image":{"full":"4403.png"},"gold":{"base":0,"purchasable":false,"total":0,"sell":0},"tags":[],"maps":{"11":true}},
       "3078B":{"name":"Fuerza de Trinidad","plaintext":"","image":{"full":"3078.png"},"gold":{"base":333,"purchasable":true,"total":3333,"sell":2333},"tags":["Damage"],"maps":{"11":true}},
@@ -892,6 +897,7 @@ mod tests {
           "1029":{"name":"Armadura de Tela","into":["3075"],"image":{"full":"1029.png"},"gold":{"purchasable":true,"total":300},"tags":["Armor"],"maps":{"11":true}},
           "3865":{"name":"Mapamundi","image":{"full":"3865.png"},"gold":{"purchasable":true,"total":400},"tags":["GoldPer","Lane"],"maps":{"11":true}},
           "3869":{"name":"Oposición Celestial","from":["3865"],"image":{"full":"3869.png"},"gold":{"purchasable":true,"total":400},"tags":["GoldPer","Lane"],"maps":{"11":true}},
+          "1102":{"name":"Cría de Trotabrisas","image":{"full":"1102.png"},"gold":{"purchasable":true,"total":450},"tags":["Jungle"],"maps":{"11":true}},
           "3340":{"name":"Centinela Invisible","image":{"full":"3340.png"},"gold":{"purchasable":true,"total":0},"tags":["Trinket","Lane"],"maps":{"11":true}},
           "2051":{"name":"Cuerno del Guardián","image":{"full":"2051.png"},"gold":{"purchasable":true,"total":950},"tags":["Health","Lane"],"maps":{"11":true,"12":true}},
           "663039":{"name":"Juicio de Atma","image":{"full":"663039.png"},"gold":{"purchasable":true,"total":2500},"tags":["Health"],"maps":{"11":true}}
@@ -905,7 +911,10 @@ mod tests {
         assert!(get("Espada Larga").unwrap().starter);
         assert!(!get("Armadura de Tela").unwrap().starter);
         let atlas = get("Mapamundi").unwrap();
-        assert!(atlas.starter && atlas.support);
+        assert!(atlas.starter && atlas.support && !atlas.jungle);
+        let pet = get("Cría de Trotabrisas").unwrap();
+        assert!(pet.starter && pet.jungle && !pet.support && !pet.completed);
+        assert!(!doran.jungle);
         assert!(!get("Oposición Celestial").unwrap().starter);
         assert!(!get("Centinela Invisible").unwrap().starter);
     }
