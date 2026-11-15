@@ -545,7 +545,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
 - STARTERS (only for starting_items): {}\n\
 - JUNGLE COMPANION (required in starting_items if you play jungle, and only then): {}\n\
 - SUPPORT STARTER (required in starting_items if you play support, and only then): {}\n\
-- BOOTS (only for boots): {}\n\
+- BOOTS (only for boots, never in core_items): {}\n\
 - COMPLETED (for core_items and situational): {}",
         data.patch,
         names(&|i| i.starter && !i.support && !i.jungle),
@@ -1263,7 +1263,10 @@ pub async fn recommend_build(
     seen.extend(first.sources.iter().cloned());
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
-    let first_card = parse_card(&first.text);
+    let first_card = parse_card(&first.text).map(|mut raw| {
+        move_boots_out_of_core(&mut raw, &data);
+        raw
+    });
     let retry_reason = match &first_card {
         Ok(raw) => {
             // The correction round talks to the model: always in English.
@@ -1332,6 +1335,7 @@ pub async fn recommend_build(
     };
 
     let mut raw = raw;
+    move_boots_out_of_core(&mut raw, &data);
     if raw.starting_items.is_empty() {
         // Last resort: the starters the analysis itself named.
         raw.starting_items = starters_in(&analysis_text, &data, &draft);
@@ -1340,6 +1344,23 @@ pub async fn recommend_build(
     rec.analysis = analysis_text.clone();
     rec.session_id = session_id;
     Ok(rec)
+}
+
+/// Models often put tier-2 boots among the core items. That isn't worth a
+/// correction round: they move to the empty boots slot, or drop out of core
+/// when the card already has boots.
+fn move_boots_out_of_core(raw: &mut RawCard, data: &GameData) {
+    let boots_at = |raw: &RawCard| {
+        raw.core_items
+            .iter()
+            .position(|n| data.item_by_name(n).is_some_and(is_boots))
+    };
+    while let Some(i) = boots_at(raw) {
+        let b = raw.core_items.remove(i);
+        if raw.boots.trim().is_empty() {
+            raw.boots = b;
+        }
+    }
 }
 
 /// Starting items named in the analysis, for when the card left them out:
@@ -1524,7 +1545,7 @@ mod tests {
         assert!(p.contains(
             "required in starting_items if you play support, and only then): Mapamundi\n"
         ));
-        assert!(p.contains("- BOOTS (only for boots): Botas de Mercurio\n"));
+        assert!(p.contains("- BOOTS (only for boots, never in core_items): Botas de Mercurio\n"));
         // Los componentes no se ofrecen.
         assert!(!p.contains("Llamado del Verdugo"));
         assert!(p.contains("Turn YOUR previous analysis"));
@@ -1631,6 +1652,25 @@ mod tests {
         );
         assert!(!c.starting_items[0].valid);
         assert!(w[0].contains("jungle companion"), "{w:?}");
+    }
+
+    #[test]
+    fn boots_in_core_move_to_the_boots_slot() {
+        let data = fixtures::data();
+        let mut raw =
+            parse_card(r#"{"core_items":["Botas de Mercurio","Fuerza de Trinidad"],"boots":""}"#)
+                .unwrap();
+        move_boots_out_of_core(&mut raw, &data);
+        assert_eq!(raw.core_items, ["Fuerza de Trinidad"]);
+        assert_eq!(raw.boots, "Botas de Mercurio");
+
+        let mut raw = parse_card(
+            r#"{"core_items":["Fuerza de Trinidad","Botas de Mercurio"],"boots":"Botas"}"#,
+        )
+        .unwrap();
+        move_boots_out_of_core(&mut raw, &data);
+        assert_eq!(raw.core_items, ["Fuerza de Trinidad"]);
+        assert_eq!(raw.boots, "Botas");
     }
 
     #[test]
