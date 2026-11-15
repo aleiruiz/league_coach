@@ -3,6 +3,7 @@ mod ddragon;
 mod history;
 mod i18n;
 mod live;
+mod prep;
 mod providers;
 mod recommend;
 mod riot;
@@ -22,6 +23,7 @@ pub fn run() {
         .manage(history::Lock::default())
         .manage(usage::Store::default())
         .manage(tierlist::Lock::default())
+        .manage(prep::Prep::default())
         .setup(|app| {
             i18n::load(app.handle());
             Ok(())
@@ -41,6 +43,7 @@ pub fn run() {
             ddragon::game_data,
             abilities::champion_abilities,
             recommend::recommend_build,
+            prep::prepare_build,
             i18n::get_language,
             i18n::set_language,
             riot::lookup_summoner,
