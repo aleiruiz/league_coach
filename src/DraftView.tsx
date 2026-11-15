@@ -369,6 +369,7 @@ function DraftView({
       current = false;
     };
     // Only when the build or its matchup changes (`rec` is read through the key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchupKey]);
 
   const kitIds = [d.me, laneOpponent(d)].filter((x): x is string => !!x).join(",");
