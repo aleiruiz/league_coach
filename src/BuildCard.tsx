@@ -276,7 +276,7 @@ function RunesSummary({ card, trees, shards }: { card: Card; trees: RuneTree[]; 
   );
 }
 
-function IconGroup({ title, refs }: { title: string; refs: Ref[] }) {
+function IconGroup({ title, refs, empty }: { title: string; refs: Ref[]; empty?: string }) {
   return (
     <div className="sheet-block">
       <h5>{title}</h5>
@@ -284,7 +284,7 @@ function IconGroup({ title, refs }: { title: string; refs: Ref[] }) {
         {refs.map((r, i) => (
           <Icon key={i} r={r} size={44} />
         ))}
-        {refs.length === 0 && <span className="muted small">{t("No data", "Sin datos")}</span>}
+        {refs.length === 0 && <span className="muted small">{empty ?? t("No data", "Sin datos")}</span>}
       </div>
     </div>
   );
@@ -531,7 +531,7 @@ function BuildCard({
             <RunesSummary card={card} trees={trees} shards={shards} />
             <div className="sheet-pair">
               <IconGroup title={t("Summoner spells", "Hechizos de invocador")} refs={card.summoner_spells} />
-              {card.starting_items.length > 0 && <IconGroup title={t("Starting items", "Objetos iniciales")} refs={card.starting_items} />}
+              <IconGroup title={t("Starting items", "Objetos iniciales")} refs={card.starting_items} empty={t("Not specified", "Sin especificar")} />
             </div>
           </section>
           <section className="panel">

@@ -496,7 +496,7 @@ pub fn analysis_prompt(
         "\nINSTRUCTIONS:\n\
 - FIRST, if you have web search, look up the {me} {role} build for patch {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) and, if there is a lane opponent, the matchup. Use only patch {patch} data; discard older patches, and don't write figures (win rate, pick rate, games): figures go separately, on the card, where they are checked against your search.\n\
 - If there are PLAYER NOTES, the first and main thing is to answer in depth what they ask or what changes because of that situation (minute, gold, score…), as a coach would in chat. If they ask what to buy with some amount of gold, name the exact purchase that gold affords (a component is fine).\n\
-- Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items, 3 core items in order, boots and skill order. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
+- Then, shorter, the build for THIS game: full rune page with shards, 2 summoner spells, starting items ({starters_hint}), 3 core items in order, boots and skill order. In situational items, game plan, matchup tips and threats, put only what changes because of THESE enemies (damage, healing, CC, tanks), not generic advice. No \"whichever you prefer\" or \"check u.gg\".\n\
 - Don't state anything you aren't sure of: fewer, well-chosen situational items are better.\n\
 - Use the in-game names of the {locale} client. Be direct; no long tables.\n\
 - {answer_lang}",
@@ -505,6 +505,11 @@ pub fn analysis_prompt(
         patch = data.patch,
         locale = data.lang.locale(),
         answer_lang = data.lang.answer_instruction(),
+        starters_hint = match draft.role.as_str() {
+            "jungle" => "which jungle companion (pet) and potion",
+            "support" => "the support item and potion",
+            _ => "e.g. a Doran's item and potion",
+        },
     );
     Ok(p)
 }
@@ -538,11 +543,13 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         p,
         "\nPATCH {} ITEMS (don't use components):\n\
 - STARTERS (only for starting_items): {}\n\
+- JUNGLE COMPANION (required in starting_items if you play jungle, and only then): {}\n\
 - SUPPORT STARTER (required in starting_items if you play support, and only then): {}\n\
-- BOOTS (only for boots): {}\n\
+- BOOTS (only for boots, never in core_items): {}\n\
 - COMPLETED (for core_items and situational): {}",
         data.patch,
-        names(&|i| i.starter && !i.support),
+        names(&|i| i.starter && !i.support && !i.jungle),
+        names(&|i| i.jungle),
         names(&|i| i.support),
         names(&|i| i.completed && is_boots(i)),
         names(&|i| i.completed && !is_boots(i)),
@@ -782,6 +789,19 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
                     ),
                 ));
             }
+            Some(i) if slot == Slot::Start && i.jungle && draft.role != "jungle" => {
+                valid = false;
+                warnings.push(say(
+                    format!(
+                        "\"{}\" is a jungle companion and your role is {}",
+                        i.name, draft.role
+                    ),
+                    format!(
+                        "\"{}\" es una mascota de jungla y tu rol es {}",
+                        i.name, draft.role
+                    ),
+                ));
+            }
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
                 valid = false;
                 warnings.push(say(
@@ -812,6 +832,30 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
             when: s.when.clone(),
         })
         .collect();
+
+    let jungle_start = raw
+        .starting_items
+        .iter()
+        .filter_map(|n| data.item_by_name(n))
+        .any(|i| i.jungle);
+    if draft.role == "jungle" && !raw.starting_items.is_empty() && !jungle_start {
+        let pets: Vec<&str> = data
+            .items
+            .iter()
+            .filter(|i| i.jungle)
+            .map(|i| i.name.as_str())
+            .collect();
+        warnings.push(say(
+            format!(
+                "As jungler, the starting items must include a jungle companion: {}",
+                pets.join(" or ")
+            ),
+            format!(
+                "Como jungla, los iniciales deben incluir una mascota: {}",
+                pets.join(" o ")
+            ),
+        ));
+    }
 
     let support_start = raw
         .starting_items
@@ -1219,7 +1263,10 @@ pub async fn recommend_build(
     seen.extend(first.sources.iter().cloned());
 
     // Una ronda de corrección: JSON roto o nombres que no existen en el parche.
-    let first_card = parse_card(&first.text);
+    let first_card = parse_card(&first.text).map(|mut raw| {
+        move_boots_out_of_core(&mut raw, &data);
+        raw
+    });
     let retry_reason = match &first_card {
         Ok(raw) => {
             // The correction round talks to the model: always in English.
@@ -1287,10 +1334,76 @@ pub async fn recommend_build(
         }
     };
 
+    let mut raw = raw;
+    move_boots_out_of_core(&mut raw, &data);
+    if raw.starting_items.is_empty() {
+        // Last resort: the starters the analysis itself named.
+        raw.starting_items = starters_in(&analysis_text, &data, &draft);
+    }
     let mut rec = assemble(&raw, &data, &draft, &seen, kind, retried);
     rec.analysis = analysis_text.clone();
     rec.session_id = session_id;
     Ok(rec)
+}
+
+/// Models often put tier-2 boots among the core items. That isn't worth a
+/// correction round: they move to the empty boots slot, or drop out of core
+/// when the card already has boots.
+fn move_boots_out_of_core(raw: &mut RawCard, data: &GameData) {
+    let boots_at = |raw: &RawCard| {
+        raw.core_items
+            .iter()
+            .position(|n| data.item_by_name(n).is_some_and(is_boots))
+    };
+    while let Some(i) = boots_at(raw) {
+        let b = raw.core_items.remove(i);
+        if raw.boots.trim().is_empty() {
+            raw.boots = b;
+        }
+    }
+}
+
+/// Starting items named in the analysis, for when the card left them out:
+/// only lines that talk about the start, and only starters this role can buy.
+fn starters_in(analysis: &str, data: &GameData, draft: &Draft) -> Vec<String> {
+    const START_WORDS: [&str; 6] = ["start", "inici", "empiez", "empez", "comienz", "salida"];
+    let mut found: Vec<(usize, usize, &str)> = Vec::new();
+    for (line_no, line) in analysis.lines().enumerate() {
+        // "Start Doran's Blade, not Doran's Shield" or "(not Atlas)": asides
+        // and what comes after a negation aren't the pick.
+        let mut lower = String::new();
+        let mut depth = 0usize;
+        for c in line.to_lowercase().chars() {
+            match c {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                c if depth == 0 => lower.push(c),
+                _ => {}
+            }
+        }
+        let cut = [" not ", " no ", " instead", " en vez", " en lugar"]
+            .iter()
+            .filter_map(|w| lower.find(w))
+            .min()
+            .unwrap_or(lower.len());
+        let n = ddragon::normalize(&lower[..cut]);
+        if !START_WORDS.iter().any(|w| n.contains(w)) {
+            continue;
+        }
+        for i in &data.items {
+            let fits = i.starter
+                && (!i.support || draft.role == "support")
+                && (!i.jungle || draft.role == "jungle");
+            if !fits || found.iter().any(|f| f.2 == i.name) {
+                continue;
+            }
+            if let Some(pos) = n.find(&ddragon::normalize(&i.name)) {
+                found.push((line_no, pos, i.name.as_str()));
+            }
+        }
+    }
+    found.sort();
+    found.into_iter().map(|f| f.2.to_string()).collect()
 }
 
 /// Arma la respuesta final a partir de la tarjeta (validada y con las cifras
@@ -1425,9 +1538,14 @@ mod tests {
         let p = card_prompt(&fixtures::data(), None);
         assert!(p.contains("- STARTERS (only for starting_items): Escudo de Doran"));
         assert!(p.contains(
+            "required in starting_items if you play jungle, and only then): Cachorro de Rasgafuegos\n"
+        ));
+        assert!(!p.contains("STARTERS (only for starting_items): Cachorro"));
+        assert!(a.contains("e.g. a Doran's item and potion"));
+        assert!(p.contains(
             "required in starting_items if you play support, and only then): Mapamundi\n"
         ));
-        assert!(p.contains("- BOOTS (only for boots): Botas de Mercurio\n"));
+        assert!(p.contains("- BOOTS (only for boots, never in core_items): Botas de Mercurio\n"));
         // Los componentes no se ofrecen.
         assert!(!p.contains("Llamado del Verdugo"));
         assert!(p.contains("Turn YOUR previous analysis"));
@@ -1510,6 +1628,80 @@ mod tests {
         );
         assert!(!c.starting_items[0].valid);
         assert!(w[0].contains("componente"), "{w:?}");
+
+        // Jungle: the pet is required, and only for junglers.
+        let mut jungle = draft();
+        jungle.role = "jungle".into();
+        let (_, w) = validate(&card(r#"["Poción de Vida"]"#), &data, &jungle, Lang::En);
+        assert!(
+            w.iter().any(|w| w.contains("Cachorro de Rasgafuegos")),
+            "{w:?}"
+        );
+        let (c, w) = validate(
+            &card(r#"["Cachorro de Rasgafuegos","Poción de Vida"]"#),
+            &data,
+            &jungle,
+            Lang::En,
+        );
+        assert!(w.is_empty() && c.starting_items[0].valid, "{w:?}");
+        let (c, w) = validate(
+            &card(r#"["Cachorro de Rasgafuegos"]"#),
+            &data,
+            &draft(),
+            Lang::En,
+        );
+        assert!(!c.starting_items[0].valid);
+        assert!(w[0].contains("jungle companion"), "{w:?}");
+    }
+
+    #[test]
+    fn boots_in_core_move_to_the_boots_slot() {
+        let data = fixtures::data();
+        let mut raw =
+            parse_card(r#"{"core_items":["Botas de Mercurio","Fuerza de Trinidad"],"boots":""}"#)
+                .unwrap();
+        move_boots_out_of_core(&mut raw, &data);
+        assert_eq!(raw.core_items, ["Fuerza de Trinidad"]);
+        assert_eq!(raw.boots, "Botas de Mercurio");
+
+        let mut raw = parse_card(
+            r#"{"core_items":["Fuerza de Trinidad","Botas de Mercurio"],"boots":"Botas"}"#,
+        )
+        .unwrap();
+        move_boots_out_of_core(&mut raw, &data);
+        assert_eq!(raw.core_items, ["Fuerza de Trinidad"]);
+        assert_eq!(raw.boots, "Botas");
+    }
+
+    #[test]
+    fn starters_are_recovered_from_the_analysis() {
+        let data = fixtures::data();
+        let mut jungle = draft();
+        jungle.role = "jungle".into();
+        let text = "**Objetos principales:** Fuerza de Trinidad, Poción de vida al volver\n\
+**Inicio:** Cachorro de Rasgafuegos + Poción de Vida (y Mapamundi no)";
+        assert_eq!(
+            starters_in(text, &data, &jungle),
+            ["Cachorro de Rasgafuegos", "Poción de Vida"]
+        );
+        // A top laner never gets the pet or the support item.
+        assert_eq!(starters_in(text, &data, &draft()), ["Poción de Vida"]);
+        assert!(starters_in("Build: Fuerza de Trinidad", &data, &jungle).is_empty());
+        let mut support = draft();
+        support.role = "support".into();
+        assert_eq!(
+            starters_in(text, &data, &support),
+            ["Poción de Vida"],
+            "\"(y Mapamundi no)\" is cut off"
+        );
+        assert_eq!(
+            starters_in(
+                "Start: Escudo de Doran, not Poción de Vida",
+                &data,
+                &draft()
+            ),
+            ["Escudo de Doran"]
+        );
     }
 
     #[test]
