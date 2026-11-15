@@ -514,7 +514,7 @@ pub fn analysis_prompt_with(
     }
 
     let first = if prepared.is_some() {
-        "- FIRST, start from the BASE BUILD NOTES: the search is already done, so don't search the web again. Adapt them to THIS draft with what you know and the ability text. Don't write figures (win rate, pick rate, games): figures go separately, on the card.".to_string()
+        "- FIRST, start from the BASE BUILD NOTES: the search is already done, so don't search the web again. Adapt them to THIS draft with what you know and the ability text: they are the usual build, so change runes, boots or core items too when these enemies call for it (e.g. armor against a full AD team). Don't write figures (win rate, pick rate, games): figures go separately, on the card.".to_string()
     } else {
         format!(
             "- FIRST, if you have web search, look up the {me} {role} build for patch {patch} (u.gg, op.gg, Mobalytics, Lolalytics…) and, if there is a lane opponent, the matchup. Use only patch {patch} data; discard older patches, and don't write figures (win rate, pick rate, games): figures go separately, on the card, where they are checked against your search.",

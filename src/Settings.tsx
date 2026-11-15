@@ -484,8 +484,8 @@ function PrepareBuilds() {
         {t("Look up builds ahead of time", "Buscar builds por adelantado")}
         <span className="muted small">
           {t(
-            "Get build answers faster: it skips the web search. When the app opens it looks up your 3 mains, and in Next game the champion you pick. Uses one AI request per champion and patch.",
-            "Obtener build responde más rápido: se salta la búsqueda web. Al abrir la app busca tus 3 mains, y en Próxima partida el campeón que elijas. Usa una consulta a la IA por campeón y parche.",
+            "Get build answers faster: it skips the web search. When the app opens it looks up your 3 mains, and in Next game the champion you pick. Uses one AI request per champion, at most every 3 days.",
+            "Obtener build responde más rápido: se salta la búsqueda web. Al abrir la app busca tus 3 mains, y en Próxima partida el campeón que elijas. Usa una consulta a la IA por campeón, como mucho cada 3 días.",
           )}
         </span>
       </span>
