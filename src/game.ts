@@ -67,7 +67,8 @@ export type Card = {
   starting_items: Ref[];
   core_items: Ref[];
   boots: Ref;
-  situational: { item: Ref; when: string }[];
+  /** `replaces`: the build item it swaps out (missing on cards from older versions). */
+  situational: { item: Ref; when: string; replaces?: Ref | null }[];
   runes: {
     primary_tree: Ref;
     keystone: Ref;

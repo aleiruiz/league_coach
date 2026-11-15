@@ -2671,6 +2671,23 @@ ul.rune-shards li {
   margin: 0;
 }
 
+.situational .swap-for {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.situational .swap-for img {
+  border-radius: 3px;
+}
+
+.build-note {
+  margin: 14px 0 10px;
+}
+
 .sheet-play {
   display: flex;
   flex-direction: column;

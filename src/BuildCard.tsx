@@ -537,10 +537,10 @@ function BuildCard({
           <section className="panel">
             <h4 className="panel-title">{t("During the game", "Durante la partida")}</h4>
             <div className="sheet-block">
-              <h5>{t("Items, in this order", "Objetos, en este orden")}</h5>
+              <h5>{t("Full build, in this order", "Build completa, en este orden")}</h5>
               <div className="item-order-row">
                 <ol className="item-order">
-                  {card.core_items.map((r, i) => (
+                  {card.core_items.slice(0, 3).map((r, i) => (
                     <li key={i}>
                       <Icon r={r} size={48} />
                     </li>
@@ -556,17 +556,37 @@ function BuildCard({
                   </div>
                 )}
               </div>
+              {card.core_items.length > 3 && (
+                <>
+                  <p className="muted small build-note">{t("Then, to finish the build", "Después, para completar la build")}</p>
+                  {/* The counter carries on from the core: 4, 5… */}
+                  <ol className="item-order" style={{ counterReset: "item 3" }}>
+                    {card.core_items.slice(3).map((r, i) => (
+                      <li key={i}>
+                        <Icon r={r} size={48} />
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
             </div>
             <Abilities card={card} champion={champion} />
             {card.situational.length > 0 && (
               <div className="sheet-block">
-                <h5>{t("Swap in if needed", "Cambia si hace falta")}</h5>
+                <h5>{t("Options: swap in if needed", "Opciones: cambia si hace falta")}</h5>
                 <ul className="situational">
                   {card.situational.map((s, i) => (
                     <li key={i}>
                       <Icon r={s.item} size={36} caption={false} />
                       <p>
-                        <strong className={s.item.valid ? undefined : "error"}>{s.item.name}</strong>{" "}
+                        <strong className={s.item.valid ? undefined : "error"}>{s.item.name}</strong>
+                        {s.replaces && (
+                          <span className="swap-for">
+                            {t("instead of", "en vez de")}
+                            {s.replaces.image && <img src={s.replaces.image} alt="" width={18} height={18} />}
+                            {s.replaces.name}
+                          </span>
+                        )}{" "}
                         <span className="muted">{s.when}</span>
                       </p>
                     </li>
