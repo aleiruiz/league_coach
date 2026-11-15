@@ -315,7 +315,11 @@ pub fn without_figures(notes: &str) -> String {
         })
         .filter(|l| {
             let l = l.to_lowercase();
-            !RATES.iter().any(|r| l.contains(r))
+            // Short forms too: "WR 52%", "PR: 8%", "BR".
+            let short = l
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|w| matches!(w, "wr" | "pr" | "br"));
+            !(short || RATES.iter().any(|r| l.contains(r)))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -421,6 +425,10 @@ mod tests {
         assert_eq!(
             without_figures("Tasa de victoria: 51%\nJuega seguro."),
             "Juega seguro."
+        );
+        assert_eq!(
+            without_figures("- Kayn WR 52% (Emerald+)\n- PR: 8%\n- Dodge his W."),
+            "- Dodge his W."
         );
     }
 
