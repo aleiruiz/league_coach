@@ -28,10 +28,11 @@ const MAX_AGE_MS: i64 = 3 * 24 * 60 * 60 * 1000;
 const TIMEOUT: Duration = Duration::from_secs(360);
 
 /// Get build waits for a preparation already running only if it started at
-/// least this long ago (so it is close to done). A younger one is left to
-/// finish in the background and Get build searches by itself, which is
-/// faster than waiting for a search that just started.
-const WAIT_IF_STARTED: Duration = Duration::from_secs(20);
+/// least this long ago (so it is close to done: a base build search takes
+/// 50-70 s, a matchup 75-85 s). A younger one is left to finish in the
+/// background and Get build goes on without it, which is faster than
+/// waiting for a search that is far from done.
+const WAIT_IF_STARTED: Duration = Duration::from_secs(60);
 
 /// Base build notes for one champion in one role.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -137,7 +138,7 @@ fn matchup_prompt(data: &GameData, me: &str, them: &str, role: &str) -> String {
     format!(
         "CURRENT PATCH: {patch} (Data Dragon version {version}; some sites show it as {client}: it is the same patch).\n\n\
 Look up the {me} vs {them} matchup ({role}) for patch {patch} on the stats sites and guides (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs…). \
-Write matchup notes for a player about to play {me} against {them}:\n\
+Write matchup notes for a player about to play {me} against {them}, at most about 200 words, as short bullets under these points (no title, no intro, nothing about which sites or pages you used or left out):\n\
 - Who is favored, and when each side spikes (levels 1-3, level 6, first item).\n\
 - How to trade: which of {them}'s abilities to dodge or bait, when to all-in and when to back off.\n\
 - Runes, summoner spells, starting items or items that this matchup usually changes, if any.{jungle}\n\

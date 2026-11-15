@@ -347,11 +347,12 @@ function DraftView({
   // if it's ready, and it shows under the build when it is.
   const laneNow = laneOpponent(d);
   useEffect(() => {
-    if (!kind || !d.me || !laneNow || !loadPrepareOn()) return;
+    // A guessed opponent (#33) may be wrong: wait until it's confirmed.
+    if (!kind || !d.me || !laneNow || laneGuessed(d) || !loadPrepareOn()) return;
     const [me, role, them] = [d.me, d.role, laneNow];
     const timer = setTimeout(() => matchupNotes(kind, me, role, them).catch(() => null), PICK_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [kind, d.me, d.role, laneNow]);
+  }, [kind, d.me, d.role, laneNow, laneGuessed(d)]);
 
   // Matchup details for the build on screen, filled in when the search ends.
   const recLane = rec && !rec.card_error ? rec.draft.lane_opponent : null;
@@ -794,10 +795,11 @@ export default DraftView;
 function MatchupDetails({ vs, state }: { vs: string; state: { text: string | null; failed: boolean } | null }) {
   if (state && !state.text && !state.failed) return null;
   return (
-    <section className="panel matchup-details" aria-labelledby="matchup-details" aria-busy={!state}>
-      <h4 id="matchup-details" className="panel-title">
+    <details className="panel matchup-details" aria-busy={!state}>
+      <summary className="panel-title">
         {t(`Matchup details vs ${vs}`, `Detalles del duelo contra ${vs}`)}
-      </h4>
+        {!state && <span className="muted small"> · {t("looking it up…", "buscando…")}</span>}
+      </summary>
       {!state ? (
         <p className="muted small" role="status">
           {t("Looking up this matchup on the stats sites… It shows here when it's ready.", "Buscando este duelo en las webs de estadísticas… Aparece aquí cuando esté listo.")}
@@ -814,6 +816,6 @@ function MatchupDetails({ vs, state }: { vs: string; state: { text: string | nul
           </div>
         </>
       )}
-    </section>
+    </details>
   );
 }
