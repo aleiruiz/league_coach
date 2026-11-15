@@ -113,8 +113,8 @@ pub fn prompt(data: &GameData, s: Subject) -> Result<String, String> {
 Look up the {name} {role} build for patch {patch} on the stats sites (u.gg, op.gg, Mobalytics, Lolalytics…). \
 Write short notes that another coach will use later to prepare a build for a specific game:\n\
 - The most played full rune page with shards, and a second page if it is common.\n\
-- 2 summoner spells, starting items, the 3 core items in order, boots, skill order.\n\
-- The usual situational items and when each one is bought.\n\
+- 2 summoner spells, starting items, the full build of 5 completed items in buy order (the first 3 are the core), boots, skill order.\n\
+- The usual situational items, which build item each one replaces and when it's bought.\n\
 - {name}'s power spikes and the usual game plan, in 3 short lines.\n\
 - If the results show win rate, pick rate or number of games for this patch, write each figure with the exact URL of the page it came from. Never figures from memory.\n\
 Use only patch {patch} data; discard older patches. Use the in-game names of the {locale} client. No tables. {answer_lang}",
