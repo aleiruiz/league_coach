@@ -28,10 +28,11 @@ const MAX_AGE_MS: i64 = 3 * 24 * 60 * 60 * 1000;
 const TIMEOUT: Duration = Duration::from_secs(360);
 
 /// Get build waits for a preparation already running only if it started at
-/// least this long ago (so it is close to done). A younger one is left to
-/// finish in the background and Get build searches by itself, which is
-/// faster than waiting for a search that just started.
-const WAIT_IF_STARTED: Duration = Duration::from_secs(20);
+/// least this long ago (so it is close to done: a base build search takes
+/// 50-70 s, a matchup 75-85 s). A younger one is left to finish in the
+/// background and Get build goes on without it, which is faster than
+/// waiting for a search that is far from done.
+const WAIT_IF_STARTED: Duration = Duration::from_secs(60);
 
 /// Base build notes for one champion in one role.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -64,15 +65,29 @@ fn now_ms() -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
-pub fn key(kind: ProviderKind, data: &GameData, role: &str, champion: &str) -> String {
-    format!(
+/// What a preparation is about: a champion's usual build in a role, or,
+/// with `opponent`, that champion's lane matchup against it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Subject<'a> {
+    pub champion: &'a str,
+    pub role: &'a str,
+    pub opponent: Option<&'a str>,
+}
+
+pub fn key(kind: ProviderKind, data: &GameData, s: Subject) -> String {
+    let mut k = format!(
         "{}|{}|{}|{}|{}",
         kind.binary(),
         data.lang.locale(),
         data.version,
-        role,
-        champion
-    )
+        s.role,
+        s.champion
+    );
+    if let Some(o) = s.opponent {
+        k.push_str("|vs|");
+        k.push_str(o);
+    }
+    k
 }
 
 /// Notes are usable: same patch and recent enough.
@@ -80,11 +95,17 @@ pub fn fresh(p: &Prepared, data: &GameData, now: i64) -> bool {
     p.version == data.version && !p.notes.trim().is_empty() && now - p.at < MAX_AGE_MS
 }
 
-/// The search prompt: the usual build of `champion` in `role`, no draft.
-pub fn prompt(data: &GameData, champion: &str, role: &str) -> Result<String, String> {
-    let me = data
-        .champion(champion)
-        .ok_or_else(|| format!("Unknown champion: {champion}"))?;
+/// The search prompt: the usual build, or the matchup, no draft.
+pub fn prompt(data: &GameData, s: Subject) -> Result<String, String> {
+    let get = |id: &str| {
+        data.champion(id)
+            .ok_or_else(|| format!("Unknown champion: {id}"))
+    };
+    let me = get(s.champion)?;
+    if let Some(o) = s.opponent {
+        return Ok(matchup_prompt(data, &me.name, &get(o)?.name, s.role));
+    }
+    let role = s.role;
     let mut p = String::new();
     let _ = writeln!(
         p,
@@ -106,6 +127,29 @@ Use only patch {patch} data; discard older patches. Use the in-game names of the
         answer_lang = data.lang.answer_instruction(),
     );
     Ok(p)
+}
+
+fn matchup_prompt(data: &GameData, me: &str, them: &str, role: &str) -> String {
+    let jungle = if role == "jungle" {
+        "\n- Jungle: whose early clear and invades are stronger, and how to contest scuttle, drakes and grubs against them."
+    } else {
+        ""
+    };
+    format!(
+        "CURRENT PATCH: {patch} (Data Dragon version {version}; some sites show it as {client}: it is the same patch).\n\n\
+Look up the {me} vs {them} matchup ({role}) for patch {patch} on the stats sites and guides (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs…). \
+Write matchup notes for a player about to play {me} against {them}, as short bullets under these points (no title, no intro, nothing about which sites or pages you used or left out):\n\
+- Who is favored, and when each side spikes (levels 1-3, level 6, first item).\n\
+- How to trade: which of {them}'s abilities to dodge or bait, when to all-in and when to back off.\n\
+- Runes, summoner spells, starting items or items that this matchup usually changes, if any.{jungle}\n\
+- Write no win rates, pick rates or game counts in the notes above. Only at the end, in a last section that starts with the line FIGURES:, list this matchup's win rate or number of games for this patch if the results show them, each with the exact URL of the page it came from. Never figures from memory.\n\
+Use only patch {patch} data; discard older patches. Be concrete: ability names, levels, timers. Use the in-game names of the {locale} client. No tables. {answer_lang}",
+        patch = data.patch,
+        version = data.version,
+        client = data.version.rsplitn(2, '.').last().unwrap_or(&data.version),
+        locale = data.lang.locale(),
+        answer_lang = data.lang.answer_instruction(),
+    )
 }
 
 // ---------- saved notes ----------
@@ -149,32 +193,44 @@ fn saved(app: &AppHandle, key: &str, data: &GameData) -> Option<Prepared> {
 // ---------- running a preparation ----------
 
 /// Runs the search unless fresh notes exist or the same one is running.
-/// Returns whether notes are ready.
+/// With `wait`, a running one is waited for. Returns the notes when ready.
 async fn ensure(
     app: &AppHandle,
     prep: &Prep,
     kind: ProviderKind,
     data: &GameData,
-    role: &str,
-    champion: &str,
-) -> Result<bool, String> {
-    let key = key(kind, data, role, champion);
-    if saved(app, &key, data).is_some() {
-        return Ok(true);
+    subject: Subject<'_>,
+    wait: bool,
+) -> Result<Option<Prepared>, String> {
+    let key = key(kind, data, subject);
+    if let Some(p) = saved(app, &key, data) {
+        return Ok(Some(p));
     }
-    let lock = {
+    // Either the preparation already running, or ours, locked before anyone
+    // else can see it so a waiter never slips in ahead of the search.
+    let started = {
         let mut running = prep.running.lock().unwrap();
-        if running.contains_key(&key) {
-            return Ok(false);
+        match running.get(&key) {
+            Some((_, lock)) => Err(lock.clone()),
+            None => {
+                let lock = Arc::new(tokio::sync::Mutex::new(()));
+                let guard = lock.clone().try_lock_owned().expect("new lock");
+                running.insert(key.clone(), (Instant::now(), lock));
+                Ok(guard)
+            }
         }
-        let lock = Arc::new(tokio::sync::Mutex::new(()));
-        running.insert(key.clone(), (Instant::now(), lock.clone()));
-        lock
     };
-    let guard = lock.lock().await;
-    let result = search(app, kind, data, role, champion).await;
+    let guard = match started {
+        Ok(guard) => guard,
+        Err(_) if !wait => return Ok(None),
+        Err(lock) => {
+            let _done = lock.lock().await;
+            return Ok(saved(app, &key, data));
+        }
+    };
+    let result = search(app, kind, data, subject).await;
     let stored = match result {
-        Ok(p) => store(app, prep, key.clone(), p).map(|_| true),
+        Ok(p) => store(app, prep, key.clone(), p.clone()).map(|_| Some(p)),
         Err(e) => Err(e),
     };
     drop(guard);
@@ -186,10 +242,9 @@ async fn search(
     app: &AppHandle,
     kind: ProviderKind,
     data: &GameData,
-    role: &str,
-    champion: &str,
+    subject: Subject<'_>,
 ) -> Result<Prepared, String> {
-    let prompt = prompt(data, champion, role)?;
+    let prompt = prompt(data, subject)?;
     let collected = Mutex::new(Collected::default());
     let send = |ev: providers::ChatEvent| collected.lock().unwrap().push(&ev);
     providers::run(app, kind, &prompt, None, TIMEOUT, None, &send).await?;
@@ -217,11 +272,10 @@ pub async fn for_build(
     prep: &Prep,
     kind: ProviderKind,
     data: &GameData,
-    role: &str,
-    champion: &str,
+    subject: Subject<'_>,
     cancel: &mut tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Option<Prepared>, String> {
-    let key = key(kind, data, role, champion);
+    let key = key(kind, data, subject);
     if let Some(p) = saved(app, &key, data) {
         return Ok(Some(p));
     }
@@ -236,6 +290,54 @@ pub async fn for_build(
         _ = lock.lock() => Ok(saved(app, &key, data)),
         _ = cancel => Err(providers::stopped_message().to_string()),
     }
+}
+
+/// Matchup notes for the player to read: figures (win rate, pick rate,
+/// games) are only shown on the build card, where they are checked against
+/// the search's URLs. Drops the FIGURES section the prompt asks for, and any
+/// other line that still names a rate.
+pub fn without_figures(notes: &str) -> String {
+    const RATES: [&str; 8] = [
+        "win rate",
+        "winrate",
+        "pick rate",
+        "ban rate",
+        "tasa de victoria",
+        "% de victorias",
+        "porcentaje de victoria",
+        "partidas analizadas",
+    ];
+    notes
+        .lines()
+        .take_while(|l| {
+            let t = l.trim_start_matches(['#', '*', ' ']).to_lowercase();
+            !["figures", "cifras", "sources", "fuentes"]
+                .iter()
+                .any(|h| t.starts_with(h))
+        })
+        .filter(|l| {
+            let l = l.to_lowercase();
+            // Short forms too: "WR 52%", "PR: 8%", "BR".
+            let short = l
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|w| matches!(w, "wr" | "pr" | "br"));
+            !(short || RATES.iter().any(|r| l.contains(r)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+/// The Data Dragon id for a champion name or id, ignoring case: match
+/// history names differ from Data Dragon ids only in case (FiddleSticks /
+/// Fiddlesticks), and the key uses the Data Dragon id.
+fn champion_id(data: &GameData, name: &str) -> Result<String, String> {
+    data.champions
+        .iter()
+        .find(|c| c.id.eq_ignore_ascii_case(name))
+        .map(|c| c.id.clone())
+        .ok_or_else(|| format!("Unknown champion: {name}"))
 }
 
 /// Prepares the base build of `champion` in `role` in the background. The UI
@@ -254,15 +356,50 @@ pub async fn prepare_build(
         return Err(format!("Unknown role: {role}"));
     }
     let data = ddragon::get(&app, &cache).await?;
-    // Match history names differ from Data Dragon ids only in case
-    // (FiddleSticks / Fiddlesticks): the key uses the Data Dragon id.
-    let id = data
-        .champions
-        .iter()
-        .find(|c| c.id.eq_ignore_ascii_case(&champion))
-        .map(|c| c.id.clone())
-        .ok_or_else(|| format!("Unknown champion: {champion}"))?;
-    ensure(&app, &prep, kind, &data, &role, &id).await
+    let id = champion_id(&data, &champion)?;
+    let subject = Subject {
+        champion: &id,
+        role: &role,
+        opponent: None,
+    };
+    Ok(ensure(&app, &prep, kind, &data, subject, false)
+        .await?
+        .is_some())
+}
+
+/// Matchup notes for `champion` against `opponent` in `role`: saved ones, or
+/// a new search (or the one already running), waited for. Next game calls it
+/// as soon as both laners are known, and again to show the notes under the
+/// build when they are ready.
+#[tauri::command]
+pub async fn matchup_notes(
+    app: AppHandle,
+    cache: State<'_, ddragon::Cache>,
+    prep: State<'_, Prep>,
+    kind: ProviderKind,
+    champion: String,
+    role: String,
+    opponent: String,
+) -> Result<Option<String>, String> {
+    if !ROLES.contains(&role.as_str()) {
+        return Err(format!("Unknown role: {role}"));
+    }
+    let data = ddragon::get(&app, &cache).await?;
+    let (id, them) = (
+        champion_id(&data, &champion)?,
+        champion_id(&data, &opponent)?,
+    );
+    if id == them {
+        return Ok(None);
+    }
+    let subject = Subject {
+        champion: &id,
+        role: &role,
+        opponent: Some(&them),
+    };
+    Ok(ensure(&app, &prep, kind, &data, subject, true)
+        .await?
+        .map(|p| without_figures(&p.notes)))
 }
 
 #[cfg(test)]
@@ -280,6 +417,28 @@ mod tests {
     }
 
     #[test]
+    fn matchup_notes_shown_to_the_player_carry_no_figures() {
+        let notes = "## Who's favored\n- Warwick wins levels 1-3.\n- Kayn has a 48.2% win rate here.\n- His W slows 30%.\n\n**FIGURES:**\n- Win rate 48.2% (https://u.gg/x)";
+        let shown = without_figures(notes);
+        assert!(shown.contains("Warwick wins levels 1-3"));
+        assert!(shown.contains("slows 30%"));
+        assert!(!shown.contains("48.2"));
+        assert!(!shown.contains("u.gg"));
+        assert_eq!(
+            without_figures("Tasa de victoria: 51%\nJuega seguro."),
+            "Juega seguro."
+        );
+        assert_eq!(
+            without_figures("- Kayn WR 52% (Emerald+)\n- PR: 8%\n- Dodge his W."),
+            "- Dodge his W."
+        );
+        assert_eq!(
+            without_figures("- Bait his Q.\n\n### Sources:\n- u.gg"),
+            "- Bait his Q."
+        );
+    }
+
+    #[test]
     fn notes_expire_with_the_patch_and_after_a_few_days() {
         let data = fixtures::data();
         let now = 10 * MAX_AGE_MS;
@@ -294,22 +453,70 @@ mod tests {
     #[test]
     fn key_separates_ai_language_patch_role_and_champion() {
         let data = fixtures::data();
-        let a = key(ProviderKind::ClaudeCode, &data, "top", "Jax");
-        assert_ne!(a, key(ProviderKind::Codex, &data, "top", "Jax"));
-        assert_ne!(a, key(ProviderKind::ClaudeCode, &data, "jungle", "Jax"));
+        let jax = |role| Subject {
+            champion: "Jax",
+            role,
+            opponent: None,
+        };
+        let a = key(ProviderKind::ClaudeCode, &data, jax("top"));
+        assert_ne!(a, key(ProviderKind::Codex, &data, jax("top")));
+        assert_ne!(a, key(ProviderKind::ClaudeCode, &data, jax("jungle")));
+        let vs = Subject {
+            opponent: Some("Darius"),
+            ..jax("top")
+        };
+        assert_ne!(a, key(ProviderKind::ClaudeCode, &data, vs));
         assert!(a.contains(&data.version) && a.contains(data.lang.locale()));
     }
 
     #[test]
     fn prompt_names_champion_role_and_patch_and_refuses_unknown() {
         let data = fixtures::data();
-        let id = &data.champions[0].id;
-        let p = prompt(&data, id, "mid").unwrap();
-        assert!(p.contains(&format!(
-            "{} mid build for patch {}",
-            data.champions[0].name, data.patch
-        )));
+        let (a, b) = (&data.champions[0], &data.champions[1]);
+        let base = Subject {
+            champion: &a.id,
+            role: "mid",
+            opponent: None,
+        };
+        let p = prompt(&data, base).unwrap();
+        assert!(p.contains(&format!("{} mid build for patch {}", a.name, data.patch)));
         assert!(p.contains("Never figures from memory"));
-        assert!(prompt(&data, "NotAChamp", "mid").is_err());
+        let vs = Subject {
+            opponent: Some(&b.id),
+            ..base
+        };
+        let m = prompt(&data, vs).unwrap();
+        assert!(m.contains(&format!(
+            "{} vs {} matchup (mid) for patch {}",
+            a.name, b.name, data.patch
+        )));
+        assert!(m.contains("Never figures from memory"));
+        assert!(!m.contains("Jungle:"));
+        assert!(
+            prompt(
+                &data,
+                Subject {
+                    role: "jungle",
+                    ..vs
+                }
+            )
+            .unwrap()
+            .contains("Jungle:")
+        );
+        let unknown = Subject {
+            champion: "NotAChamp",
+            ..base
+        };
+        assert!(prompt(&data, unknown).is_err());
+        assert!(
+            prompt(
+                &data,
+                Subject {
+                    opponent: Some("NotAChamp"),
+                    ..base
+                }
+            )
+            .is_err()
+        );
     }
 }

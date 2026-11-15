@@ -433,16 +433,18 @@ pub fn analysis_prompt(
     data: &GameData,
     abilities: Option<&str>,
 ) -> Result<String, String> {
-    analysis_prompt_with(draft, data, abilities, None)
+    analysis_prompt_with(draft, data, abilities, None, None)
 }
 
 /// `analysis_prompt`, starting from base build notes searched earlier
 /// (`prep`): the model doesn't search again, which halves the wait.
+/// `matchup`: lane matchup notes searched earlier, likewise.
 pub fn analysis_prompt_with(
     draft: &Draft,
     data: &GameData,
     abilities: Option<&str>,
     prepared: Option<&str>,
+    matchup: Option<&str>,
 ) -> Result<String, String> {
     let get = |id: &str| {
         data.champion(id).ok_or_else(|| {
@@ -514,6 +516,22 @@ pub fn analysis_prompt_with(
             b.trim()
         );
     }
+    let matchup = matchup.zip(lane);
+    if let Some((m, l)) = matchup {
+        let _ = writeln!(
+            p,
+            "\nMATCHUP NOTES ({} vs {} on patch {}, searched on the stats sites and guides a little earlier{}):\n{}",
+            me.name,
+            l.name,
+            data.patch,
+            if draft.lane_guessed {
+                "; the lane opponent is guessed, so use them only if it holds"
+            } else {
+                ""
+            },
+            m.trim()
+        );
+    }
     if let Some(n) = draft.notes.as_deref().filter(|n| !n.trim().is_empty()) {
         let _ = writeln!(p, "\nPLAYER NOTES: {}", n.trim());
     }
@@ -527,6 +545,12 @@ pub fn analysis_prompt_with(
             role = draft.role,
             patch = data.patch,
         )
+    };
+    let first = match matchup {
+        Some(_) => format!(
+            "{first}\n- The lane matchup is in the MATCHUP NOTES: don't search for it again, and base the matchup tips on them."
+        ),
+        None => first,
     };
     let _ = writeln!(
         p,
@@ -623,7 +647,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         p,
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
-- In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
+- In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD or MATCHUP NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
 - \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items).\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
@@ -1254,28 +1278,38 @@ pub async fn recommend_build(
     let mut rx = running.register(&request_id);
     // The champion's usual build, if it was searched ahead of time (`prep`):
     // then step 1 doesn't search again.
-    let prepared = match crate::prep::for_build(
-        &app,
-        &prep,
-        kind,
-        &data,
-        &draft.role,
-        &draft.champion,
-        &mut rx,
-    )
-    .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            running.finish(&request_id);
-            return Err(e);
-        }
+    // Same for the lane matchup, looked up once both laners were known.
+    let base = crate::prep::Subject {
+        champion: &draft.champion,
+        role: &draft.role,
+        opponent: None,
     };
+    let lane = draft
+        .lane_opponent
+        .as_deref()
+        .map(|o| crate::prep::Subject {
+            opponent: Some(o),
+            ..base
+        });
+    let mut notes = Vec::new();
+    let subjects: Vec<crate::prep::Subject> = [Some(base), lane].into_iter().flatten().collect();
+    for subject in subjects {
+        match crate::prep::for_build(&app, &prep, kind, &data, subject, &mut rx).await {
+            Ok(p) => notes.push(p),
+            Err(e) => {
+                running.finish(&request_id);
+                return Err(e);
+            }
+        }
+    }
+    let matchup = notes.get(1).cloned().flatten();
+    let prepared = notes.into_iter().next().flatten();
     let prompt = analysis_prompt_with(
         &draft,
         &data,
         abilities.as_deref(),
         prepared.as_ref().map(|p| p.notes.as_str()),
+        matchup.as_ref().map(|p| p.notes.as_str()),
     )?;
     status(if prepared.is_some() {
         lang.pick(
@@ -1303,7 +1337,7 @@ pub async fn recommend_build(
     };
     // URLs que devolvió la búsqueda en todos los pasos (fuentes válidas para `stats`).
     let mut seen = analysis.sources.clone();
-    if let Some(p) = &prepared {
+    for p in prepared.iter().chain(&matchup) {
         seen.extend(p.sources.iter().cloned());
     }
     let analysis_text = analysis.text.trim().to_string();
@@ -1923,6 +1957,7 @@ mod tests {
             &data,
             None,
             Some("Conqueror, Trinity Force first"),
+            None,
         )
         .unwrap();
         assert!(p.contains("BASE BUILD NOTES"));
@@ -1931,7 +1966,32 @@ mod tests {
         assert!(!p.contains("if you have web search, look up"));
         // The notes come before the instructions.
         assert!(p.find("BASE BUILD NOTES").unwrap() < p.find("INSTRUCTIONS").unwrap());
-        assert!(card_prompt(&data, None).contains("or in the BASE BUILD NOTES"));
+        assert!(card_prompt(&data, None).contains("or in the BASE BUILD or MATCHUP NOTES"));
+    }
+
+    #[test]
+    fn matchup_notes_go_in_only_with_a_lane_opponent() {
+        let data = fixtures::data();
+        let m = Some("Darius wins levels 1-3; take Grasp");
+        let p = analysis_prompt_with(&draft(), &data, None, None, m).unwrap();
+        assert!(p.contains("MATCHUP NOTES"));
+        assert!(p.contains("Darius wins levels 1-3"));
+        assert!(p.contains("don't search for it again"));
+        // Without base notes the build is still searched.
+        assert!(p.contains("if you have web search, look up"));
+        let alone = Draft {
+            lane_opponent: None,
+            ..draft()
+        };
+        let q = analysis_prompt_with(&alone, &data, None, None, m).unwrap();
+        assert!(!q.contains("MATCHUP NOTES"));
+        assert!(!p.contains("lane opponent is guessed"));
+        let guessed = Draft {
+            lane_guessed: true,
+            ..draft()
+        };
+        let g = analysis_prompt_with(&guessed, &data, None, None, m).unwrap();
+        assert!(g.contains("the lane opponent is guessed, so use them only if it holds"));
     }
 
     #[test]

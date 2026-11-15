@@ -36,6 +36,14 @@ export function prepareBuild(kind: ProviderKind, champion: string, role: Role) {
   return invoke<boolean>("prepare_build", { kind, champion, role });
 }
 
+/**
+ * Lane matchup notes, searched in the background (or the search already
+ * running, waited for). null: same champion on both sides.
+ */
+export function matchupNotes(kind: ProviderKind, champion: string, role: Role, opponent: string) {
+  return invoke<string | null>("matchup_notes", { kind, champion, role, opponent });
+}
+
 /** The first `max` mains with a known role (a build needs one). */
 export function mainsToPrepare(mains: Main[], max = PREPARE_MAINS): { champion: string; role: Role }[] {
   return mains

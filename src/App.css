@@ -4487,3 +4487,18 @@ button.ask-close:hover {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Matchup details: lane matchup notes under the build (src/prepare.ts). */
+.matchup-details {
+  margin-top: 16px;
+}
+.matchup-details > summary {
+  cursor: pointer;
+}
+.matchup-details h1,
+.matchup-details h2,
+.matchup-details h3,
+.matchup-details h4 {
+  font-size: 0.95rem;
+  margin: 0.8em 0 0.3em;
+}

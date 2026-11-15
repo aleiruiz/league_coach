@@ -25,7 +25,7 @@ import { cancelPrompt, humanizeError, pickKind, ProviderKind } from "./providers
 import { AskButton, type AskContext } from "./AskPanel";
 import type { ProvidersState } from "./App";
 import { Lang, t } from "./i18n";
-import { loadPrepareOn, PICK_DELAY_MS, prepareBuild } from "./prepare";
+import { loadPrepareOn, matchupNotes, PICK_DELAY_MS, prepareBuild } from "./prepare";
 
 /** Build received, with the model and the draft that produced it. */
 type Result = Recommendation & {
@@ -342,6 +342,35 @@ function DraftView({
     const timer = setTimeout(() => prepareBuild(kind, me, role).catch(() => {}), PICK_DELAY_MS);
     return () => clearTimeout(timer);
   }, [kind, d.me, d.role]);
+
+  // The lane matchup too, as soon as both laners are known: Get build uses it
+  // if it's ready, and it shows under the build when it is.
+  const laneNow = laneOpponent(d);
+  useEffect(() => {
+    // A guessed opponent (#33) may be wrong: wait until it's confirmed.
+    if (!kind || !d.me || !laneNow || laneGuessed(d) || !loadPrepareOn()) return;
+    const [me, role, them] = [d.me, d.role, laneNow];
+    const timer = setTimeout(() => matchupNotes(kind, me, role, them).catch(() => null), PICK_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [kind, d.me, d.role, laneNow, laneGuessed(d)]);
+
+  // Matchup details for the build on screen, filled in when the search ends.
+  const recLane = rec && !rec.card_error ? rec.draft.lane_opponent : null;
+  const matchupKey = rec && recLane ? `${rec.kind}|${rec.draft.champion}|${rec.draft.role}|${recLane}` : null;
+  const [matchup, setMatchup] = useState<{ key: string; text: string | null; failed: boolean } | null>(null);
+  useEffect(() => {
+    setMatchup(null);
+    if (!rec || !recLane || !matchupKey || !loadPrepareOn()) return;
+    let current = true;
+    matchupNotes(rec.kind, rec.draft.champion, rec.draft.role, recLane)
+      .then((text) => current && setMatchup({ key: matchupKey, text, failed: false }))
+      .catch(() => current && setMatchup({ key: matchupKey, text: null, failed: true }));
+    return () => {
+      current = false;
+    };
+    // Only when the build or its matchup changes (`rec` is read through the key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchupKey]);
 
   const kitIds = [d.me, laneOpponent(d)].filter((x): x is string => !!x).join(",");
   useEffect(() => {
@@ -747,6 +776,12 @@ function DraftView({
               onAsk={onAsk}
             />
           )}
+          {matchupKey && recLane && loadPrepareOn() && (
+            <MatchupDetails
+              vs={byId.get(recLane)?.name ?? recLane}
+              state={matchup?.key === matchupKey ? matchup : null}
+            />
+          )}
 
         </>
       )}
@@ -756,3 +791,32 @@ function DraftView({
 }
 
 export default DraftView;
+
+/** The lane matchup, looked up in the background (src-tauri/src/prep.rs). */
+function MatchupDetails({ vs, state }: { vs: string; state: { text: string | null; failed: boolean } | null }) {
+  if (state && !state.text && !state.failed) return null;
+  return (
+    <details className="panel matchup-details" aria-busy={!state}>
+      <summary className="panel-title">
+        {t(`Matchup details vs ${vs}`, `Detalles del duelo contra ${vs}`)}
+        {!state && <span className="muted small"> · {t("looking it up…", "buscando…")}</span>}
+      </summary>
+      {!state ? (
+        <p className="muted small" role="status">
+          {t("Looking up this matchup on the stats sites… It shows here when it's ready.", "Buscando este duelo en las webs de estadísticas… Aparece aquí cuando esté listo.")}
+        </p>
+      ) : state.failed ? (
+        <p className="muted small">{t("Couldn't look up this matchup this time.", "No se pudo buscar este duelo esta vez.")}</p>
+      ) : (
+        <>
+          <p className="muted small">
+            {t("AI notes from the stats sites. Win rates are left out here: the build shows only figures checked against their source.", "Notas de la IA desde las webs de estadísticas. Aquí no van los porcentajes de victoria: la build solo muestra cifras comprobadas con su fuente.")}
+          </p>
+          <div className="analysis-text">
+            <SafeMarkdown>{state.text ?? ""}</SafeMarkdown>
+          </div>
+        </>
+      )}
+    </details>
+  );
+}
