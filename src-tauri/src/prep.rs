@@ -311,7 +311,9 @@ pub fn without_figures(notes: &str) -> String {
         .lines()
         .take_while(|l| {
             let t = l.trim_start_matches(['#', '*', ' ']).to_lowercase();
-            !(t.starts_with("figures") || t.starts_with("cifras"))
+            !["figures", "cifras", "sources", "fuentes"]
+                .iter()
+                .any(|h| t.starts_with(h))
         })
         .filter(|l| {
             let l = l.to_lowercase();
@@ -429,6 +431,10 @@ mod tests {
         assert_eq!(
             without_figures("- Kayn WR 52% (Emerald+)\n- PR: 8%\n- Dodge his W."),
             "- Dodge his W."
+        );
+        assert_eq!(
+            without_figures("- Bait his Q.\n\n### Sources:\n- u.gg"),
+            "- Bait his Q."
         );
     }
 
