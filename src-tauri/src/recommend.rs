@@ -624,7 +624,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
 - In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
-- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each with the core_items item it \"replaces\" (exact name from core_items).\n\
+- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items).\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
