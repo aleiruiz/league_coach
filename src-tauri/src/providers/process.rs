@@ -28,6 +28,10 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 /// notices); the longest silence seen in real builds was about 10 s.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// WebFetch reads and summarizes a whole page before it writes anything, so
+/// runs that may open pages (the tier list) get more room.
+pub const IDLE_TIMEOUT_FETCH: Duration = Duration::from_secs(180);
+
 /// Busca el ejecutable en el PATH (en Windows también encuentra `.cmd`/`.exe`).
 pub fn resolve(binary: &str) -> Option<PathBuf> {
     which::which(binary).ok()

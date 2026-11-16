@@ -383,7 +383,11 @@ pub async fn run_with(
         timeout,
         // Codex prints nothing while it reasons, so only Claude Code (which
         // streams all the time) is stopped for going quiet.
-        idle: matches!(kind, ProviderKind::ClaudeCode).then_some(process::IDLE_TIMEOUT),
+        idle: matches!(kind, ProviderKind::ClaudeCode).then_some(if fetch_hosts.is_empty() {
+            process::IDLE_TIMEOUT
+        } else {
+            process::IDLE_TIMEOUT_FETCH
+        }),
         cancel,
     };
     // Usage and limits go to the usage store, not to the UI.

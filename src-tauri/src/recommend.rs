@@ -1198,10 +1198,13 @@ const ANALYSIS_TIMEOUT: Duration = Duration::from_secs(180);
 const CARD_TIMEOUT: Duration = Duration::from_secs(90);
 /// The fix round resends one short JSON (about 15 s).
 const FIX_TIMEOUT: Duration = Duration::from_secs(60);
-/// Past this point in Get build, a card with flagged names is shown as it
-/// is instead of spending another round on fixing them. A card that can't
-/// be read at all is still fixed.
-const FIX_ROUND_DEADLINE: Duration = Duration::from_secs(120);
+/// Counted from the end of the analysis: a card step that took longer than
+/// this (normal: about 20 s) means the AI is slow right now, so a card with
+/// flagged names is shown as it is instead of spending another round on
+/// fixing them. A card that can't be read at all is still fixed. The
+/// analysis itself doesn't count, so a normal build with a web search never
+/// loses its fix round.
+const FIX_ROUND_DEADLINE: Duration = Duration::from_secs(60);
 
 /// "Opus was busy…": said under the build when another model wrote it.
 fn fallback_note(lang: Lang, (from, to): &(String, String)) -> String {
@@ -1300,7 +1303,6 @@ pub async fn recommend_build(
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
     };
     let lang = data.lang;
-    let started = Instant::now();
     let mut rx = running.register(&request_id);
     // The champion's usual build, if it was searched ahead of time (`prep`):
     // then step 1 doesn't search again.
@@ -1368,7 +1370,9 @@ pub async fn recommend_build(
         Err(e) => match notes_only(prepared.as_ref(), matchup.as_ref()) {
             // Too slow or failed, but the usual build was looked up earlier:
             // the card comes from those notes rather than nothing at all.
-            Some(text) => (
+            Some(text) => {
+                eprintln!("Get build: analysis failed, using the notes looked up earlier: {e}");
+                (
                 Collected {
                     text,
                     ..Collected::default()
@@ -1377,7 +1381,8 @@ pub async fn recommend_build(
                     "The full analysis didn't finish in time, so this build comes from the usual build looked up earlier: it isn't adapted to this draft. Ask again for a tailored one.",
                     "El análisis completo no terminó a tiempo, así que esta build sale de la build habitual buscada antes: no está adaptada a este draft. Pídela de nuevo para una a medida.",
                 ).to_string()),
-            ),
+            )
+            }
             None => {
                 running.finish(&request_id);
                 return Err(e);
@@ -1399,6 +1404,7 @@ pub async fn recommend_build(
     }
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
+    let card_started = Instant::now();
     status(lang.pick("2/2 · Building the card…", "2/2 · Armando la tarjeta…"));
     let card_req = match &analysis.session_id {
         Some(_) => card_prompt(&data, None),
@@ -1468,7 +1474,7 @@ pub async fn recommend_build(
                     .map(|(fix, _)| fix),
             );
             // Late in Get build, flagged names are shown as they are.
-            (!warnings.is_empty() && started.elapsed() < FIX_ROUND_DEADLINE).then(|| {
+            (!warnings.is_empty() && card_started.elapsed() < FIX_ROUND_DEADLINE).then(|| {
                 format!(
                     "There are problems with patch {}: {}. Fix them using only the valid lists.",
                     data.patch,
