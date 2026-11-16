@@ -121,6 +121,9 @@ export type Recommendation = {
   version: string;
   /** There was an automatic correction round. */
   retried: boolean;
+  /** Why it may read differently: another model wrote it (the chosen one was
+   * busy), or it comes from notes looked up earlier (the analysis was slow). */
+  model_note?: string | null;
 };
 
 export function gameData() {

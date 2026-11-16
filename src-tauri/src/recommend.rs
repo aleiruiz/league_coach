@@ -3,6 +3,7 @@
 
 use std::fmt::Write as _;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -364,6 +365,11 @@ pub struct Recommendation {
     /// Hubo una ronda de corrección automática (los avisos que queden son
     /// los que el modelo no supo arreglar).
     pub retried: bool,
+    /// Why this build may read differently: another model wrote it (the
+    /// chosen one was busy), or it comes from the notes looked up earlier
+    /// because the analysis took too long.
+    #[serde(default)]
+    pub model_note: Option<String>,
 }
 
 // ---------- prompt ----------
@@ -1183,8 +1189,27 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 const MAX_NOTES: usize = 300;
 
 /// El análisis busca en la web y razona: se le da más margen que a los pasos
-/// de formato, que solo convierten texto ya escrito.
-const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
+/// de formato, que solo convierten texto ya escrito. A normal one takes
+/// 30-75 s; past three minutes the player is better served by the card built
+/// from the notes looked up earlier (or an error they can retry), since champ
+/// select doesn't wait. A stuck CLI is stopped sooner (`IDLE_TIMEOUT`).
+const ANALYSIS_TIMEOUT: Duration = Duration::from_secs(180);
+/// The card step only rewrites the analysis as JSON (about 20 s).
+const CARD_TIMEOUT: Duration = Duration::from_secs(90);
+/// The fix round resends one short JSON (about 15 s).
+const FIX_TIMEOUT: Duration = Duration::from_secs(60);
+/// Past this point in Get build, a card with flagged names is shown as it
+/// is instead of spending another round on fixing them. A card that can't
+/// be read at all is still fixed.
+const FIX_ROUND_DEADLINE: Duration = Duration::from_secs(120);
+
+/// "Opus was busy…": said under the build when another model wrote it.
+fn fallback_note(lang: Lang, (from, to): &(String, String)) -> String {
+    lang.pick(
+        format!("{from} was busy, so {to} wrote this build to save time."),
+        format!("{from} estaba saturado, así que {to} escribió esta build para ahorrar tiempo."),
+    )
+}
 
 pub(crate) async fn ask(
     app: &AppHandle,
@@ -1275,6 +1300,7 @@ pub async fn recommend_build(
         let _ = on_event.send(ChatEvent::Status { text: t.into() });
     };
     let lang = data.lang;
+    let started = Instant::now();
     let mut rx = running.register(&request_id);
     // The champion's usual build, if it was searched ahead of time (`prep`):
     // then step 1 doesn't search again.
@@ -1291,19 +1317,20 @@ pub async fn recommend_build(
             opponent: Some(o),
             ..base
         });
-    let mut notes = Vec::new();
-    let subjects: Vec<crate::prep::Subject> = [Some(base), lane].into_iter().flatten().collect();
-    for subject in subjects {
-        match crate::prep::for_build(&app, &prep, kind, &data, subject, &mut rx).await {
-            Ok(p) => notes.push(p),
-            Err(e) => {
-                running.finish(&request_id);
-                return Err(e);
-            }
+    // Both at once: each waits at most `prep::MAX_WAIT`.
+    let lane_notes = async {
+        match lane {
+            Some(l) => crate::prep::for_build(&app, &prep, kind, &data, l).await,
+            None => None,
         }
-    }
-    let matchup = notes.get(1).cloned().flatten();
-    let prepared = notes.into_iter().next().flatten();
+    };
+    let (prepared, matchup) = tokio::select! {
+        r = async { tokio::join!(crate::prep::for_build(&app, &prep, kind, &data, base), lane_notes) } => r,
+        _ = &mut rx => {
+            running.finish(&request_id);
+            return Err(providers::stopped_message().to_string());
+        }
+    };
     let prompt = analysis_prompt_with(
         &draft,
         &data,
@@ -1328,12 +1355,34 @@ pub async fn recommend_build(
     // Cada paso registra el siguiente en cuanto termina el anterior, para que
     // un «Detener» pulsado entre medias no se pierda.
     let card_cancel = running.register(&request_id);
-    let analysis = match analysis {
-        Ok(c) => c,
-        Err(e) => {
+    let from_notes = analysis.is_err();
+    let (analysis, mut model_note) = match analysis {
+        Ok(c) => {
+            let note = c.fallback.as_ref().map(|f| fallback_note(lang, f));
+            (c, note)
+        }
+        Err(e) if providers::is_stopped(&e) => {
             running.finish(&request_id);
             return Err(e);
         }
+        Err(e) => match notes_only(prepared.as_ref(), matchup.as_ref()) {
+            // Too slow or failed, but the usual build was looked up earlier:
+            // the card comes from those notes rather than nothing at all.
+            Some(text) => (
+                Collected {
+                    text,
+                    ..Collected::default()
+                },
+                Some(lang.pick(
+                    "The full analysis didn't finish in time, so this build comes from the usual build looked up earlier: it isn't adapted to this draft. Ask again for a tailored one.",
+                    "El análisis completo no terminó a tiempo, así que esta build sale de la build habitual buscada antes: no está adaptada a este draft. Pídela de nuevo para una a medida.",
+                ).to_string()),
+            ),
+            None => {
+                running.finish(&request_id);
+                return Err(e);
+            }
+        },
     };
     // URLs que devolvió la búsqueda en todos los pasos (fuentes válidas para `stats`).
     let mut seen = analysis.sources.clone();
@@ -1341,6 +1390,13 @@ pub async fn recommend_build(
         seen.extend(p.sources.iter().cloned());
     }
     let analysis_text = analysis.text.trim().to_string();
+    if !from_notes {
+        // Readable now: the runes and items are already in it, and the card
+        // still needs about 20 s.
+        let _ = on_event.send(ChatEvent::Analysis {
+            text: analysis_text.clone(),
+        });
+    }
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
     status(lang.pick("2/2 · Building the card…", "2/2 · Armando la tarjeta…"));
@@ -1353,7 +1409,7 @@ pub async fn recommend_build(
         kind,
         &card_req,
         analysis.session_id.as_deref(),
-        providers::DEFAULT_TIMEOUT,
+        CARD_TIMEOUT,
         card_cancel,
         &on_event,
     )
@@ -1362,11 +1418,16 @@ pub async fn recommend_build(
     let mut session_id = analysis.session_id.clone();
     // Si la tarjeta falla pero el análisis existe, se devuelve el análisis en
     // vez de perder minutos de trabajo; solo un «Detener» corta del todo.
-    let fallback = |e: String, session_id: Option<String>, seen: &[String], retried: bool| {
+    let fallback = |e: String,
+                    session_id: Option<String>,
+                    seen: &[String],
+                    retried: bool,
+                    note: Option<String>| {
         if providers::is_stopped(&e) || analysis_text.is_empty() {
             return Err(e);
         }
         let mut rec = assemble(&RawCard::default(), &data, &draft, seen, kind, retried);
+        rec.model_note = note;
         rec.card_error = Some(e);
         rec.warnings.clear();
         rec.incomplete.clear();
@@ -1378,11 +1439,14 @@ pub async fn recommend_build(
         Ok(c) => c,
         Err(e) => {
             running.finish(&request_id);
-            return fallback(e, session_id, &seen, false);
+            return fallback(e, session_id, &seen, false, model_note.clone());
         }
     };
     if first.session_id.is_some() {
         session_id = first.session_id.clone();
+    }
+    if let (None, Some(f)) = (&model_note, &first.fallback) {
+        model_note = Some(fallback_note(lang, f));
     }
     seen.extend(first.sources.iter().cloned());
 
@@ -1403,7 +1467,8 @@ pub async fn recommend_build(
                     .into_iter()
                     .map(|(fix, _)| fix),
             );
-            (!warnings.is_empty()).then(|| {
+            // Late in Get build, flagged names are shown as they are.
+            (!warnings.is_empty() && started.elapsed() < FIX_ROUND_DEADLINE).then(|| {
                 format!(
                     "There are problems with patch {}: {}. Fix them using only the valid lists.",
                     data.patch,
@@ -1427,7 +1492,7 @@ pub async fn recommend_build(
                 kind,
                 &fix_prompt,
                 Some(&sid),
-                providers::DEFAULT_TIMEOUT,
+                FIX_TIMEOUT,
                 retry_cancel,
                 &on_event,
             )
@@ -1449,14 +1514,16 @@ pub async fn recommend_build(
             match (fixed, first_card) {
                 (Ok(f), _) => f,
                 (Err(_), Ok(f)) => f,
-                (Err(e), Err(_)) => return fallback(e, session_id, &seen, true),
+                (Err(e), Err(_)) => {
+                    return fallback(e, session_id, &seen, true, model_note.clone());
+                }
             }
         }
         _ => {
             running.finish(&request_id);
             match first_card {
                 Ok(c) => c,
-                Err(e) => return fallback(e, session_id, &seen, false),
+                Err(e) => return fallback(e, session_id, &seen, false, model_note.clone()),
             }
         }
     };
@@ -1470,7 +1537,21 @@ pub async fn recommend_build(
     let mut rec = assemble(&raw, &data, &draft, &seen, kind, retried);
     rec.analysis = analysis_text.clone();
     rec.session_id = session_id;
+    rec.model_note = model_note;
     Ok(rec)
+}
+
+/// When the analysis fails, the notes looked up earlier stand in for it:
+/// the base build (required: it has the runes and items), plus the matchup.
+fn notes_only(
+    prepared: Option<&crate::prep::Prepared>,
+    matchup: Option<&crate::prep::Prepared>,
+) -> Option<String> {
+    let base = prepared?.notes.trim();
+    Some(match matchup {
+        Some(m) => format!("{base}\n\nMATCHUP:\n{}", m.notes.trim()),
+        None => base.to_string(),
+    })
 }
 
 /// Models often put tier-2 boots among the core items. That isn't worth a
@@ -1575,6 +1656,7 @@ fn assemble(
         patch: data.patch.clone(),
         version: data.version.clone(),
         retried,
+        model_note: None,
     }
 }
 
@@ -1929,6 +2011,20 @@ mod tests {
         assert!(
             card_prompt(&fixtures::data(), None).contains("is the FULL build: 5 completed items")
         );
+    }
+
+    #[test]
+    fn slow_analysis_falls_back_to_the_base_notes_only_with_them() {
+        let p = |n: &str| crate::prep::Prepared {
+            notes: n.into(),
+            sources: vec![],
+            version: "1".into(),
+            at: 0,
+        };
+        assert_eq!(notes_only(None, Some(&p("vs"))), None);
+        assert_eq!(notes_only(Some(&p(" base ")), None).unwrap(), "base");
+        let both = notes_only(Some(&p("base")), Some(&p("vs"))).unwrap();
+        assert!(both.starts_with("base") && both.ends_with("MATCHUP:\nvs"));
     }
 
     #[test]

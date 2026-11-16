@@ -22,6 +22,12 @@ pub fn is_stopped(e: &str) -> bool {
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 
+/// A CLI that writes nothing for this long is stuck (a hung search or
+/// connection): stop it instead of waiting for the full timeout. Claude Code
+/// streams every few seconds while it works (thinking, search results, retry
+/// notices); the longest silence seen in real builds was about 10 s.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// Busca el ejecutable en el PATH (en Windows también encuentra `.cmd`/`.exe`).
 pub fn resolve(binary: &str) -> Option<PathBuf> {
     which::which(binary).ok()
@@ -85,6 +91,9 @@ pub struct StreamOptions<'a> {
     pub workdir: &'a Path,
     pub stdin: &'a str,
     pub timeout: Duration,
+    /// Stop when the CLI writes nothing for this long (`None`: no limit, for
+    /// CLIs that stay silent while they think).
+    pub idle: Option<Duration>,
     pub cancel: Option<oneshot::Receiver<()>>,
 }
 
@@ -134,7 +143,26 @@ pub async fn stream(
         let mut buf = Vec::new();
         loop {
             buf.clear();
-            match reader.read_until(b'\n', &mut buf).await {
+            let read = reader.read_until(b'\n', &mut buf);
+            let read = match opts.idle {
+                Some(idle) => match tokio::time::timeout(idle, read).await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return Err(tr(
+                            format!(
+                                "The model stopped responding for {} s; I stopped the request.",
+                                idle.as_secs()
+                            ),
+                            format!(
+                                "El modelo dejó de responder durante {} s; detuve la consulta.",
+                                idle.as_secs()
+                            ),
+                        ));
+                    }
+                },
+                None => read.await,
+            };
+            match read {
                 Ok(0) => return Ok(saw_error),
                 Ok(_) => {}
                 Err(e) => return Err(e.to_string()),
@@ -230,6 +258,7 @@ mod tests {
             workdir: dir,
             stdin,
             timeout: Duration::from_secs(10),
+            idle: None,
             cancel: None,
         }
     }
@@ -283,6 +312,17 @@ mod tests {
         o.timeout = Duration::from_millis(200);
         let (r, _) = run_sh("sleep 30", o).await;
         assert!(r.unwrap_err().contains("took more than"));
+    }
+
+    #[tokio::test]
+    async fn silence_stops_process_before_the_timeout() {
+        let dir = std::env::temp_dir();
+        let mut o = opts(&dir, "");
+        o.idle = Some(Duration::from_millis(300));
+        // Output every 100 ms keeps it alive; then it goes quiet.
+        let (r, ev) = run_sh("echo a; sleep 0.1; echo b; sleep 0.1; echo c; sleep 30", o).await;
+        assert!(r.unwrap_err().contains("stopped responding"));
+        assert_eq!(ev.len(), 3);
     }
 
     #[tokio::test]

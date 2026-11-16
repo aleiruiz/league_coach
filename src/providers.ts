@@ -22,6 +22,10 @@ export type ChatEvent =
   | { type: "status"; text: string }
   | { type: "error"; message: string }
   | { type: "sources"; urls: string[] }
+  /** The chosen model was busy and another one answered (display names). */
+  | { type: "model_fallback"; from: string; to: string }
+  /** Get build: the free-text analysis, sent before the card is ready. */
+  | { type: "analysis"; text: string }
   | { type: "done" };
 
 export function providerStatuses() {

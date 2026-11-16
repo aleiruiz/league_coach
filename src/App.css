@@ -4492,6 +4492,24 @@ button.ask-close:hover {
 .matchup-details {
   margin-top: 16px;
 }
+/* Shown above the card skeleton while the card is built. */
+.early-analysis {
+  margin-bottom: 12px;
+}
+.early-analysis .analysis-text {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.early-analysis h1,
+.early-analysis h2,
+.early-analysis h3,
+.early-analysis h4 {
+  font-size: 0.95rem;
+  margin: 0.8em 0 0.3em;
+}
+.model-note {
+  margin: 0 0 8px;
+}
 .matchup-details > summary {
   cursor: pointer;
 }
