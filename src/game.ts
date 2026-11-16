@@ -124,6 +124,8 @@ export type Recommendation = {
   /** Why it may read differently: another model wrote it (the chosen one was
    * busy), or it comes from notes looked up earlier (the analysis was slow). */
   model_note?: string | null;
+  /** Built from the earlier notes, not adapted to this draft (a warning). */
+  from_notes?: boolean;
 };
 
 export function gameData() {

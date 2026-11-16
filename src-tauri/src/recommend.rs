@@ -370,6 +370,10 @@ pub struct Recommendation {
     /// because the analysis took too long.
     #[serde(default)]
     pub model_note: Option<String>,
+    /// The card comes from the notes looked up earlier, not from an analysis
+    /// of this draft: `model_note` is then shown as a warning.
+    #[serde(default)]
+    pub from_notes: bool,
 }
 
 // ---------- prompt ----------
@@ -1434,6 +1438,7 @@ pub async fn recommend_build(
         }
         let mut rec = assemble(&RawCard::default(), &data, &draft, seen, kind, retried);
         rec.model_note = note;
+        rec.from_notes = from_notes;
         rec.card_error = Some(e);
         rec.warnings.clear();
         rec.incomplete.clear();
@@ -1544,6 +1549,7 @@ pub async fn recommend_build(
     rec.analysis = analysis_text.clone();
     rec.session_id = session_id;
     rec.model_note = model_note;
+    rec.from_notes = from_notes;
     Ok(rec)
 }
 
@@ -1663,6 +1669,7 @@ fn assemble(
         version: data.version.clone(),
         retried,
         model_note: None,
+        from_notes: false,
     }
 }
 

@@ -742,7 +742,17 @@ function DraftView({
             {error && <p className="error">⚠ {error}</p>}
           </div>
           {busy && early && <EarlyAnalysis text={early} />}
-          {!busy && rec.model_note && <p className="muted small model-note">ⓘ {rec.model_note}</p>}
+          {!busy && rec.model_note &&
+            (rec.from_notes ? (
+              <div className="stale-note" role="status">
+                <span>⚠ {rec.model_note}</span>
+                <button type="button" className="primary" onClick={recommend} disabled={!draft || !kind}>
+                  {t("Get a tailored build", "Pedir una build a medida")}
+                </button>
+              </div>
+            ) : (
+              <p className="muted small model-note">ⓘ {rec.model_note}</p>
+            ))}
           {rec.card_error ? (
             <section className="panel analysis-only">
               <h4 className="panel-title">{t("The AI's analysis", "El análisis de la IA")}</h4>
@@ -809,7 +819,7 @@ function EarlyAnalysis({ text }: { text: string }) {
     <details className="panel early-analysis" open>
       <summary className="panel-title">
         {t("The AI's analysis is ready", "El análisis de la IA está listo")}
-        <span className="muted small"> · {t("the card follows in a few seconds", "la tarjeta llega en unos segundos")}</span>
+        <span className="muted small"> · {t("the card follows in about 20 seconds", "la tarjeta llega en unos 20 segundos")}</span>
       </summary>
       <p className="muted small">
         {t(
