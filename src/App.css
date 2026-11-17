@@ -4520,3 +4520,12 @@ button.ask-close:hover {
   font-size: 0.95rem;
   margin: 0.8em 0 0.3em;
 }
+
+/* what doesn't fit the patch, one line per item, under the build card */
+.patch-problems p {
+  margin: 0 0 4px;
+}
+.patch-problems ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
