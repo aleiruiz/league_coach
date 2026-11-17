@@ -410,7 +410,12 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
               {t(`Open the full ${roleLabel(shownRole)} tier list on ${list.site} ↗`, `Abrir la tier list completa de ${roleLabel(shownRole)} en ${list.site} ↗`)}
             </a>
             <p className="muted small">
-              {list.opened
+              {list.unchecked
+                ? t(
+                    `Codex says it read this from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions), but Codex doesn't show whether the page loaded, so these numbers can't be checked the way Claude's are. Open the page to confirm them. League Coach doesn't compute win rates.`,
+                    `Codex dice que la leyó de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones), pero Codex no muestra si la página cargó, así que estos números no se pueden comprobar como los de Claude. Abre la página para confirmarlos. League Coach no calcula win rates.`,
+                  )
+                : list.opened
                 ? t(
                     `Read by the AI from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions). The AI can misread a page: open it to confirm the numbers. League Coach doesn't compute win rates.`,
                     `Leída por la IA de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones). La IA puede leer mal una página: ábrela para confirmar los números. League Coach no calcula win rates.`,

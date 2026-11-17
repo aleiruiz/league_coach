@@ -101,6 +101,10 @@ pub struct TierList {
     /// Fewer than `MIN_ENTRIES` champions: shown with a "partial list" label.
     #[serde(default)]
     pub partial: bool,
+    /// Kept only because Codex said it opened the page: Codex doesn't report
+    /// whether a page loaded, so the list can't be checked like Claude's.
+    #[serde(default)]
+    pub unchecked: bool,
 }
 
 /// Champion by id or by name in the app's language, ignoring case and signs.
@@ -138,18 +142,21 @@ fn clean_list(
     now: i64,
     min_entries: usize,
 ) -> Result<TierList, String> {
-    clean_list_with(raw, role, data, seen, &[], now, min_entries)
+    clean_list_with(raw, role, data, seen, &[], &[], now, min_entries)
 }
 
 /// Keeps the list only if its page is a known stats site that came up in this
-/// run's search (`seen`) or that the AI opened (`opened`). `Err` says why it
-/// was thrown away.
+/// run's search (`seen`) or that the AI opened (`opened`). A page Codex only
+/// asked to open (`attempted`) keeps it too, marked `unchecked`. `Err` says
+/// why it was thrown away.
+#[allow(clippy::too_many_arguments)]
 pub fn clean_list_with(
     raw: &RawList,
     role: &str,
     data: &GameData,
     seen: &[String],
     opened: &[String],
+    attempted: &[String],
     now: i64,
     min_entries: usize,
 ) -> Result<TierList, String> {
@@ -167,7 +174,8 @@ pub fn clean_list_with(
             .any(|u| recommend::url_key(&u) == key)
     };
     let was_opened = has(opened);
-    if !was_opened && !has(seen) {
+    let checked = was_opened || has(seen);
+    if !checked && !has(attempted) {
         return Err(lang.pick(
             "The page the AI named didn't come up in its web search or among the pages it opened, so its numbers can't be trusted. Try again.".to_string(),
             "La página que nombró la IA no salió en su búsqueda web ni entre las páginas que abrió, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
@@ -218,8 +226,10 @@ pub fn clean_list_with(
         entries,
         dropped,
         fetched_at: now,
-        opened: was_opened,
+        // An attempted open is the AI opening the page, as far as it says.
+        opened: was_opened || !checked,
         partial,
+        unchecked: !checked,
     })
 }
 
@@ -335,9 +345,9 @@ pub async fn fetch_tier_list(
     }
     let data = ddragon::get(&app, &cache).await?;
     let lang = data.lang;
-    // Any AI may look it up: Claude Code reports its search results and the
-    // pages WebFetch opened, Codex the results and pages its web search
-    // opened. The list is kept only if its page is among them (see below).
+    // Any AI may look it up. Claude Code reports its search results and the
+    // pages WebFetch opened; Codex only which page its search asked to open,
+    // so a Codex list is kept but labelled as unchecked (`clean_list_with`).
     let _ = on_event.send(ChatEvent::Status {
         text: lang
             .pick(
@@ -375,6 +385,7 @@ pub async fn fetch_tier_list(
         &data,
         &answer.sources,
         &answer.fetched,
+        &answer.attempted,
         now,
         MIN_ENTRIES,
     )?;
@@ -391,8 +402,12 @@ pub async fn fetch_tier_list(
 /// Whether `new` should be saved over the list already saved for its role.
 fn should_replace(old: Option<&TierList>, new: &TierList) -> bool {
     match old {
-        Some(old) => !(new.partial && !old.partial && old.app_patch == new.app_patch),
-        None => true,
+        Some(old) if old.app_patch == new.app_patch => {
+            // Never trade a full list for a partial one, or a checked list
+            // for one that can't be checked.
+            !(new.partial && !old.partial) && !(new.unchecked && !old.unchecked)
+        }
+        _ => true,
     }
 }
 
@@ -489,13 +504,35 @@ mod tests {
             &fixtures::data(),
             &[],
             &[format!("{URL}/")],
+            &[],
             0,
             1,
         )
         .unwrap();
         assert!(l.opened);
-        let l = clean_list_with(&r, "mid", &fixtures::data(), &[URL.into()], &[], 0, 1).unwrap();
+        assert!(!l.unchecked);
+        let l =
+            clean_list_with(&r, "mid", &fixtures::data(), &[URL.into()], &[], &[], 0, 1).unwrap();
         assert!(!l.opened);
+        assert!(!l.unchecked);
+    }
+
+    #[test]
+    fn a_page_codex_only_tried_to_open_is_kept_as_unchecked() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}]}}"#
+        ));
+        let data = fixtures::data();
+        let l = clean_list_with(&r, "mid", &data, &[], &[], &[URL.into()], 0, 1).unwrap();
+        assert!(l.unchecked);
+        // Another page attempted doesn't vouch for this one.
+        let other = ["https://u.gg/lol/top-lane-tier-list".to_string()];
+        assert!(clean_list_with(&r, "mid", &data, &[], &[], &other, 0, 1).is_err());
+        // An unchecked list never replaces a checked one of the same patch.
+        let checked = clean_list(&r, "mid", &data, &[URL.into()], 0, 1).unwrap();
+        assert!(!should_replace(Some(&checked), &l));
+        assert!(should_replace(Some(&l), &checked));
+        assert!(should_replace(Some(&l), &l));
     }
 
     #[test]

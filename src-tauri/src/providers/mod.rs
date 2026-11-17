@@ -94,10 +94,14 @@ pub enum ChatEvent {
     Sources {
         urls: Vec<String>,
     },
-    /// A page the AI opened: Claude Code's WebFetch with HTTP 200, only in a
-    /// call that allows fetching (`run_with`), or a page Codex's web search
-    /// opened or searched in.
+    /// A page WebFetch opened successfully (HTTP 200), as the tool reported
+    /// it. Only possible in a call that allows fetching (`run_with`).
     Fetched {
+        url: String,
+    },
+    /// A page Codex's web search asked to open or search in. Weaker than
+    /// `Fetched`: Codex reports neither whether it loaded nor what it showed.
+    Attempted {
         url: String,
     },
     /// Tokens of the answer, as the CLI reports them. Recorded in the usage
@@ -306,7 +310,7 @@ pub async fn run(
 
 /// Like `run`, but Claude Code may also open pages with WebFetch on exactly
 /// these hosts (nothing else: other fetches are denied by `dontAsk`). Codex
-/// ignores it: its own web search may open pages in any call.
+/// ignores it.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_with(
     app: &AppHandle,
@@ -463,8 +467,10 @@ pub struct Collected {
     pub error: Option<String>,
     /// URLs de los resultados de búsqueda vistos en esta consulta.
     pub sources: Vec<String>,
-    /// Pages the AI opened in this query (see `ChatEvent::Fetched`).
+    /// Pages WebFetch opened in this query.
     pub fetched: Vec<String>,
+    /// Pages Codex's web search tried to open (see `ChatEvent::Attempted`).
+    pub attempted: Vec<String>,
 }
 
 impl Collected {
@@ -484,6 +490,7 @@ impl Collected {
             ChatEvent::Error { message } => self.error = Some(message.clone()),
             ChatEvent::Sources { urls } => self.sources.extend(urls.iter().cloned()),
             ChatEvent::Fetched { url } => self.fetched.push(url.clone()),
+            ChatEvent::Attempted { url } => self.attempted.push(url.clone()),
             _ => {}
         }
     }

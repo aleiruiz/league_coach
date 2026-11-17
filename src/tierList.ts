@@ -31,6 +31,8 @@ export type TierList = {
   opened?: boolean;
   /** Fewer champions than a full list (older lists: absent). */
   partial?: boolean;
+  /** Codex said it opened the page, but doesn't report whether it loaded: can't be checked. */
+  unchecked?: boolean;
 };
 
 export const savedTierLists = () => invoke<Partial<Record<Role, TierList>>>("saved_tier_lists");

@@ -227,27 +227,27 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
     }
 }
 
-/// What a finished web search showed the model: the result URLs (`results`,
-/// when Codex passes them on) and the page it opened or searched in
-/// (`action.url`). Both count as search sources; an opened page is also
-/// `Fetched`, so a tier list read from it is labelled as read from the page.
+/// What a finished web search reported. `results` (URLs the search tool
+/// returned, which only Codex's standalone search fills in) are `Sources`,
+/// like Claude Code's search results. The page the search asked to open
+/// (`action.url`) is only `Attempted`: Codex doesn't say whether it loaded,
+/// so it never counts as a source of figures.
 fn web_search_events(item: &Value) -> Vec<Parsed> {
     let mut urls = Vec::new();
     collect_urls(&item["results"], &mut urls);
-    let opened = match item["action"]["type"].as_str() {
-        Some("open_page") | Some("find_in_page") => item["action"]["url"]
-            .as_str()
-            .filter(|u| u.starts_with("https://"))
-            .map(String::from),
-        _ => None,
-    };
-    urls.extend(opened.clone());
     let mut out = Vec::new();
     if !urls.is_empty() {
         out.push(Parsed::Event(ChatEvent::Sources { urls }));
     }
-    if let Some(url) = opened {
-        out.push(Parsed::Event(ChatEvent::Fetched { url }));
+    let opens = matches!(
+        item["action"]["type"].as_str(),
+        Some("open_page" | "find_in_page")
+    );
+    if let Some(url) = item["action"]["url"]
+        .as_str()
+        .filter(|u| opens && u.starts_with("https://"))
+    {
+        out.push(Parsed::Event(ChatEvent::Attempted { url: url.into() }));
     }
     out
 }
@@ -534,18 +534,14 @@ mod tests {
     }
 
     #[test]
-    fn web_search_reports_results_and_opened_pages() {
-        let opened = r#"{"type":"item.completed","item":{"id":"w1","type":"web_search","query":"","action":{"type":"open_page","url":"https://www.metasrc.com/lol/tier-list/mid"}}}"#;
+    fn web_search_reports_results_and_attempted_pages() {
+        // Shape of a hosted web search item (`results` is never set there).
+        let opened = r#"{"type":"item.completed","item":{"id":"w1","type":"web_search","query":"https://www.metasrc.com/lol/tier-list/mid","action":{"type":"open_page","url":"https://www.metasrc.com/lol/tier-list/mid"}}}"#;
         assert_eq!(
             parse_line(opened),
-            vec![
-                Parsed::Event(ChatEvent::Sources {
-                    urls: vec!["https://www.metasrc.com/lol/tier-list/mid".into()]
-                }),
-                Parsed::Event(ChatEvent::Fetched {
-                    url: "https://www.metasrc.com/lol/tier-list/mid".into()
-                }),
-            ]
+            vec![Parsed::Event(ChatEvent::Attempted {
+                url: "https://www.metasrc.com/lol/tier-list/mid".into()
+            })]
         );
         let searched = r#"{"type":"item.completed","item":{"id":"w2","type":"web_search","query":"mid tier list","action":{"type":"search","query":"mid tier list"},"results":[{"title":"t","url":"https://u.gg/lol/mid-lane-tier-list"},{"url":"http://plain.example"},{"items":[{"url":"https://lolalytics.com/lol/tierlist/?lane=middle"}]}]}}"#;
         assert_eq!(
