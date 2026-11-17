@@ -169,8 +169,8 @@ pub fn clean_list_with(
     let was_opened = has(opened);
     if !was_opened && !has(seen) {
         return Err(lang.pick(
-            "The page the AI named didn't come up in its web search, so its numbers can't be trusted. Try again.".to_string(),
-            "La página que nombró la IA no salió en su búsqueda web, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
+            "The page the AI named didn't come up in its web search or among the pages it opened, so its numbers can't be trusted. Try again.".to_string(),
+            "La página que nombró la IA no salió en su búsqueda web ni entre las páginas que abrió, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
         ));
     }
     let pct = |v: Option<f64>| v.filter(|x| (0.0..=100.0).contains(x));
@@ -233,7 +233,7 @@ fn role_words(role: &str) -> &'static str {
     }
 }
 
-pub fn prompt(role: &str, data: &GameData) -> String {
+pub fn prompt(role: &str, data: &GameData, kind: ProviderKind) -> String {
     let mut p = String::new();
     let _ = writeln!(
         p,
@@ -244,7 +244,7 @@ pub fn prompt(role: &str, data: &GameData) -> String {
     );
     let _ = writeln!(
         p,
-        "TASK: find this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Search the web for it, then open that tier list page with WebFetch and copy what it shows for up to {max} champions, best first. Opening pages works only on those sites. If the page you open doesn't show the list (some sites only render it in a browser), try the same list on another of these sites; METAsrc and Lolalytics usually work.\n\n\
+        "TASK: find this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Search the web for it, then open that tier list page{how} and copy what it shows for up to {max} champions, best first.{only} If the page you open doesn't show the list (some sites only render it in a browser), try the same list on another of these sites; METAsrc and Lolalytics usually work.\n\n\
 RULES:\n\
 - \"url\" is the exact URL of the page you opened (or, if no page opened, the one from your search results). Any other page is thrown away.\n\
 - Copy only what the page shows: its tier for each champion and, if it shows them, win rate, pick rate and ban rate as numbers (52.3, not \"52.3%\"). null for whatever it doesn't show. Never numbers from memory or from another page.\n\
@@ -253,6 +253,14 @@ RULES:\n\
 - Reply ONLY with a ```json block of this shape:\n\
 {{\"url\": \"https://…\", \"patch\": \"{patch}\", \"rank\": \"Emerald+\", \"champions\": [{{\"champion\": \"Ahri\", \"tier\": \"S\", \"win_rate\": 52.3, \"pick_rate\": 8.1, \"ban_rate\": 4.0}}]}}",
         role = role_words(role),
+        how = match kind {
+            ProviderKind::ClaudeCode => " with WebFetch",
+            _ => "",
+        },
+        only = match kind {
+            ProviderKind::ClaudeCode => " Opening pages works only on those sites.",
+            _ => "",
+        },
         patch = data.patch,
         max = MAX_ENTRIES,
         names = data
@@ -327,13 +335,9 @@ pub async fn fetch_tier_list(
     }
     let data = ddragon::get(&app, &cache).await?;
     let lang = data.lang;
-    if kind != ProviderKind::ClaudeCode {
-        // Only Claude Code shows its search results, which is how a page is checked.
-        return Err(lang.pick(
-            "The tier list needs Claude Code: it's the AI that shows where its numbers come from. Connect it in Settings › Your AI.".to_string(),
-            "La tier list necesita Claude Code: es la IA que muestra de dónde salen sus números. Conéctalo en Ajustes › Tu IA.".to_string(),
-        ));
-    }
+    // Any AI may look it up: Claude Code reports its search results and the
+    // pages WebFetch opened, Codex the results and pages its web search
+    // opened. The list is kept only if its page is among them (see below).
     let _ = on_event.send(ChatEvent::Status {
         text: lang
             .pick(
@@ -346,7 +350,7 @@ pub async fn fetch_tier_list(
     let answer = recommend::ask_with(
         &app,
         kind,
-        &prompt(&role, &data),
+        &prompt(&role, &data, kind),
         None,
         TIMEOUT,
         rx,
@@ -560,7 +564,7 @@ mod tests {
 
     #[test]
     fn prompt_names_the_role_patch_and_valid_names() {
-        let p = prompt("adc", &fixtures::data());
+        let p = prompt("adc", &fixtures::data(), ProviderKind::ClaudeCode);
         assert!(p.contains("ADC"));
         assert!(p.contains("25.22"));
         assert!(p.contains("Ahri, "));
@@ -568,5 +572,13 @@ mod tests {
         assert!(
             p.contains("url of the page you opened") || p.contains("URL of the page you opened")
         );
+    }
+
+    #[test]
+    fn codex_prompt_does_not_name_claude_tools() {
+        let p = prompt("mid", &fixtures::data(), ProviderKind::Codex);
+        assert!(p.contains("mid lane"));
+        assert!(p.contains("open that tier list page and copy"));
+        assert!(!p.contains("WebFetch"));
     }
 }

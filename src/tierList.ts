@@ -27,7 +27,7 @@ export type TierList = {
   entries: TierEntry[];
   dropped: number;
   fetched_at: number;
-  /** Claude opened the page itself (older lists, and fallbacks, only saw search snippets). */
+  /** The AI opened the page itself (older lists, and fallbacks, only saw search snippets). */
   opened?: boolean;
   /** Fewer champions than a full list (older lists: absent). */
   partial?: boolean;

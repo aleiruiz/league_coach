@@ -94,8 +94,9 @@ pub enum ChatEvent {
     Sources {
         urls: Vec<String>,
     },
-    /// A page WebFetch opened successfully (HTTP 200), as the tool reported
-    /// it. Only possible in a call that allows fetching (`run_with`).
+    /// A page the AI opened: Claude Code's WebFetch with HTTP 200, only in a
+    /// call that allows fetching (`run_with`), or a page Codex's web search
+    /// opened or searched in.
     Fetched {
         url: String,
     },
@@ -305,7 +306,7 @@ pub async fn run(
 
 /// Like `run`, but Claude Code may also open pages with WebFetch on exactly
 /// these hosts (nothing else: other fetches are denied by `dontAsk`). Codex
-/// ignores it.
+/// ignores it: its own web search may open pages in any call.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_with(
     app: &AppHandle,
@@ -462,7 +463,7 @@ pub struct Collected {
     pub error: Option<String>,
     /// URLs de los resultados de búsqueda vistos en esta consulta.
     pub sources: Vec<String>,
-    /// Pages WebFetch opened in this query.
+    /// Pages the AI opened in this query (see `ChatEvent::Fetched`).
     pub fetched: Vec<String>,
 }
 
