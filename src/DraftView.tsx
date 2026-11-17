@@ -584,7 +584,7 @@ function DraftView({
   );
 
   return (
-    <section className={`draft${busy && showSheet ? " updating" : ""}`} ref={top} aria-busy={busy}>
+    <section className={`draft${busy && showSheet ? " updating" : ""}`} ref={top}>
       {dataError && (
         <p className="error">
           {t("Couldn't load the patch data:", "No pude cargar los datos del parche:")} {dataError}
@@ -872,7 +872,8 @@ function DraftView({
             ) : (
               <p className="muted small model-note">ⓘ {rec.model_note}</p>
             ))}
-          {!rec.card_error && rec.changes.length > 0 && (
+          {/* A newer "picks changed" box replaces it: the two would read alike. */}
+          {!rec.card_error && rec.changes.length > 0 && !canUpdate && !busy && (
             <section className="panel what-changed" aria-label={t("What changed", "Qué cambió")}>
               <p className="what-changed-title">
                 <strong>{t("Build updated", "Build actualizada")}</strong>
