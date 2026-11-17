@@ -119,7 +119,41 @@ pub fn args(
         // Joined form, like `--resume`; the id was validated (`models::valid_id`).
         a.push(format!("--model={m}"));
     }
+    if let Some(f) = fallback_model(model) {
+        a.push(format!("--fallback-model={f}"));
+    }
     a
+}
+
+/// When the chosen model is overloaded, Claude Code keeps retrying it with
+/// growing waits (up to ten times: minutes, in champ select). With a
+/// fallback it switches to the next model instead. Opus (or the plan's
+/// default, usually Opus) falls back to Sonnet, Fable to Opus; Sonnet has
+/// nothing close enough below it, so it keeps retrying.
+pub fn fallback_model(model: Option<&str>) -> Option<&'static str> {
+    match model.map(str::to_ascii_lowercase) {
+        None => Some("sonnet"),
+        Some(m) if m.contains("opus") => Some("sonnet"),
+        Some(m) if m.contains("fable") => Some("opus"),
+        _ => None,
+    }
+}
+
+/// Short display name of a model id (`claude-opus-5-5` → `Opus`).
+fn family(id: &str) -> String {
+    let l = id.to_ascii_lowercase();
+    ["opus", "sonnet", "haiku", "fable"]
+        .iter()
+        .find(|f| l.contains(*f))
+        .map(|f| {
+            let mut c = f.chars();
+            c.next()
+                .map(|h| h.to_ascii_uppercase())
+                .into_iter()
+                .chain(c)
+                .collect()
+        })
+        .unwrap_or_else(|| id.to_string())
 }
 
 pub fn parse_line(line: &str) -> Vec<Parsed> {
@@ -153,6 +187,36 @@ fn parse_events(line: &str) -> Vec<ChatEvent> {
                 .collect(),
         ),
         Some("rate_limit_event") => limits(&v["rate_limit_info"]),
+        // The API is busy or failed: Claude Code waits and tries again. Say
+        // so, instead of a status that looks frozen.
+        Some("system") if v["subtype"] == "api_retry" => {
+            let n = v["attempt"].as_u64().unwrap_or(1);
+            let max = v["max_retries"].as_u64().unwrap_or(10);
+            let secs = v["retry_delay_ms"].as_u64().unwrap_or(0).div_ceil(1000);
+            vec![ChatEvent::Status {
+                text: tr(
+                    format!(
+                        "Claude is busy right now: trying again in {secs} s (attempt {n} of {max})…"
+                    ),
+                    format!(
+                        "Claude está saturado ahora mismo: reintento en {secs} s (intento {n} de {max})…"
+                    ),
+                ),
+            }]
+        }
+        Some("system") if v["subtype"] == "model_fallback" => {
+            let from = family(v["original_model"].as_str().unwrap_or("the model"));
+            let to = family(v["fallback_model"].as_str().unwrap_or("another model"));
+            vec![
+                ChatEvent::Status {
+                    text: tr(
+                        format!("{from} is busy right now: answering with {to}…"),
+                        format!("{from} está saturado ahora mismo: responde {to}…"),
+                    ),
+                },
+                ChatEvent::ModelFallback { from, to },
+            ]
+        }
         Some("result") => {
             let usage = usage(&v["usage"]);
             let text = v["result"].as_str().unwrap_or_default().to_string();
@@ -390,6 +454,42 @@ mod tests {
     }
 
     #[test]
+    fn busy_api_and_model_fallback_are_reported() {
+        let ev = events(&[
+            r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":4200,"error_status":529,"error":"overloaded"}"#,
+            r#"{"type":"system","subtype":"model_fallback","trigger":"overloaded","original_model":"claude-opus-5-5","fallback_model":"claude-sonnet-5-5","content":"x"}"#,
+        ]);
+        assert_eq!(
+            ev[0],
+            ChatEvent::Status {
+                text: "Claude is busy right now: trying again in 5 s (attempt 2 of 10)…".into()
+            }
+        );
+        assert_eq!(
+            ev[2],
+            ChatEvent::ModelFallback {
+                from: "Opus".into(),
+                to: "Sonnet".into()
+            }
+        );
+        assert!(matches!(&ev[1], ChatEvent::Status { text } if text.contains("Opus is busy")));
+    }
+
+    #[test]
+    fn overloaded_models_fall_back_to_the_next_one_down() {
+        assert_eq!(fallback_model(None), Some("sonnet"));
+        assert_eq!(fallback_model(Some("opus")), Some("sonnet"));
+        assert_eq!(fallback_model(Some("claude-opus-5-5")), Some("sonnet"));
+        assert_eq!(fallback_model(Some("fable")), Some("opus"));
+        assert_eq!(fallback_model(Some("sonnet")), None);
+        let after = |a: &[String], f: &str| a.iter().any(|x| x == f);
+        let a = args(Path::new("coach.md"), None, Some("opus"), &[]);
+        assert!(after(&a, "--fallback-model=sonnet"));
+        let a = args(Path::new("coach.md"), None, Some("sonnet"), &[]);
+        assert!(!a.iter().any(|x| x.starts_with("--fallback-model")));
+    }
+
+    #[test]
     fn args_isolate_user_config() {
         let a = args(Path::new("coach.md"), None, None, &[]);
         for flag in [
@@ -450,7 +550,8 @@ mod tests {
     #[test]
     fn resume_uses_attached_form() {
         let a = args(Path::new("coach.md"), Some("abc-123"), None, &[]);
-        assert_eq!(a.last().unwrap(), "--resume=abc-123");
+        assert!(a.iter().any(|x| x == "--resume=abc-123"));
+        assert!(!a.iter().any(|x| x == "--resume" || x == "--model"));
         let a = args(Path::new("coach.md"), None, Some("sonnet"), &[]);
         assert_eq!(a.last().unwrap(), "--model=sonnet");
     }

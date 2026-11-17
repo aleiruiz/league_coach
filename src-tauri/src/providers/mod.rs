@@ -118,6 +118,17 @@ pub enum ChatEvent {
     Limits {
         windows: Vec<crate::usage::LimitWindow>,
     },
+    /// The chosen model was overloaded and the CLI answered with another
+    /// one (Claude Code's `--fallback-model`). Display names: "Opus".
+    ModelFallback {
+        from: String,
+        to: String,
+    },
+    /// The build's free-text analysis (step 1), sent as soon as it is done
+    /// so the player can read the runes and items while the card is built.
+    Analysis {
+        text: String,
+    },
     Done,
 }
 
@@ -375,6 +386,13 @@ pub async fn run_with(
         workdir: &workdir,
         stdin: &stdin,
         timeout,
+        // Codex prints nothing while it reasons, so only Claude Code (which
+        // streams all the time) is stopped for going quiet.
+        idle: matches!(kind, ProviderKind::ClaudeCode).then_some(if fetch_hosts.is_empty() {
+            process::IDLE_TIMEOUT
+        } else {
+            process::IDLE_TIMEOUT_FETCH
+        }),
         cancel,
     };
     // Usage and limits go to the usage store, not to the UI.
@@ -471,6 +489,8 @@ pub struct Collected {
     pub fetched: Vec<String>,
     /// Pages Codex's web search tried to open (see `ChatEvent::Attempted`).
     pub attempted: Vec<String>,
+    /// The model that answered instead of the chosen one, if it was busy.
+    pub fallback: Option<(String, String)>,
 }
 
 impl Collected {
@@ -491,6 +511,9 @@ impl Collected {
             ChatEvent::Sources { urls } => self.sources.extend(urls.iter().cloned()),
             ChatEvent::Fetched { url } => self.fetched.push(url.clone()),
             ChatEvent::Attempted { url } => self.attempted.push(url.clone()),
+            ChatEvent::ModelFallback { from, to } => {
+                self.fallback = Some((from.clone(), to.clone()))
+            }
             _ => {}
         }
     }

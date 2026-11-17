@@ -287,6 +287,8 @@ function DraftView({
   const [syncing, setSyncing] = useState(false);
   const [liveNote, setLiveNote] = useState<{ text: string; error: boolean } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  /** The analysis, shown while the card is still being built. */
+  const [early, setEarly] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rec, setRec] = useState<Result | null>(null);
   /** "Anything specific?": sent with the build as the player's notes. */
@@ -463,11 +465,13 @@ function DraftView({
     setBusy(true);
     setError(null);
     setRec(null);
+    setEarly(null);
     setStatus(t("Preparing the build…", "Preparando la build…"));
     try {
       const asked = question.trim().slice(0, MAX_QUESTION) || null;
       const r = await recommendBuild(usedKind, { ...draft, notes: asked }, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
+        else if (ev.type === "analysis") setEarly(ev.text);
       });
       setRec({ ...r, kind: usedKind, draft: { ...draft, notes: asked }, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
       setEditing(false);
@@ -477,6 +481,7 @@ function DraftView({
       requestId.current = null;
       setBusy(false);
       setStatus(null);
+      setEarly(null);
     }
   }
 
@@ -659,7 +664,10 @@ function DraftView({
               </section>
               <div aria-live="polite">{error && <p className="error">⚠ {error}</p>}</div>
               {busy && !rec ? (
-                <BuildCardSkeleton />
+                <>
+                  {early && <EarlyAnalysis text={early} />}
+                  <BuildCardSkeleton />
+                </>
               ) : picking ? (
                 <ChampionPicker
                   inline
@@ -733,6 +741,18 @@ function DraftView({
             {busy && status && <p className="muted small">{status}</p>}
             {error && <p className="error">⚠ {error}</p>}
           </div>
+          {busy && early && <EarlyAnalysis text={early} />}
+          {!busy && rec.model_note &&
+            (rec.from_notes ? (
+              <div className="stale-note" role="status">
+                <span>⚠ {rec.model_note}</span>
+                <button type="button" className="primary" onClick={recommend} disabled={!draft || !kind}>
+                  {t("Get a tailored build", "Pedir una build a medida")}
+                </button>
+              </div>
+            ) : (
+              <p className="muted small model-note">ⓘ {rec.model_note}</p>
+            ))}
           {rec.card_error ? (
             <section className="panel analysis-only">
               <h4 className="panel-title">{t("The AI's analysis", "El análisis de la IA")}</h4>
@@ -791,6 +811,28 @@ function DraftView({
 }
 
 export default DraftView;
+
+/** Step 1's analysis while step 2 turns it into the card: the runes and
+ * items are already in it, so the player can start setting them up. */
+function EarlyAnalysis({ text }: { text: string }) {
+  return (
+    <details className="panel early-analysis" open>
+      <summary className="panel-title">
+        {t("The AI's analysis is ready", "El análisis de la IA está listo")}
+        <span className="muted small"> · {t("the card follows in about 20 seconds", "la tarjeta llega en unos 20 segundos")}</span>
+      </summary>
+      <p className="muted small">
+        {t(
+          "You can start setting up runes and items from it. The card checks every name against this patch.",
+          "Puedes empezar a preparar runas e ítems con esto. La tarjeta comprueba cada nombre con este parche.",
+        )}
+      </p>
+      <div className="analysis-text">
+        <SafeMarkdown>{text}</SafeMarkdown>
+      </div>
+    </details>
+  );
+}
 
 /** The lane matchup, looked up in the background (src-tauri/src/prep.rs). */
 function MatchupDetails({ vs, state }: { vs: string; state: { text: string | null; failed: boolean } | null }) {

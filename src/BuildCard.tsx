@@ -662,21 +662,36 @@ function BuildCard({
       )}
 
       {(warnings.length > 0 || incomplete.length > 0) && (
-        <p className="error small">
-          {retried
-            ? t("I asked the AI to fix it and it didn't fully manage. ", "Le pedí a la IA que lo corrigiera y no lo logró del todo. ")
-            : ""}
+        <div className="error small patch-problems">
           {warnings.length > 0 && (
             <>
-              {t("What's marked in red isn't valid on this patch:", "Lo marcado en rojo no es válido en este parche:")} {warnings.join(". ")}.{" "}
+              <p>
+                {retried
+                  ? t(
+                      `The AI was asked to fix these and couldn't. They don't fit patch ${patch} and are in red on the card:`,
+                      `Se le pidió a la IA que los corrigiera y no pudo. No encajan en el parche ${patch} y están en rojo en la tarjeta:`,
+                    )
+                  : t(
+                      `These don't fit patch ${patch} and are in red on the card:`,
+                      `Esto no encaja en el parche ${patch} y está en rojo en la tarjeta:`,
+                    )}
+              </p>
+              <ul>
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
             </>
           )}
           {incomplete.length > 0 && (
-            <>
+            <p>
+              {retried && warnings.length === 0
+                ? t("The AI was asked to fix this and couldn't. ", "Se le pidió a la IA que lo corrigiera y no pudo. ")
+                : ""}
               {t("The build is incomplete:", "La build quedó incompleta:")} {missingText(incomplete)}.
-            </>
+            </p>
           )}
-        </p>
+        </div>
       )}
 
       <footer className="sheet-foot">

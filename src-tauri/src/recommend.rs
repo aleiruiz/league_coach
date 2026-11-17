@@ -3,6 +3,7 @@
 
 use std::fmt::Write as _;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -364,6 +365,15 @@ pub struct Recommendation {
     /// Hubo una ronda de corrección automática (los avisos que queden son
     /// los que el modelo no supo arreglar).
     pub retried: bool,
+    /// Why this build may read differently: another model wrote it (the
+    /// chosen one was busy), or it comes from the notes looked up earlier
+    /// because the analysis took too long.
+    #[serde(default)]
+    pub model_note: Option<String>,
+    /// The card comes from the notes looked up earlier, not from an analysis
+    /// of this draft: `model_note` is then shown as a warning.
+    #[serde(default)]
+    pub from_notes: bool,
 }
 
 // ---------- prompt ----------
@@ -603,7 +613,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
 - STARTERS (only for starting_items): {}\n\
 - JUNGLE COMPANION (required in starting_items if you play jungle, and only then): {}\n\
 - SUPPORT STARTER (required in starting_items if you play support, and only then): {}\n\
-- BOOTS (only for boots, never in core_items): {}\n\
+- BOOTS (for boots, or a situational option that replaces the boots; never in core_items): {}\n\
 - COMPLETED (for core_items and situational): {}",
         data.patch,
         names(&|i| i.starter && !i.support && !i.jungle),
@@ -648,7 +658,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
 - In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD or MATCHUP NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
-- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items).\n\
+- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items). Other boots can be an option too: then \"replaces\" is the boots.\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
@@ -791,9 +801,33 @@ pub fn missing(raw: &RawCard, draft: &Draft, lang: Lang) -> Vec<(String, &'stati
 /// Checks every name against the patch. Warnings are in `lang`: English for
 /// the model's correction round, the app language for the player.
 pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (Card, Vec<String>) {
+    check_card(raw, data, draft, lang, false)
+}
+
+/// The same checks, worded for the correction round: English, with a hint
+/// at which list in the prompt to use. The player never sees these.
+fn validate_for_model(raw: &RawCard, data: &GameData, draft: &Draft) -> Vec<String> {
+    check_card(raw, data, draft, Lang::En, true).1
+}
+
+fn check_card(
+    raw: &RawCard,
+    data: &GameData,
+    draft: &Draft,
+    lang: Lang,
+    for_model: bool,
+) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
     let patch = &data.patch;
     let say = |en: String, es: String| lang.pick(en, es);
+    // Prompt wording (list names, JSON fields) only goes to the model.
+    let hint = |h: &str| {
+        if for_model {
+            format!("; {h}")
+        } else {
+            String::new()
+        }
+    };
 
     // ítems: existen y, para core/situacionales/botas, son del tipo correcto
     #[derive(Clone, Copy, PartialEq)]
@@ -801,40 +835,83 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         Start,
         Core,
         Boots,
+        /// A situational option: any completed item, boots included (other
+        /// boots swap for the build's boots).
+        Option,
     }
+    // Where the item is on the card, so the warning points at it.
+    let place = |slot: Slot| match slot {
+        Slot::Start => say("Starting items".into(), "Ítems iniciales".into()),
+        Slot::Core => say("Full build".into(), "Build completa".into()),
+        Slot::Boots => say("Boots".into(), "Botas".into()),
+        Slot::Option => say("Options".into(), "Opciones".into()),
+    };
     let mut item = |name: &str, slot: Slot| {
         let found = data.item_by_name(name);
         let mut valid = found.is_some();
         match found {
             None if !name.trim().is_empty() => warnings.push(say(
-                format!("Item \"{name}\" doesn't exist on patch {patch}"),
-                format!("Ítem \"{name}\" no existe en el parche {patch}"),
+                format!("{}: \"{name}\" doesn't exist on patch {patch}", place(slot)),
+                format!("{}: \"{name}\" no existe en el parche {patch}", place(slot)),
             )),
-            Some(i) if slot == Slot::Core && (!i.completed || is_boots(i)) => {
+            Some(i) if slot == Slot::Core && is_boots(i) => {
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "\"{}\" isn't a completed item; use one from the COMPLETED list",
+                        "{}: \"{}\" are boots, they go in their own slot{}",
+                        place(slot),
+                        i.name,
+                        hint("put them in \"boots\", not in core_items")
+                    ),
+                    format!(
+                        "{}: \"{}\" son botas, van en su propia casilla",
+                        place(slot),
                         i.name
                     ),
-                    format!("\"{}\" no es un ítem completo", i.name),
+                ));
+            }
+            Some(i) if matches!(slot, Slot::Core | Slot::Option) && !i.completed => {
+                valid = false;
+                warnings.push(say(
+                    format!(
+                        "{}: \"{}\" is a component, not a finished item{}",
+                        place(slot),
+                        i.name,
+                        hint("use one from the COMPLETED list")
+                    ),
+                    format!(
+                        "{}: \"{}\" es un componente, no un ítem terminado",
+                        place(slot),
+                        i.name
+                    ),
                 ));
             }
             Some(i) if slot == Slot::Start && !i.starter && !i.completed => {
                 valid = false;
                 warnings.push(say(
-                    format!("\"{}\" is a component, not a starting item; use one from the STARTERS list", i.name),
-                    format!("\"{}\" es un componente, no un ítem inicial", i.name),
+                    format!(
+                        "{}: \"{}\" is a component, not a starting item{}",
+                        place(slot),
+                        i.name,
+                        hint("use one from the STARTERS list")
+                    ),
+                    format!(
+                        "{}: \"{}\" es un componente, no un ítem inicial",
+                        place(slot),
+                        i.name
+                    ),
                 ));
             }
             Some(i) if slot == Slot::Start && i.completed => {
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "\"{}\" isn't a starting item; use one from the STARTERS list",
-                        i.name
+                        "{}: \"{}\" isn't a starting item{}",
+                        place(slot),
+                        i.name,
+                        hint("use one from the STARTERS list")
                     ),
-                    format!("\"{}\" no es un ítem inicial", i.name),
+                    format!("{}: \"{}\" no es un ítem inicial", place(slot), i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && i.support && draft.role != "support" => {
@@ -866,8 +943,8 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
                 valid = false;
                 warnings.push(say(
-                    format!("\"{}\" aren't boots", i.name),
-                    format!("\"{}\" no son botas", i.name),
+                    format!("{}: \"{}\" aren't boots", place(slot), i.name),
+                    format!("{}: \"{}\" no son botas", place(slot), i.name),
                 ));
             }
             _ => {}
@@ -898,17 +975,21 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         // "Swap in X" when X is already in the build reads as a mistake.
         .filter(|s| !in_build(&s.item))
         .map(|s| Situational {
-            item: item(&s.item, Slot::Core),
+            item: item(&s.item, Slot::Option),
             when: s.when.clone(),
-            // Only an item the player is actually building.
-            replaces: data
-                .item_by_name(&s.replaces)
-                .filter(|i| in_build(&i.name))
-                .map(|i| Ref {
-                    name: i.name.clone(),
-                    image: Some(i.image.clone()),
-                    valid: true,
-                }),
+            // Only an item the player is actually building. Other boots
+            // always swap for the build's boots, whatever the model said.
+            replaces: if data.item_by_name(&s.item).is_some_and(is_boots) {
+                data.item_by_name(&raw.boots)
+            } else {
+                data.item_by_name(&s.replaces)
+            }
+            .filter(|i| in_build(&i.name))
+            .map(|i| Ref {
+                name: i.name.clone(),
+                image: Some(i.image.clone()),
+                valid: true,
+            }),
         })
         .collect();
 
@@ -1183,8 +1264,30 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
 const MAX_NOTES: usize = 300;
 
 /// El análisis busca en la web y razona: se le da más margen que a los pasos
-/// de formato, que solo convierten texto ya escrito.
-const ANALYSIS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(360);
+/// de formato, que solo convierten texto ya escrito. A normal one takes
+/// 30-75 s; past three minutes the player is better served by the card built
+/// from the notes looked up earlier (or an error they can retry), since champ
+/// select doesn't wait. A stuck CLI is stopped sooner (`IDLE_TIMEOUT`).
+const ANALYSIS_TIMEOUT: Duration = Duration::from_secs(180);
+/// The card step only rewrites the analysis as JSON (about 20 s).
+const CARD_TIMEOUT: Duration = Duration::from_secs(90);
+/// The fix round resends one short JSON (about 15 s).
+const FIX_TIMEOUT: Duration = Duration::from_secs(60);
+/// Counted from the end of the analysis: a card step that took longer than
+/// this (normal: about 20 s) means the AI is slow right now, so a card with
+/// flagged names is shown as it is instead of spending another round on
+/// fixing them. A card that can't be read at all is still fixed. The
+/// analysis itself doesn't count, so a normal build with a web search never
+/// loses its fix round.
+const FIX_ROUND_DEADLINE: Duration = Duration::from_secs(60);
+
+/// "Opus was busy…": said under the build when another model wrote it.
+fn fallback_note(lang: Lang, (from, to): &(String, String)) -> String {
+    lang.pick(
+        format!("{from} was busy, so {to} wrote this build to save time."),
+        format!("{from} estaba saturado, así que {to} escribió esta build para ahorrar tiempo."),
+    )
+}
 
 pub(crate) async fn ask(
     app: &AppHandle,
@@ -1291,19 +1394,20 @@ pub async fn recommend_build(
             opponent: Some(o),
             ..base
         });
-    let mut notes = Vec::new();
-    let subjects: Vec<crate::prep::Subject> = [Some(base), lane].into_iter().flatten().collect();
-    for subject in subjects {
-        match crate::prep::for_build(&app, &prep, kind, &data, subject, &mut rx).await {
-            Ok(p) => notes.push(p),
-            Err(e) => {
-                running.finish(&request_id);
-                return Err(e);
-            }
+    // Both at once: each waits at most `prep::MAX_WAIT`.
+    let lane_notes = async {
+        match lane {
+            Some(l) => crate::prep::for_build(&app, &prep, kind, &data, l).await,
+            None => None,
         }
-    }
-    let matchup = notes.get(1).cloned().flatten();
-    let prepared = notes.into_iter().next().flatten();
+    };
+    let (prepared, matchup) = tokio::select! {
+        r = async { tokio::join!(crate::prep::for_build(&app, &prep, kind, &data, base), lane_notes) } => r,
+        _ = &mut rx => {
+            running.finish(&request_id);
+            return Err(providers::stopped_message().to_string());
+        }
+    };
     let prompt = analysis_prompt_with(
         &draft,
         &data,
@@ -1328,12 +1432,37 @@ pub async fn recommend_build(
     // Cada paso registra el siguiente en cuanto termina el anterior, para que
     // un «Detener» pulsado entre medias no se pierda.
     let card_cancel = running.register(&request_id);
-    let analysis = match analysis {
-        Ok(c) => c,
-        Err(e) => {
+    let from_notes = analysis.is_err();
+    let (analysis, mut model_note) = match analysis {
+        Ok(c) => {
+            let note = c.fallback.as_ref().map(|f| fallback_note(lang, f));
+            (c, note)
+        }
+        Err(e) if providers::is_stopped(&e) => {
             running.finish(&request_id);
             return Err(e);
         }
+        Err(e) => match notes_only(prepared.as_ref(), matchup.as_ref()) {
+            // Too slow or failed, but the usual build was looked up earlier:
+            // the card comes from those notes rather than nothing at all.
+            Some(text) => {
+                eprintln!("Get build: analysis failed, using the notes looked up earlier: {e}");
+                (
+                Collected {
+                    text,
+                    ..Collected::default()
+                },
+                Some(lang.pick(
+                    "The full analysis didn't finish in time, so this build comes from the usual build looked up earlier: it isn't adapted to this draft. Ask again for a tailored one.",
+                    "El análisis completo no terminó a tiempo, así que esta build sale de la build habitual buscada antes: no está adaptada a este draft. Pídela de nuevo para una a medida.",
+                ).to_string()),
+            )
+            }
+            None => {
+                running.finish(&request_id);
+                return Err(e);
+            }
+        },
     };
     // URLs que devolvió la búsqueda en todos los pasos (fuentes válidas para `stats`).
     let mut seen = analysis.sources.clone();
@@ -1341,8 +1470,16 @@ pub async fn recommend_build(
         seen.extend(p.sources.iter().cloned());
     }
     let analysis_text = analysis.text.trim().to_string();
+    if !from_notes {
+        // Readable now: the runes and items are already in it, and the card
+        // still needs about 20 s.
+        let _ = on_event.send(ChatEvent::Analysis {
+            text: analysis_text.clone(),
+        });
+    }
 
     // Paso 2: pasar ese análisis a la tarjeta, en la misma sesión si la hay.
+    let card_started = Instant::now();
     status(lang.pick("2/2 · Building the card…", "2/2 · Armando la tarjeta…"));
     let card_req = match &analysis.session_id {
         Some(_) => card_prompt(&data, None),
@@ -1353,7 +1490,7 @@ pub async fn recommend_build(
         kind,
         &card_req,
         analysis.session_id.as_deref(),
-        providers::DEFAULT_TIMEOUT,
+        CARD_TIMEOUT,
         card_cancel,
         &on_event,
     )
@@ -1362,11 +1499,17 @@ pub async fn recommend_build(
     let mut session_id = analysis.session_id.clone();
     // Si la tarjeta falla pero el análisis existe, se devuelve el análisis en
     // vez de perder minutos de trabajo; solo un «Detener» corta del todo.
-    let fallback = |e: String, session_id: Option<String>, seen: &[String], retried: bool| {
+    let fallback = |e: String,
+                    session_id: Option<String>,
+                    seen: &[String],
+                    retried: bool,
+                    note: Option<String>| {
         if providers::is_stopped(&e) || analysis_text.is_empty() {
             return Err(e);
         }
         let mut rec = assemble(&RawCard::default(), &data, &draft, seen, kind, retried);
+        rec.model_note = note;
+        rec.from_notes = from_notes;
         rec.card_error = Some(e);
         rec.warnings.clear();
         rec.incomplete.clear();
@@ -1378,11 +1521,14 @@ pub async fn recommend_build(
         Ok(c) => c,
         Err(e) => {
             running.finish(&request_id);
-            return fallback(e, session_id, &seen, false);
+            return fallback(e, session_id, &seen, false, model_note.clone());
         }
     };
     if first.session_id.is_some() {
         session_id = first.session_id.clone();
+    }
+    if let (None, Some(f)) = (&model_note, &first.fallback) {
+        model_note = Some(fallback_note(lang, f));
     }
     seen.extend(first.sources.iter().cloned());
 
@@ -1397,13 +1543,14 @@ pub async fn recommend_build(
     let retry_reason = match &first_card {
         Ok(raw) => {
             // The correction round talks to the model: always in English.
-            let (_, mut warnings) = validate(raw, &data, &draft, Lang::En);
+            let mut warnings = validate_for_model(raw, &data, &draft);
             warnings.extend(
                 missing(raw, &draft, Lang::En)
                     .into_iter()
                     .map(|(fix, _)| fix),
             );
-            (!warnings.is_empty()).then(|| {
+            // Late in Get build, flagged names are shown as they are.
+            (!warnings.is_empty() && card_started.elapsed() < FIX_ROUND_DEADLINE).then(|| {
                 format!(
                     "There are problems with patch {}: {}. Fix them using only the valid lists.",
                     data.patch,
@@ -1427,7 +1574,7 @@ pub async fn recommend_build(
                 kind,
                 &fix_prompt,
                 Some(&sid),
-                providers::DEFAULT_TIMEOUT,
+                FIX_TIMEOUT,
                 retry_cancel,
                 &on_event,
             )
@@ -1449,20 +1596,25 @@ pub async fn recommend_build(
             match (fixed, first_card) {
                 (Ok(f), _) => f,
                 (Err(_), Ok(f)) => f,
-                (Err(e), Err(_)) => return fallback(e, session_id, &seen, true),
+                (Err(e), Err(_)) => {
+                    return fallback(e, session_id, &seen, true, model_note.clone());
+                }
             }
         }
         _ => {
             running.finish(&request_id);
             match first_card {
                 Ok(c) => c,
-                Err(e) => return fallback(e, session_id, &seen, false),
+                Err(e) => return fallback(e, session_id, &seen, false, model_note.clone()),
             }
         }
     };
 
     let mut raw = raw;
     move_boots_out_of_core(&mut raw, &data);
+    // The fix round's card gets the same cleanup as the first one: a bad
+    // option is dropped instead of shown as an error.
+    drop_bad_situational(&mut raw, &data);
     if raw.starting_items.is_empty() {
         // Last resort: the starters the analysis itself named.
         raw.starting_items = starters_in(&analysis_text, &data, &draft);
@@ -1470,7 +1622,22 @@ pub async fn recommend_build(
     let mut rec = assemble(&raw, &data, &draft, &seen, kind, retried);
     rec.analysis = analysis_text.clone();
     rec.session_id = session_id;
+    rec.model_note = model_note;
+    rec.from_notes = from_notes;
     Ok(rec)
+}
+
+/// When the analysis fails, the notes looked up earlier stand in for it:
+/// the base build (required: it has the runes and items), plus the matchup.
+fn notes_only(
+    prepared: Option<&crate::prep::Prepared>,
+    matchup: Option<&crate::prep::Prepared>,
+) -> Option<String> {
+    let base = prepared?.notes.trim();
+    Some(match matchup {
+        Some(m) => format!("{base}\n\nMATCHUP:\n{}", m.notes.trim()),
+        None => base.to_string(),
+    })
 }
 
 /// Models often put tier-2 boots among the core items. That isn't worth a
@@ -1534,11 +1701,13 @@ fn starters_in(analysis: &str, data: &GameData, draft: &Draft) -> Vec<String> {
 }
 
 /// Removes situational items that aren't completed items of this patch
-/// (unknown names, components, boots).
+/// (unknown names, components). Finished boots stay as an option when the
+/// build has boots to swap them for (Mercury's Treads vs a magic-damage team).
 pub fn drop_bad_situational(raw: &mut RawCard, data: &GameData) {
+    let has_boots = data.item_by_name(&raw.boots).is_some_and(is_boots);
     raw.situational.retain(|s| {
         data.item_by_name(&s.item)
-            .is_some_and(|i| i.completed && !is_boots(i))
+            .is_some_and(|i| i.completed && (has_boots || !is_boots(i)))
     });
 }
 
@@ -1575,6 +1744,8 @@ fn assemble(
         patch: data.patch.clone(),
         version: data.version.clone(),
         retried,
+        model_note: None,
+        from_notes: false,
     }
 }
 
@@ -1681,7 +1852,7 @@ mod tests {
         assert!(p.contains(
             "required in starting_items if you play support, and only then): Mapamundi\n"
         ));
-        assert!(p.contains("- BOOTS (only for boots, never in core_items): Botas de Mercurio\n"));
+        assert!(p.contains("- BOOTS (for boots, or a situational option that replaces the boots; never in core_items): Botas de Mercurio\n"));
         // Los componentes no se ofrecen.
         assert!(!p.contains("Llamado del Verdugo"));
         assert!(p.contains("Turn YOUR previous analysis"));
@@ -1932,6 +2103,20 @@ mod tests {
     }
 
     #[test]
+    fn slow_analysis_falls_back_to_the_base_notes_only_with_them() {
+        let p = |n: &str| crate::prep::Prepared {
+            notes: n.into(),
+            sources: vec![],
+            version: "1".into(),
+            at: 0,
+        };
+        assert_eq!(notes_only(None, Some(&p("vs"))), None);
+        assert_eq!(notes_only(Some(&p(" base ")), None).unwrap(), "base");
+        let both = notes_only(Some(&p("base")), Some(&p("vs"))).unwrap();
+        assert!(both.starts_with("base") && both.ends_with("MATCHUP:\nvs"));
+    }
+
+    #[test]
     fn bad_situational_items_are_dropped_and_good_ones_kept() {
         let mut raw = parse_card(&GOOD.replace(
             r#""situational":[]"#,
@@ -1939,11 +2124,60 @@ mod tests {
                 {"item":"Botas de Mercurio","when":"c"},{"item":"Filo Pirata","when":"d"}]"#,
         ))
         .unwrap();
+        // No boots in the build: there's nothing for boots to swap with.
+        raw.boots.clear();
         drop_bad_situational(&mut raw, &fixtures::data());
         let kept: Vec<&str> = raw.situational.iter().map(|s| s.item.as_str()).collect();
         assert_eq!(kept, ["Fuerza de Trinidad"]);
+        raw.boots = "Botas de Mercurio".into();
         let (_, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn finished_boots_are_a_valid_option_that_swaps_the_boots() {
+        // Mercury's Treads as an option was flagged "not a complete item".
+        let mut raw = parse_card(
+            &GOOD.replace(r#""boots":"Botas de Mercurio""#, r#""boots":"Botas""#).replace(
+                r#""situational":[]"#,
+                r#""situational":[{"item":"Botas de Mercurio","replaces":"fuerza de trinidad","when":"AP"}]"#,
+            ),
+        )
+        .unwrap();
+        drop_bad_situational(&mut raw, &fixtures::data());
+        assert_eq!(raw.situational.len(), 1);
+        let (card, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let opt = &card.situational[0];
+        assert!(opt.item.valid);
+        assert_eq!(
+            opt.replaces.as_ref().unwrap().name,
+            "Botas",
+            "boots replace boots"
+        );
+        // And it isn't a reason for a correction round.
+        assert!(validate_for_model(&raw, &fixtures::data(), &draft()).is_empty());
+    }
+
+    #[test]
+    fn warnings_say_where_the_item_is() {
+        let (_, warnings) =
+            check(&GOOD.replace(r#"["fuerza de trinidad"]"#, r#"["Llamado del Verdugo"]"#));
+        assert_eq!(
+            warnings,
+            ["Build completa: \"Llamado del Verdugo\" es un componente, no un ítem terminado"]
+        );
+        // Players in English don't see prompt wording; the model does.
+        let raw =
+            parse_card(&GOOD.replace(r#"["fuerza de trinidad"]"#, r#"["Llamado del Verdugo"]"#))
+                .unwrap();
+        let (_, en) = validate(&raw, &fixtures::data(), &draft(), Lang::En);
+        assert_eq!(
+            en,
+            ["Full build: \"Llamado del Verdugo\" is a component, not a finished item"]
+        );
+        let model = validate_for_model(&raw, &fixtures::data(), &draft());
+        assert!(model[0].ends_with("; use one from the COMPLETED list"));
     }
 
     #[test]
