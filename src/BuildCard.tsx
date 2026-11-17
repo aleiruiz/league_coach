@@ -685,6 +685,9 @@ function BuildCard({
           )}
           {incomplete.length > 0 && (
             <p>
+              {retried && warnings.length === 0
+                ? t("The AI was asked to fix this and couldn't. ", "Se le pidió a la IA que lo corrigiera y no pudo. ")
+                : ""}
               {t("The build is incomplete:", "La build quedó incompleta:")} {missingText(incomplete)}.
             </p>
           )}

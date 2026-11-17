@@ -801,9 +801,33 @@ pub fn missing(raw: &RawCard, draft: &Draft, lang: Lang) -> Vec<(String, &'stati
 /// Checks every name against the patch. Warnings are in `lang`: English for
 /// the model's correction round, the app language for the player.
 pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (Card, Vec<String>) {
+    check_card(raw, data, draft, lang, false)
+}
+
+/// The same checks, worded for the correction round: English, with a hint
+/// at which list in the prompt to use. The player never sees these.
+fn validate_for_model(raw: &RawCard, data: &GameData, draft: &Draft) -> Vec<String> {
+    check_card(raw, data, draft, Lang::En, true).1
+}
+
+fn check_card(
+    raw: &RawCard,
+    data: &GameData,
+    draft: &Draft,
+    lang: Lang,
+    for_model: bool,
+) -> (Card, Vec<String>) {
     let mut warnings = Vec::new();
     let patch = &data.patch;
     let say = |en: String, es: String| lang.pick(en, es);
+    // Prompt wording (list names, JSON fields) only goes to the model.
+    let hint = |h: &str| {
+        if for_model {
+            format!("; {h}")
+        } else {
+            String::new()
+        }
+    };
 
     // ítems: existen y, para core/situacionales/botas, son del tipo correcto
     #[derive(Clone, Copy, PartialEq)]
@@ -834,9 +858,10 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "{}: \"{}\" are boots; they go in \"boots\", not in core_items",
+                        "{}: \"{}\" are boots, they go in their own slot{}",
                         place(slot),
-                        i.name
+                        i.name,
+                        hint("put them in \"boots\", not in core_items")
                     ),
                     format!(
                         "{}: \"{}\" son botas, van en su propia casilla",
@@ -849,9 +874,10 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "{}: \"{}\" is a component, not a finished item; use one from the COMPLETED list",
+                        "{}: \"{}\" is a component, not a finished item{}",
                         place(slot),
-                        i.name
+                        i.name,
+                        hint("use one from the COMPLETED list")
                     ),
                     format!(
                         "{}: \"{}\" es un componente, no un ítem terminado",
@@ -863,17 +889,27 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
             Some(i) if slot == Slot::Start && !i.starter && !i.completed => {
                 valid = false;
                 warnings.push(say(
-                    format!("{}: \"{}\" is a component, not a starting item; use one from the STARTERS list", place(slot), i.name),
-                    format!("{}: \"{}\" es un componente, no un ítem inicial", place(slot), i.name),
+                    format!(
+                        "{}: \"{}\" is a component, not a starting item{}",
+                        place(slot),
+                        i.name,
+                        hint("use one from the STARTERS list")
+                    ),
+                    format!(
+                        "{}: \"{}\" es un componente, no un ítem inicial",
+                        place(slot),
+                        i.name
+                    ),
                 ));
             }
             Some(i) if slot == Slot::Start && i.completed => {
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "{}: \"{}\" isn't a starting item; use one from the STARTERS list",
+                        "{}: \"{}\" isn't a starting item{}",
                         place(slot),
-                        i.name
+                        i.name,
+                        hint("use one from the STARTERS list")
                     ),
                     format!("{}: \"{}\" no es un ítem inicial", place(slot), i.name),
                 ));
@@ -1507,7 +1543,7 @@ pub async fn recommend_build(
     let retry_reason = match &first_card {
         Ok(raw) => {
             // The correction round talks to the model: always in English.
-            let (_, mut warnings) = validate(raw, &data, &draft, Lang::En);
+            let mut warnings = validate_for_model(raw, &data, &draft);
             warnings.extend(
                 missing(raw, &draft, Lang::En)
                     .into_iter()
@@ -2120,8 +2156,7 @@ mod tests {
             "boots replace boots"
         );
         // And it isn't a reason for a correction round.
-        let (_, en) = validate(&raw, &fixtures::data(), &draft(), Lang::En);
-        assert!(en.is_empty());
+        assert!(validate_for_model(&raw, &fixtures::data(), &draft()).is_empty());
     }
 
     #[test]
@@ -2132,6 +2167,17 @@ mod tests {
             warnings,
             ["Build completa: \"Llamado del Verdugo\" es un componente, no un ítem terminado"]
         );
+        // Players in English don't see prompt wording; the model does.
+        let raw =
+            parse_card(&GOOD.replace(r#"["fuerza de trinidad"]"#, r#"["Llamado del Verdugo"]"#))
+                .unwrap();
+        let (_, en) = validate(&raw, &fixtures::data(), &draft(), Lang::En);
+        assert_eq!(
+            en,
+            ["Full build: \"Llamado del Verdugo\" is a component, not a finished item"]
+        );
+        let model = validate_for_model(&raw, &fixtures::data(), &draft());
+        assert!(model[0].ends_with("; use one from the COMPLETED list"));
     }
 
     #[test]
