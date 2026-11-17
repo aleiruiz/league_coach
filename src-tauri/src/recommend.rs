@@ -618,7 +618,7 @@ pub fn analysis_prompt_with(
 
     let first = if update.is_some() {
         format!(
-            "- FIRST, this is an UPDATE: start from the PREVIOUS BUILD and keep everything that still fits. Don't search the web again{}. Change only what the PICK CHANGES call for (e.g. armor, magic resist or anti-heal against a new enemy, other matchup tips and threats for a new lane opponent or jungler). Begin with a short WHAT CHANGED section: one line per change to the build, \"old → new: why\", naming the pick that causes it; if the build still holds, say so and why. Don't write figures (win rate, pick rate, games).",
+            "- FIRST, this is an UPDATE: start from the PREVIOUS BUILD and keep everything that still fits. Don't search the web again{}. Change only what the PICK CHANGES call for (e.g. armor, magic resist or anti-heal against a new enemy, other matchup tips and threats for a new lane opponent or jungler). Begin with a short WHAT CHANGED section: one line per change to the build, \"old → new: why\", naming the pick that causes it; if the build still holds, say so and why. Then write the rest of the analysis in full, as for a new build (game plan, matchup tips, threats): it replaces the previous one. Don't write figures (win rate, pick rate, games).",
             if lane.is_some() && matchup.is_none() {
                 ", except, if you need it, to look up the lane matchup"
             } else {
@@ -2355,6 +2355,7 @@ mod tests {
         assert!(p.contains("- Enemy mid: LeBlanc -> Zed"));
         assert!(p.contains("this is an UPDATE"));
         assert!(p.contains("WHAT CHANGED"));
+        assert!(p.contains("write the rest of the analysis in full"));
         // No matchup notes for a known lane opponent: it may look that up only.
         assert!(p.contains("except, if you need it, to look up the lane matchup"));
         assert!(!p.contains("if you have web search, look up"));
