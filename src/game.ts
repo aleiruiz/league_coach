@@ -56,6 +56,8 @@ export type Draft = {
   /** The lane opponent is guessed from the champions, not set by the player. */
   lane_guessed?: boolean;
   notes: string | null;
+  /** "Update build": the build given before some picks changed, and what changed. */
+  previous?: { build: string; changes: string[] } | null;
 };
 
 export type Ref = { name: string; image: string | null; valid: boolean };
@@ -88,6 +90,8 @@ export type Card = {
   stats_dropped: number;
   /** The model exposes its search sources (Claude does, Codex doesn't). */
   stats_verifiable: boolean;
+  /** "Update build" only: what changed from the previous build, and why. */
+  changes?: string[];
 };
 
 /** Figure quoted from a stats site, with its source. */

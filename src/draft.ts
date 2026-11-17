@@ -268,3 +268,59 @@ export function changeRole(s: DraftState, role: Role): DraftState {
   // A mark on the enemy now across from you is the default: no mark needed.
   return s.lane ? markLane(next, s.lane) : next;
 }
+
+/**
+ * One pick that changed since a build: a champion swapped for another in the
+ * same row, added to an empty row, or removed. `lane`: your lane opponent
+ * changed with no pick change saying so (e.g. a role set by hand).
+ */
+export type PickChange = {
+  team: "ally" | "enemy" | "lane";
+  /** The row's role (for `lane`, your role). */
+  role: Role;
+  from: string | null;
+  to: string | null;
+};
+
+/**
+ * What changed between the picks a build was made for and the picks now.
+ * Champions that only moved rows aren't a change (the build doesn't depend
+ * on rows), unless that changes your lane opponent.
+ */
+export function pickChanges(prev: DraftState, cur: DraftState): PickChange[] {
+  const out: PickChange[] = [];
+  const team = (side: "ally" | "enemy", before: (string | null)[], now: (string | null)[], roles: Role[]) => {
+    const had = new Set(before.filter(Boolean));
+    const has = new Set(now.filter(Boolean));
+    const gone = new Set([...had].filter((id) => !has.has(id)));
+    now.forEach((id, i) => {
+      if (!id || had.has(id)) return;
+      const old = before[i];
+      const from = old && gone.has(old) ? old : null;
+      if (from) gone.delete(from);
+      out.push({ team: side, role: roles[i], from, to: id });
+    });
+    before.forEach((id, i) => {
+      if (id && gone.has(id)) out.push({ team: side, role: roles[i], from: id, to: null });
+    });
+  };
+  team("ally", prev.allies, cur.allies, allyRoles(cur.role));
+  team("enemy", prev.enemies, cur.enemies, ROLE_ORDER);
+  const [was, now] = [laneOpponent(prev), laneOpponent(cur)];
+  if (was !== now && !out.some((c) => c.team === "enemy" && c.from === was && c.to === now)) {
+    out.push({ team: "lane", role: cur.role, from: was, to: now });
+  }
+  return out;
+}
+
+/** "Enemy mid: LeBlanc -> Zed": a pick change for the prompt (always English). */
+export function changeForPrompt(c: PickChange, name: (id: string) => string): string {
+  const role = c.role === "adc" ? "ADC" : c.role;
+  const [from, to] = [c.from && name(c.from), c.to && name(c.to)];
+  if (c.team === "lane") {
+    return to ? `Lane opponent: now ${to}${from ? ` (was ${from})` : ""}` : `Lane opponent: unknown now${from ? ` (was ${from})` : ""}`;
+  }
+  const who = `${c.team === "ally" ? "Ally" : "Enemy"} ${role}`;
+  if (from && to) return `${who}: ${from} -> ${to}`;
+  return to ? `${who}: ${to} added` : `${who}: ${from} removed`;
+}

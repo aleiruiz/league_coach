@@ -2,17 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import SafeMarkdown from "./SafeMarkdown";
 import BuildCard, { BuildCardSkeleton } from "./BuildCard";
 import ChampionPicker from "./ChampionPicker";
-import { Champion, championAbilities, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES, RuneTree, Shard } from "./game";
+import { Card, Champion, championAbilities, currentGame, Draft, gameData, GameData, recommendBuild, Recommendation, Role, ROLES, RuneTree, Shard } from "./game";
 import { damageProfile } from "./draft";
 import {
   allyRoles,
   applyLive,
+  changeForPrompt,
   changeRole,
   DraftState,
   EMPTY_DRAFT,
   laneGuessed,
   laneOpponent,
   laneRow,
+  pickChanges,
+  type PickChange,
   ROLE_ORDER,
   setRole,
   sameDraft,
@@ -34,7 +37,30 @@ type Result = Recommendation & {
   /** Rune trees and shards in the language the card was built in. */
   trees: RuneTree[];
   shards: Shard[][];
+  /** The picks (by row) it was made for, to say later what changed. */
+  state: DraftState;
+  /** An update: the pick changes it answered (empty for a new build). */
+  changes: PickChange[];
 };
+
+/** The build in one paragraph, for "Update build" to start from (English labels, client names). */
+export function buildForPrompt(c: Card): string {
+  const names = (l: { name: string }[]) => l.map((r) => r.name).join(", ");
+  const r = c.runes;
+  const parts = [
+    `Runes: ${r.keystone.name} (${r.primary_tree.name}: ${names(r.primary)}; ${r.secondary_tree.name}: ${names(r.secondary)}; shards: ${names(r.shards)}).`,
+    `Summoner spells: ${c.summoner_spells.map((x) => x.name).join(" + ")}.`,
+    c.starting_items.length ? `Starting items: ${names(c.starting_items)}.` : "",
+    `Full build in buy order: ${names(c.core_items)}.`,
+    c.boots.name ? `Boots: ${c.boots.name}.` : "",
+    c.situational.length
+      ? `Options: ${c.situational.map((o) => (o.replaces?.name ? `${o.item.name} instead of ${o.replaces.name}` : o.item.name)).join("; ")}.`
+      : "",
+    c.skill_order.max.length ? `Skill max order: ${c.skill_order.max.join(" > ")}.` : "",
+    c.summary ? `Idea: ${c.summary}` : "",
+  ];
+  return parts.filter(Boolean).join(" ");
+}
 
 /** Why the card failed, in the player's words. */
 function cardFailure(e: string): string {
@@ -120,6 +146,20 @@ const questionPresets = () =>
 const roleName = (r: Role) => ROLES.find((x) => x.id === r)?.label() ?? r;
 /** "jungle", "ADC": the role inside a sentence. */
 const roleLower = (r: Role) => (r === "adc" ? "ADC" : roleName(r).toLowerCase());
+
+/** "Zed replaced LeBlanc (enemy mid)": a pick change for the player. */
+function changeText(c: PickChange, name: (id: string) => string): string {
+  const [from, to] = [c.from && name(c.from), c.to && name(c.to)];
+  if (c.team === "lane") {
+    return to ? t(`Your lane opponent is now ${to}`, `Tu rival de línea ahora es ${to}`) : t("Your lane opponent is unknown now", "Ya no se sabe tu rival de línea");
+  }
+  const where =
+    c.team === "ally"
+      ? t(`your ${roleLower(c.role)}`, `tu ${roleLower(c.role)}`)
+      : t(`enemy ${roleLower(c.role)}`, `${roleLower(c.role)} rival`);
+  if (from && to) return t(`${to} replaced ${from} (${where})`, `${to} en lugar de ${from} (${where})`);
+  return to ? t(`${to} added (${where})`, `${to} añadido (${where})`) : t(`${from} removed (${where})`, `${from} quitado (${where})`);
+}
 
 /** "Fill from my game" found no champ select or game: a normal state, not an error. */
 const NOT_IN_GAME = /^(You're not in|No estás en)/;
@@ -335,6 +375,11 @@ function DraftView({
   const draft = toDraft(d);
   // The build no longer matches what is on screen.
   const stale = !!rec && !sameDraft(rec.draft, draft);
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
+  // Same champion and role, other picks changed: the build can be updated
+  // (adapted, not redone). A failed card has nothing to adapt.
+  const changes = rec && stale && draft && !rec.card_error && rec.draft.champion === draft.champion && rec.draft.role === draft.role ? pickChanges(rec.state, d) : [];
+  const canUpdate = changes.length > 0;
 
   // Look up your champion's usual build as soon as you pick it, so Get build
   // only has to adapt it to the draft.
@@ -431,11 +476,14 @@ function DraftView({
       const next = applyLive(latest.current, live, (id) => ids.has(id), (id) => byId.get(id)?.tags ?? []);
       setD(next);
       setPicking(nextEmpty(next));
-      const filled =
-        live.source === "champ_select"
+      const built = rec && !editing ? rec : null;
+      const filled = built && sameDraft(built.draft, toDraft(next))
+        ? t("No pick changes since this build.", "No hay cambios de picks desde esta build.")
+        : live.source === "champ_select"
           ? t("Filled from your champ select. Press again as more picks lock in.", "Rellenado con tu selección de campeones. Vuelve a pulsar cuando se bloqueen más picks.")
           : t("Filled from your game in progress.", "Rellenado con tu partida en curso.");
-      setLiveNote({ text: filled, error: false });
+      // On the build, the "picks changed" box says it better.
+      setLiveNote(built && !sameDraft(built.draft, toDraft(next)) ? null : { text: filled, error: false });
     } catch (e) {
       const text = String(e);
       setLiveNote(
@@ -457,24 +505,42 @@ function DraftView({
     setEditing(false);
   }
 
-  async function recommend() {
+  /**
+   * Get build. `update`: adapt the build on screen to the picks that changed
+   * (it stays on screen meanwhile) instead of starting over.
+   */
+  async function recommend(update = false) {
     if (!draft || !kind || busy) return;
     const usedKind = kind;
     const id = crypto.randomUUID();
+    const snapshot = latest.current;
+    const answered = update && rec && canUpdate ? changes : [];
+    const previous =
+      rec && answered.length ? { build: buildForPrompt(rec.card), changes: answered.map((c) => changeForPrompt(c, nameOf)) } : null;
     requestId.current = id;
     setBusy(true);
     setError(null);
-    setRec(null);
+    if (previous) setEditing(false);
+    else setRec(null);
     setEarly(null);
-    setStatus(t("Preparing the build…", "Preparando la build…"));
+    setStatus(previous ? t("Updating your build…", "Actualizando tu build…") : t("Preparing the build…", "Preparando la build…"));
     try {
       const asked = question.trim().slice(0, MAX_QUESTION) || null;
-      const r = await recommendBuild(usedKind, { ...draft, notes: asked }, id, (ev) => {
+      const r = await recommendBuild(usedKind, { ...draft, notes: asked, previous }, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
         else if (ev.type === "analysis") setEarly(ev.text);
       });
-      setRec({ ...r, kind: usedKind, draft: { ...draft, notes: asked }, trees: data?.rune_trees ?? [], shards: data?.shards ?? [] });
+      setRec({
+        ...r,
+        kind: usedKind,
+        draft: { ...draft, notes: asked },
+        trees: data?.rune_trees ?? [],
+        shards: data?.shards ?? [],
+        state: snapshot,
+        changes: previous ? answered : [],
+      });
       setEditing(false);
+      setLiveNote(null);
     } catch (e) {
       setError(humanizeError(String(e)));
     } finally {
@@ -512,13 +578,13 @@ function DraftView({
       {t("Stop", "Detener")}
     </button>
   ) : (
-    <button className="primary big-button" onClick={recommend} disabled={!draft || !kind}>
-      {rec && stale ? t("Get new build", "Pedir build nueva") : t("Get build", "Ver build")}
+    <button className="primary big-button" onClick={() => recommend(canUpdate)} disabled={!draft || !kind}>
+      {canUpdate ? t("Update build", "Actualizar build") : rec && stale ? t("Get new build", "Pedir build nueva") : t("Get build", "Ver build")}
     </button>
   );
 
   return (
-    <section className="draft" ref={top}>
+    <section className={`draft${busy && showSheet ? " updating" : ""}`} ref={top} aria-busy={busy}>
       {dataError && (
         <p className="error">
           {t("Couldn't load the patch data:", "No pude cargar los datos del parche:")} {dataError}
@@ -636,7 +702,7 @@ function DraftView({
                       placeholder={t("e.g. what if I fall behind?", "p. ej. ¿y si voy por detrás?")}
                       onChange={(e) => setQuestion(e.currentTarget.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.nativeEvent.isComposing && draft && kind && !busy) recommend();
+                        if (e.key === "Enter" && !e.nativeEvent.isComposing && draft && kind && !busy) recommend(canUpdate);
                       }}
                     />
                   </label>
@@ -653,7 +719,9 @@ function DraftView({
                       ? t("Pick at least your champion.", "Elige al menos tu campeón.")
                       : busy
                         ? (status ?? t("Preparing the build…", "Preparando la build…"))
-                        : t("About a minute: it searches this patch. Adapts to everyone picked.", "Cerca de un minuto: busca en este parche. Se adapta a todos los elegidos.")}
+                        : canUpdate
+                          ? t("Keeps what still fits from your build and says what changed.", "Mantiene lo que sigue sirviendo de tu build y dice qué cambió.")
+                          : t("About a minute: it searches this patch. Adapts to everyone picked.", "Cerca de un minuto: busca en este parche. Se adapta a todos los elegidos.")}
                   </span>
                   {rec && !busy && (
                     <button type="button" className="link-button" onClick={() => setEditing(false)}>
@@ -722,7 +790,31 @@ function DraftView({
 
       {showSheet && (
         <>
-          {stale && (
+          {canUpdate ? (
+            <div className="stale-note picks-changed" role="status">
+              <div>
+                <strong>{t("Picks changed since this build", "Los picks cambiaron desde esta build")}</strong>
+                <ul className="change-list">
+                  {changes.map((c, i) => (
+                    <li key={i}>{changeText(c, nameOf)}</li>
+                  ))}
+                </ul>
+              </div>
+              {!busy && (
+                <div className="picks-changed-actions">
+                  <button type="button" className="primary" onClick={() => recommend(true)} disabled={!kind}>
+                    {t("Update build", "Actualizar build")}
+                  </button>
+                  <span className="muted small">
+                    {t("Keeps what still fits and says what changed.", "Mantiene lo que sigue sirviendo y dice qué cambió.")}{" "}
+                    <button type="button" className="link-button" onClick={() => recommend(false)} disabled={!kind}>
+                      {t("New build from scratch", "Build nueva desde cero")}
+                    </button>
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : stale ? (
             <div className="stale-note" role="status">
               <span>
                 {t(
@@ -731,11 +823,38 @@ function DraftView({
                 )}
               </span>
               {!busy && (
-                <button type="button" className="primary" onClick={recommend} disabled={!draft || !kind}>
+                <button type="button" className="primary" onClick={() => recommend()} disabled={!draft || !kind}>
                   {t("Get new build", "Pedir build nueva")}
                 </button>
               )}
             </div>
+          ) : (
+            !busy && (
+              <p className="muted small picks-sync">
+                {t("Someone changed their pick?", "¿Alguien cambió su pick?")}{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={refreshFromGame}
+                  disabled={syncing}
+                  title={t(
+                    "Reads your champ select again (League client on this computer). It doesn't ask the coach anything.",
+                    "Vuelve a leer tu selección de campeones (cliente de League en esta computadora). No le pregunta nada al coach.",
+                  )}
+                >
+                  {syncing ? t("Reading…", "Leyendo…") : t("Fill from my game", "Rellenar con mi partida")}
+                </button>{" "}
+                {t("or", "o")}{" "}
+                <button type="button" className="link-button" onClick={() => setEditing(true)}>
+                  {t("change picks", "cambia los picks")}
+                </button>
+              </p>
+            )
+          )}
+          {liveNote && !busy && (
+            <p className={liveNote.error ? "error small" : "muted small"} role="status">
+              {liveNote.text}
+            </p>
           )}
           <div aria-live="polite">
             {busy && status && <p className="muted small">{status}</p>}
@@ -746,13 +865,30 @@ function DraftView({
             (rec.from_notes ? (
               <div className="stale-note" role="status">
                 <span>⚠ {rec.model_note}</span>
-                <button type="button" className="primary" onClick={recommend} disabled={!draft || !kind}>
+                <button type="button" className="primary" onClick={() => recommend()} disabled={!draft || !kind}>
                   {t("Get a tailored build", "Pedir una build a medida")}
                 </button>
               </div>
             ) : (
               <p className="muted small model-note">ⓘ {rec.model_note}</p>
             ))}
+          {!rec.card_error && rec.changes.length > 0 && (
+            <section className="panel what-changed" aria-label={t("What changed", "Qué cambió")}>
+              <p className="what-changed-title">
+                <strong>{t("Build updated", "Build actualizada")}</strong>
+                <span className="muted"> · {rec.changes.map((c) => changeText(c, nameOf)).join(" · ")}</span>
+              </p>
+              {rec.card.changes?.length ? (
+                <ul>
+                  {rec.card.changes.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted small">{t("The AI didn't list its changes. The card below is the updated build.", "La IA no listó sus cambios. La tarjeta de abajo es la build actualizada.")}</p>
+              )}
+            </section>
+          )}
           {rec.card_error ? (
             <section className="panel analysis-only">
               <h4 className="panel-title">{t("The AI's analysis", "El análisis de la IA")}</h4>
@@ -761,7 +897,7 @@ function DraftView({
                   {cardFailure(rec.card_error)} {t("Here is its analysis in the meantime.", "Aquí tienes su análisis mientras tanto.")}
                 </p>
                 {!busy && (
-                  <button className="secondary" onClick={recommend}>
+                  <button className="secondary" onClick={() => recommend()}>
                     {t("Get a different build", "Pedir otra build")}
                   </button>
                 )}
@@ -791,7 +927,7 @@ function DraftView({
               notes={rec.notes}
               analysis={rec.analysis}
               retried={rec.retried}
-              onRetry={busy || stale ? undefined : recommend}
+              onRetry={busy || stale ? undefined : () => recommend()}
               onChangePicks={() => setEditing(true)}
               onAsk={onAsk}
             />
