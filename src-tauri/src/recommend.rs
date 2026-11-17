@@ -43,6 +43,9 @@ pub struct Draft {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 pub struct PreviousBuild {
+    /// Champion the old build was for: one for another champion is ignored.
+    #[serde(default)]
+    pub champion: Option<String>,
     /// The old build in one paragraph (runes, spells, items, skills).
     pub build: String,
     /// One line per pick change, e.g. "Enemy mid: LeBlanc -> Zed".
@@ -54,11 +57,16 @@ pub struct PreviousBuild {
 const MAX_PREVIOUS: usize = 1500;
 const MAX_CHANGES: usize = 10;
 const MAX_CHANGE: usize = 120;
+/// Longest "what changed" line on the card.
+const MAX_CARD_CHANGE: usize = 200;
 
 impl Draft {
     /// The previous build, trimmed and capped; None when it says nothing.
     fn update(&self) -> Option<PreviousBuild> {
         let p = self.previous.as_ref()?;
+        if p.champion.as_deref().is_some_and(|c| c != self.champion) {
+            return None;
+        }
         let build: String = p.build.trim().chars().take(MAX_PREVIOUS).collect();
         if build.is_empty() {
             return None;
@@ -70,7 +78,11 @@ impl Draft {
             .filter(|c| !c.is_empty())
             .take(MAX_CHANGES)
             .collect();
-        Some(PreviousBuild { build, changes })
+        Some(PreviousBuild {
+            champion: p.champion.clone(),
+            build,
+            changes,
+        })
     }
 }
 
@@ -1332,7 +1344,7 @@ fn check_card(
         changes: if draft.update().is_some() {
             raw.changes
                 .iter()
-                .map(|c| c.trim().to_string())
+                .map(|c| c.trim().chars().take(MAX_CARD_CHANGE).collect::<String>())
                 .filter(|c| !c.is_empty())
                 .take(6)
                 .collect()
@@ -2326,6 +2338,7 @@ mod tests {
     fn updating() -> Draft {
         Draft {
             previous: Some(PreviousBuild {
+                champion: Some("Jax".into()),
                 build: "Conquistador, Flash + Teleport, items: Fuerza de Trinidad".into(),
                 changes: vec!["Enemy mid: LeBlanc -> Zed".into(), "  ".into()],
             }),
@@ -2367,6 +2380,10 @@ mod tests {
         assert!(d.update().is_none());
         // Blank change lines are dropped.
         assert_eq!(updating().update().unwrap().changes.len(), 1);
+        // A previous build for another champion doesn't apply.
+        let mut other = updating();
+        other.previous.as_mut().unwrap().champion = Some("Darius".into());
+        assert!(other.update().is_none());
     }
 
     #[test]

@@ -516,7 +516,7 @@ function DraftView({
     const snapshot = latest.current;
     const answered = update && rec && canUpdate ? changes : [];
     const previous =
-      rec && answered.length ? { build: buildForPrompt(rec.card), changes: answered.map((c) => changeForPrompt(c, nameOf)) } : null;
+      rec && answered.length ? { champion: rec.draft.champion, build: buildForPrompt(rec.card), changes: answered.map((c) => changeForPrompt(c, nameOf)) } : null;
     requestId.current = id;
     setBusy(true);
     setError(null);

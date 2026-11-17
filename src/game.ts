@@ -57,7 +57,7 @@ export type Draft = {
   lane_guessed?: boolean;
   notes: string | null;
   /** "Update build": the build given before some picks changed, and what changed. */
-  previous?: { build: string; changes: string[] } | null;
+  previous?: { champion: string; build: string; changes: string[] } | null;
 };
 
 export type Ref = { name: string; image: string | null; valid: boolean };
