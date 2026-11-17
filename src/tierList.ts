@@ -27,10 +27,12 @@ export type TierList = {
   entries: TierEntry[];
   dropped: number;
   fetched_at: number;
-  /** Claude opened the page itself (older lists, and fallbacks, only saw search snippets). */
+  /** The AI opened the page itself (older lists, and fallbacks, only saw search snippets). */
   opened?: boolean;
   /** Fewer champions than a full list (older lists: absent). */
   partial?: boolean;
+  /** Codex said it opened the page, but doesn't report whether it loaded: can't be checked. */
+  unchecked?: boolean;
 };
 
 export const savedTierLists = () => invoke<Partial<Record<Role, TierList>>>("saved_tier_lists");

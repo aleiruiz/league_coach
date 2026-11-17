@@ -101,6 +101,10 @@ pub struct TierList {
     /// Fewer than `MIN_ENTRIES` champions: shown with a "partial list" label.
     #[serde(default)]
     pub partial: bool,
+    /// Kept only because Codex said it opened the page: Codex doesn't report
+    /// whether a page loaded, so the list can't be checked like Claude's.
+    #[serde(default)]
+    pub unchecked: bool,
 }
 
 /// Champion by id or by name in the app's language, ignoring case and signs.
@@ -138,18 +142,21 @@ fn clean_list(
     now: i64,
     min_entries: usize,
 ) -> Result<TierList, String> {
-    clean_list_with(raw, role, data, seen, &[], now, min_entries)
+    clean_list_with(raw, role, data, seen, &[], &[], now, min_entries)
 }
 
 /// Keeps the list only if its page is a known stats site that came up in this
-/// run's search (`seen`) or that the AI opened (`opened`). `Err` says why it
-/// was thrown away.
+/// run's search (`seen`) or that the AI opened (`opened`). A page Codex only
+/// asked to open (`attempted`) keeps it too, marked `unchecked`. `Err` says
+/// why it was thrown away.
+#[allow(clippy::too_many_arguments)]
 pub fn clean_list_with(
     raw: &RawList,
     role: &str,
     data: &GameData,
     seen: &[String],
     opened: &[String],
+    attempted: &[String],
     now: i64,
     min_entries: usize,
 ) -> Result<TierList, String> {
@@ -167,10 +174,11 @@ pub fn clean_list_with(
             .any(|u| recommend::url_key(&u) == key)
     };
     let was_opened = has(opened);
-    if !was_opened && !has(seen) {
+    let checked = was_opened || has(seen);
+    if !checked && !has(attempted) {
         return Err(lang.pick(
-            "The page the AI named didn't come up in its web search, so its numbers can't be trusted. Try again.".to_string(),
-            "La página que nombró la IA no salió en su búsqueda web, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
+            "The page the AI named didn't come up in its web search or among the pages it opened, so its numbers can't be trusted. Try again.".to_string(),
+            "La página que nombró la IA no salió en su búsqueda web ni entre las páginas que abrió, así que sus números no son confiables. Inténtalo de nuevo.".to_string(),
         ));
     }
     let pct = |v: Option<f64>| v.filter(|x| (0.0..=100.0).contains(x));
@@ -220,6 +228,7 @@ pub fn clean_list_with(
         fetched_at: now,
         opened: was_opened,
         partial,
+        unchecked: !checked,
     })
 }
 
@@ -233,7 +242,7 @@ fn role_words(role: &str) -> &'static str {
     }
 }
 
-pub fn prompt(role: &str, data: &GameData) -> String {
+pub fn prompt(role: &str, data: &GameData, kind: ProviderKind) -> String {
     let mut p = String::new();
     let _ = writeln!(
         p,
@@ -244,7 +253,7 @@ pub fn prompt(role: &str, data: &GameData) -> String {
     );
     let _ = writeln!(
         p,
-        "TASK: find this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Search the web for it, then open that tier list page with WebFetch and copy what it shows for up to {max} champions, best first. Opening pages works only on those sites. If the page you open doesn't show the list (some sites only render it in a browser), try the same list on another of these sites; METAsrc and Lolalytics usually work.\n\n\
+        "TASK: find this patch's {role} tier list (ranked solo queue) on ONE of these sites: u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs, METAsrc. Search the web for it, then open that tier list page{how} and copy what it shows for up to {max} champions, best first.{only} If the page you open doesn't show the list (some sites only render it in a browser), try the same list on another of these sites; METAsrc and Lolalytics usually work.\n\n\
 RULES:\n\
 - \"url\" is the exact URL of the page you opened (or, if no page opened, the one from your search results). Any other page is thrown away.\n\
 - Copy only what the page shows: its tier for each champion and, if it shows them, win rate, pick rate and ban rate as numbers (52.3, not \"52.3%\"). null for whatever it doesn't show. Never numbers from memory or from another page.\n\
@@ -253,6 +262,14 @@ RULES:\n\
 - Reply ONLY with a ```json block of this shape:\n\
 {{\"url\": \"https://…\", \"patch\": \"{patch}\", \"rank\": \"Emerald+\", \"champions\": [{{\"champion\": \"Ahri\", \"tier\": \"S\", \"win_rate\": 52.3, \"pick_rate\": 8.1, \"ban_rate\": 4.0}}]}}",
         role = role_words(role),
+        how = match kind {
+            ProviderKind::ClaudeCode => " with WebFetch",
+            _ => "",
+        },
+        only = match kind {
+            ProviderKind::ClaudeCode => " Opening pages works only on those sites.",
+            _ => "",
+        },
         patch = data.patch,
         max = MAX_ENTRIES,
         names = data
@@ -327,13 +344,9 @@ pub async fn fetch_tier_list(
     }
     let data = ddragon::get(&app, &cache).await?;
     let lang = data.lang;
-    if kind != ProviderKind::ClaudeCode {
-        // Only Claude Code shows its search results, which is how a page is checked.
-        return Err(lang.pick(
-            "The tier list needs Claude Code: it's the AI that shows where its numbers come from. Connect it in Settings › Your AI.".to_string(),
-            "La tier list necesita Claude Code: es la IA que muestra de dónde salen sus números. Conéctalo en Ajustes › Tu IA.".to_string(),
-        ));
-    }
+    // Any AI may look it up. Claude Code reports its search results and the
+    // pages WebFetch opened; Codex only which page its search asked to open,
+    // so a Codex list is kept but labelled as unchecked (`clean_list_with`).
     let _ = on_event.send(ChatEvent::Status {
         text: lang
             .pick(
@@ -346,7 +359,7 @@ pub async fn fetch_tier_list(
     let answer = recommend::ask_with(
         &app,
         kind,
-        &prompt(&role, &data),
+        &prompt(&role, &data, kind),
         None,
         TIMEOUT,
         rx,
@@ -371,6 +384,7 @@ pub async fn fetch_tier_list(
         &data,
         &answer.sources,
         &answer.fetched,
+        &answer.attempted,
         now,
         MIN_ENTRIES,
     )?;
@@ -387,8 +401,12 @@ pub async fn fetch_tier_list(
 /// Whether `new` should be saved over the list already saved for its role.
 fn should_replace(old: Option<&TierList>, new: &TierList) -> bool {
     match old {
-        Some(old) => !(new.partial && !old.partial && old.app_patch == new.app_patch),
-        None => true,
+        Some(old) if old.app_patch == new.app_patch => {
+            // Never trade a full list for a partial one, or a checked list
+            // for one that can't be checked.
+            !(new.partial && !old.partial) && !(new.unchecked && !old.unchecked)
+        }
+        _ => true,
     }
 }
 
@@ -485,13 +503,36 @@ mod tests {
             &fixtures::data(),
             &[],
             &[format!("{URL}/")],
+            &[],
             0,
             1,
         )
         .unwrap();
         assert!(l.opened);
-        let l = clean_list_with(&r, "mid", &fixtures::data(), &[URL.into()], &[], 0, 1).unwrap();
+        assert!(!l.unchecked);
+        let l =
+            clean_list_with(&r, "mid", &fixtures::data(), &[URL.into()], &[], &[], 0, 1).unwrap();
         assert!(!l.opened);
+        assert!(!l.unchecked);
+    }
+
+    #[test]
+    fn a_page_codex_only_tried_to_open_is_kept_as_unchecked() {
+        let r = raw(&format!(
+            r#"{{"url": "{URL}", "champions": [{{"champion": "Ahri", "tier": "S"}}]}}"#
+        ));
+        let data = fixtures::data();
+        let l = clean_list_with(&r, "mid", &data, &[], &[], &[URL.into()], 0, 1).unwrap();
+        assert!(l.unchecked);
+        assert!(!l.opened);
+        // Another page attempted doesn't vouch for this one.
+        let other = ["https://u.gg/lol/top-lane-tier-list".to_string()];
+        assert!(clean_list_with(&r, "mid", &data, &[], &[], &other, 0, 1).is_err());
+        // An unchecked list never replaces a checked one of the same patch.
+        let checked = clean_list(&r, "mid", &data, &[URL.into()], 0, 1).unwrap();
+        assert!(!should_replace(Some(&checked), &l));
+        assert!(should_replace(Some(&l), &checked));
+        assert!(should_replace(Some(&l), &l));
     }
 
     #[test]
@@ -560,7 +601,7 @@ mod tests {
 
     #[test]
     fn prompt_names_the_role_patch_and_valid_names() {
-        let p = prompt("adc", &fixtures::data());
+        let p = prompt("adc", &fixtures::data(), ProviderKind::ClaudeCode);
         assert!(p.contains("ADC"));
         assert!(p.contains("25.22"));
         assert!(p.contains("Ahri, "));
@@ -568,5 +609,13 @@ mod tests {
         assert!(
             p.contains("url of the page you opened") || p.contains("URL of the page you opened")
         );
+    }
+
+    #[test]
+    fn codex_prompt_does_not_name_claude_tools() {
+        let p = prompt("mid", &fixtures::data(), ProviderKind::Codex);
+        assert!(p.contains("mid lane"));
+        assert!(p.contains("open that tier list page and copy"));
+        assert!(!p.contains("WebFetch"));
     }
 }

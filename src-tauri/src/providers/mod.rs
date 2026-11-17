@@ -99,6 +99,11 @@ pub enum ChatEvent {
     Fetched {
         url: String,
     },
+    /// A page Codex's web search asked to open or search in. Weaker than
+    /// `Fetched`: Codex reports neither whether it loaded nor what it showed.
+    Attempted {
+        url: String,
+    },
     /// Tokens of the answer, as the CLI reports them. Recorded in the usage
     /// store by `run`, never sent to the UI.
     Usage {
@@ -482,6 +487,8 @@ pub struct Collected {
     pub sources: Vec<String>,
     /// Pages WebFetch opened in this query.
     pub fetched: Vec<String>,
+    /// Pages Codex's web search tried to open (see `ChatEvent::Attempted`).
+    pub attempted: Vec<String>,
     /// The model that answered instead of the chosen one, if it was busy.
     pub fallback: Option<(String, String)>,
 }
@@ -503,6 +510,7 @@ impl Collected {
             ChatEvent::Error { message } => self.error = Some(message.clone()),
             ChatEvent::Sources { urls } => self.sources.extend(urls.iter().cloned()),
             ChatEvent::Fetched { url } => self.fetched.push(url.clone()),
+            ChatEvent::Attempted { url } => self.attempted.push(url.clone()),
             ChatEvent::ModelFallback { from, to } => {
                 self.fallback = Some((from.clone(), to.clone()))
             }

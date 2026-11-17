@@ -22,7 +22,7 @@ import {
 } from "./tierList";
 import { RoleIcon } from "./icons";
 import { Lang, t } from "./i18n";
-import { cancelPrompt, humanizeError } from "./providers";
+import { cancelPrompt, humanizeError, pickKind, shortName } from "./providers";
 
 type Props = {
   providers: ProvidersState;
@@ -140,7 +140,9 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
   const shownRole: Role = role ?? usualRole(games) ?? mains.find((m) => m.role)?.role ?? "mid";
   const list = lists[shownRole];
   const mainIds = new Set(mains.map((m) => m.champion.toLowerCase()));
-  const claude = providers.list.find((p) => p.kind === "claude_code" && p.logged_in);
+  // The default AI (Settings › Your AI) if it is signed in, else any that is.
+  const signedIn = providers.list.filter((p) => p.logged_in);
+  const ai = signedIn.find((p) => p.kind === pickKind(signedIn, providers.preferred)) ?? null;
 
   const setPinsSaved = (next: string[]) => {
     setPins(next);
@@ -162,7 +164,7 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
   };
 
   const getList = useCallback(async () => {
-    if (!claude) return;
+    if (!ai) return;
     const id = crypto.randomUUID();
     requestId.current = id;
     const forRole = shownRole;
@@ -170,7 +172,7 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
     setError(null);
     setStatus(null);
     try {
-      const l = await fetchTierList(claude.kind, forRole, id, (ev) => {
+      const l = await fetchTierList(ai.kind, forRole, id, (ev) => {
         if (ev.type === "status") setStatus(ev.text);
       });
       setLists((s) => ({ ...s, [forRole]: l }));
@@ -181,7 +183,7 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
       setBusy(false);
       setStatus(null);
     }
-  }, [claude, shownRole]);
+  }, [ai, shownRole]);
 
   const dateText = (ms: number) =>
     new Date(ms).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" });
@@ -315,9 +317,9 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
                 {t("Stop", "Detener")}
               </button>
             ) : (
-              <button type="button" className={list && !stale ? "secondary" : "primary"} disabled={!claude}
+              <button type="button" className={list && !stale ? "secondary" : "primary"} disabled={!ai}
                 onClick={getList}
-                title={t("One request to Claude Code, which searches the web", "Una consulta a Claude Code, que busca en la web")}
+                title={ai ? t(`One request to ${shortName(ai.label)}, which searches the web`, `Una consulta a ${shortName(ai.label)}, que busca en la web`) : undefined}
               >
                 {list ? t("Look it up again", "Buscarla de nuevo") : t("Get the tier list", "Traer la tier list")}
               </button>
@@ -325,11 +327,11 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           </div>
         </div>
 
-        {!claude && (
+        {!ai && (
           <p className="muted small">
             {t(
-              "The tier list needs Claude Code: it's the AI that shows where its numbers come from.",
-              "La tier list necesita Claude Code: es la IA que muestra de dónde salen sus números.",
+              "The tier list needs an AI: connect Claude or ChatGPT.",
+              "La tier list necesita una IA: conecta Claude o ChatGPT.",
             )}{" "}
             <button type="button" className="link-button" onClick={onGoToSettings}>
               {t("Open Settings", "Abrir Ajustes")}
@@ -354,6 +356,15 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           </p>
         )}
 
+        {list?.unchecked && (
+          <p className="ch-stale small">
+            <strong>{t("Not checked.", "Sin comprobar.")}</strong>{" "}
+            {t(
+              `ChatGPT doesn't show whether it loaded ${list.site}'s page, so these numbers can't be checked. Open the page to confirm them.`,
+              `ChatGPT no muestra si cargó la página de ${list.site}, así que estos números no se pueden comprobar. Abre la página para confirmarlos.`,
+            )}
+          </p>
+        )}
         {list?.partial && (
           <p className="ch-stale small">
             <strong>{t("Partial list.", "Lista parcial.")}</strong>{" "}
@@ -408,7 +419,12 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
               {t(`Open the full ${roleLabel(shownRole)} tier list on ${list.site} ↗`, `Abrir la tier list completa de ${roleLabel(shownRole)} en ${list.site} ↗`)}
             </a>
             <p className="muted small">
-              {list.opened
+              {list.unchecked
+                ? t(
+                    `ChatGPT says it read this from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions), but ChatGPT doesn't show whether the page loaded, so these numbers can't be checked the way Claude's are. Open the page to confirm them. League Coach doesn't compute win rates.`,
+                    `ChatGPT dice que la leyó de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones), pero ChatGPT no muestra si la página cargó, así que estos números no se pueden comprobar como los de Claude. Abre la página para confirmarlos. League Coach no calcula win rates.`,
+                  )
+                : list.opened
                 ? t(
                     `Read by the AI from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions). The AI can misread a page: open it to confirm the numbers. League Coach doesn't compute win rates.`,
                     `Leída por la IA de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones). La IA puede leer mal una página: ábrela para confirmar los números. League Coach no calcula win rates.`,

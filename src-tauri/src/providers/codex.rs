@@ -188,6 +188,7 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
         Some("item.started") if item_type == "web_search" => ev(ChatEvent::Status {
             text: tr("Searching the web…", "Buscando en la web…").into(),
         }),
+        Some("item.completed") if item_type == "web_search" => web_search_events(&v["item"]),
         Some("item.completed") if item_type == "agent_message" => v["item"]["text"]
             .as_str()
             .map(|t| ev(ChatEvent::Message { text: t.into() }))
@@ -223,6 +224,48 @@ pub fn parse_line(line: &str) -> Vec<Parsed> {
                 .into(),
         }),
         _ => vec![],
+    }
+}
+
+/// What a finished web search reported. `results` (URLs the search tool
+/// returned, which only Codex's standalone search fills in) are `Sources`,
+/// like Claude Code's search results. The page the search asked to open
+/// (`action.url`) is only `Attempted`: Codex doesn't say whether it loaded,
+/// so it never counts as a source of figures.
+fn web_search_events(item: &Value) -> Vec<Parsed> {
+    let mut urls = Vec::new();
+    collect_urls(&item["results"], &mut urls);
+    let mut out = Vec::new();
+    if !urls.is_empty() {
+        out.push(Parsed::Event(ChatEvent::Sources { urls }));
+    }
+    let opens = matches!(
+        item["action"]["type"].as_str(),
+        Some("open_page" | "find_in_page")
+    );
+    if let Some(url) = item["action"]["url"]
+        .as_str()
+        .filter(|u| opens && u.starts_with("https://"))
+    {
+        out.push(Parsed::Event(ChatEvent::Attempted { url: url.into() }));
+    }
+    out
+}
+
+/// Every https `url` field in Codex's search results, whatever their shape
+/// (the CLI passes them through without a fixed schema).
+fn collect_urls(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Array(a) => a.iter().for_each(|x| collect_urls(x, out)),
+        Value::Object(o) => {
+            for (k, x) in o {
+                match x.as_str() {
+                    Some(u) if k == "url" && u.starts_with("https://") => out.push(u.into()),
+                    _ => collect_urls(x, out),
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -488,6 +531,31 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[test]
+    fn web_search_reports_results_and_attempted_pages() {
+        // Shape of a hosted web search item (`results` is never set there).
+        let opened = r#"{"type":"item.completed","item":{"id":"w1","type":"web_search","query":"https://www.metasrc.com/lol/tier-list/mid","action":{"type":"open_page","url":"https://www.metasrc.com/lol/tier-list/mid"}}}"#;
+        assert_eq!(
+            parse_line(opened),
+            vec![Parsed::Event(ChatEvent::Attempted {
+                url: "https://www.metasrc.com/lol/tier-list/mid".into()
+            })]
+        );
+        let searched = r#"{"type":"item.completed","item":{"id":"w2","type":"web_search","query":"mid tier list","action":{"type":"search","query":"mid tier list"},"results":[{"title":"t","url":"https://u.gg/lol/mid-lane-tier-list"},{"url":"http://plain.example"},{"items":[{"url":"https://lolalytics.com/lol/tierlist/?lane=middle"}]}]}}"#;
+        assert_eq!(
+            parse_line(searched),
+            vec![Parsed::Event(ChatEvent::Sources {
+                urls: vec![
+                    "https://u.gg/lol/mid-lane-tier-list".into(),
+                    "https://lolalytics.com/lol/tierlist/?lane=middle".into()
+                ]
+            })]
+        );
+        // Older CLIs: no action, no results, nothing to report.
+        let old = r#"{"type":"item.completed","item":{"id":"w3","type":"web_search","query":"x"}}"#;
+        assert!(parse_line(old).is_empty());
     }
 
     #[test]
