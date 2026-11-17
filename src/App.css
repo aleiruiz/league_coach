@@ -4529,3 +4529,46 @@ button.ask-close:hover {
   margin: 0 0 6px;
   padding-left: 18px;
 }
+
+/* ---------- Update build (picks changed after a build) ---------- */
+
+.picks-changed .change-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.picks-changed-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.picks-sync {
+  margin: 0 0 12px;
+}
+
+.what-changed {
+  border-left: 3px solid var(--gold);
+  margin: 0 0 14px;
+}
+
+.what-changed ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.what-changed li + li {
+  margin-top: 4px;
+}
+
+/* The old build stays readable while the update runs. */
+.draft.updating .build-card.sheet {
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+
+.what-changed-title {
+  margin: 0 0 8px;
+}

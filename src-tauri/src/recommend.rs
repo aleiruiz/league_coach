@@ -34,6 +34,56 @@ pub struct Draft {
     pub lane_guessed: bool,
     #[serde(default)]
     pub notes: Option<String>,
+    /// "Update build": the build given for this game before some picks
+    /// changed, and what changed. The model adapts it instead of starting
+    /// over, and says what it changed and why.
+    #[serde(default)]
+    pub previous: Option<PreviousBuild>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+pub struct PreviousBuild {
+    /// Champion the old build was for: one for another champion is ignored.
+    #[serde(default)]
+    pub champion: Option<String>,
+    /// The old build in one paragraph (runes, spells, items, skills).
+    pub build: String,
+    /// One line per pick change, e.g. "Enemy mid: LeBlanc -> Zed".
+    #[serde(default)]
+    pub changes: Vec<String>,
+}
+
+/// Caps for `PreviousBuild`, whoever calls the command.
+const MAX_PREVIOUS: usize = 1500;
+const MAX_CHANGES: usize = 10;
+const MAX_CHANGE: usize = 120;
+/// Longest "what changed" line on the card.
+const MAX_CARD_CHANGE: usize = 200;
+
+impl Draft {
+    /// The previous build, trimmed and capped; None when it says nothing.
+    fn update(&self) -> Option<PreviousBuild> {
+        let p = self.previous.as_ref()?;
+        if p.champion.as_deref().is_some_and(|c| c != self.champion) {
+            return None;
+        }
+        let build: String = p.build.trim().chars().take(MAX_PREVIOUS).collect();
+        if build.is_empty() {
+            return None;
+        }
+        let changes = p
+            .changes
+            .iter()
+            .map(|c| c.trim().chars().take(MAX_CHANGE).collect::<String>())
+            .filter(|c| !c.is_empty())
+            .take(MAX_CHANGES)
+            .collect();
+        Some(PreviousBuild {
+            champion: p.champion.clone(),
+            build,
+            changes,
+        })
+    }
 }
 
 // ---------- lo que devuelve el modelo ----------
@@ -80,6 +130,9 @@ pub struct RawCard {
     pub caveat: Option<String>,
     #[serde(deserialize_with = "null_default")]
     pub stats: Vec<RawStat>,
+    /// "Update build" only: what changed from the previous build, and why.
+    #[serde(deserialize_with = "null_default")]
+    pub changes: Vec<String>,
 }
 
 /// Cifra citada de un sitio de estadísticas (u.gg, op.gg…).
@@ -343,6 +396,8 @@ pub struct Card {
     /// El proveedor expone las URLs de su búsqueda (Claude sí; Codex no), así
     /// que sus cifras se pueden comprobar.
     pub stats_verifiable: bool,
+    /// "Update build" only: what changed from the previous build, and why.
+    pub changes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -545,8 +600,32 @@ pub fn analysis_prompt_with(
     if let Some(n) = draft.notes.as_deref().filter(|n| !n.trim().is_empty()) {
         let _ = writeln!(p, "\nPLAYER NOTES: {}", n.trim());
     }
+    let update = draft.update();
+    if let Some(u) = &update {
+        let _ = writeln!(
+            p,
+            "\nPREVIOUS BUILD (you gave it for this game a moment ago, before some picks changed):\n{}",
+            u.build
+        );
+        let _ = writeln!(p, "\nPICK CHANGES SINCE THEN:");
+        for c in &u.changes {
+            let _ = writeln!(p, "- {c}");
+        }
+        if u.changes.is_empty() {
+            let _ = writeln!(p, "- (the player didn't say)");
+        }
+    }
 
-    let first = if prepared.is_some() {
+    let first = if update.is_some() {
+        format!(
+            "- FIRST, this is an UPDATE: start from the PREVIOUS BUILD and keep everything that still fits. Don't search the web again{}. Change only what the PICK CHANGES call for (e.g. armor, magic resist or anti-heal against a new enemy, other matchup tips and threats for a new lane opponent or jungler). Begin with a short WHAT CHANGED section: one line per change to the build, \"old → new: why\", naming the pick that causes it; if the build still holds, say so and why. Then write the rest of the analysis in full, as for a new build (game plan, matchup tips, threats): it replaces the previous one. Don't write figures (win rate, pick rate, games).",
+            if lane.is_some() && matchup.is_none() {
+                ", except, if you need it, to look up the lane matchup"
+            } else {
+                ""
+            }
+        )
+    } else if prepared.is_some() {
         "- FIRST, start from the BASE BUILD NOTES: the search is already done, so don't search the web again. Adapt them to THIS draft with what you know and the ability text: they are the usual build, so change runes, boots or core items too when these enemies call for it (e.g. armor against a full AD team). Don't write figures (win rate, pick rate, games): figures go separately, on the card.".to_string()
     } else {
         format!(
@@ -584,7 +663,9 @@ pub fn analysis_prompt_with(
 
 /// Step 2: turn the analysis (from the same session, or pasted if there is no
 /// session) into the card, with the patch's exact names.
-pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
+/// `update`: the analysis adapts a previous build ("Update build"), so the
+/// card also says what changed.
+pub fn card_prompt(data: &GameData, analysis: Option<&str>, update: bool) -> String {
     let mut p = String::new();
     match analysis {
         Some(a) => {
@@ -660,8 +741,13 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
 - In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD or MATCHUP NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
 - \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items). Other boots can be an option too: then \"replaces\" is the boots.\n\
 - Write the text fields in the answer language: {answer_lang}\n\
-- Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
+{changes}- Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
+        changes = if update {
+            "- This card UPDATES a previous build: add a \"changes\" field to the JSON, a list of 1-5 short lines taken from the analysis' WHAT CHANGED section, each \"old → new: why\" and naming the pick that causes it (e.g. \"Randuin's Omen instead of Sunfire Aegis: Zed replaced LeBlanc, so more physical damage\"). If the build still holds, one line saying so and why.\n"
+        } else {
+            ""
+        },
     );
     p
 }
@@ -1254,6 +1340,17 @@ fn check_card(
         stats: Vec::new(),
         stats_dropped: 0,
         stats_verifiable: true,
+        // Only an update says what changed; on a new build it's noise.
+        changes: if draft.update().is_some() {
+            raw.changes
+                .iter()
+                .map(|c| c.trim().chars().take(MAX_CARD_CHANGE).collect::<String>())
+                .filter(|c| !c.is_empty())
+                .take(6)
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
     (card, warnings)
 }
@@ -1415,7 +1512,13 @@ pub async fn recommend_build(
         prepared.as_ref().map(|p| p.notes.as_str()),
         matchup.as_ref().map(|p| p.notes.as_str()),
     )?;
-    status(if prepared.is_some() {
+    let updating = draft.update().is_some();
+    status(if updating {
+        lang.pick(
+            "1/2 · Updating your build for the new picks…",
+            "1/2 · Actualizando tu build para los nuevos picks…",
+        )
+    } else if prepared.is_some() {
         lang.pick(
             "1/2 · Analyzing the draft (your champion's build was looked up earlier)…",
             "1/2 · Analizando el draft (la build de tu campeón ya estaba buscada)…",
@@ -1442,7 +1545,9 @@ pub async fn recommend_build(
             running.finish(&request_id);
             return Err(e);
         }
-        Err(e) => match notes_only(prepared.as_ref(), matchup.as_ref()) {
+        // An update that fails keeps the previous build on screen instead of
+        // swapping it for the generic one.
+        Err(e) => match notes_only(prepared.as_ref(), matchup.as_ref()).filter(|_| !updating) {
             // Too slow or failed, but the usual build was looked up earlier:
             // the card comes from those notes rather than nothing at all.
             Some(text) => {
@@ -1482,8 +1587,8 @@ pub async fn recommend_build(
     let card_started = Instant::now();
     status(lang.pick("2/2 · Building the card…", "2/2 · Armando la tarjeta…"));
     let card_req = match &analysis.session_id {
-        Some(_) => card_prompt(&data, None),
-        None => card_prompt(&data, Some(&analysis_text)),
+        Some(_) => card_prompt(&data, None, updating),
+        None => card_prompt(&data, Some(&analysis_text), updating),
     };
     let first = ask(
         &app,
@@ -1763,6 +1868,7 @@ mod tests {
             lane_opponent: Some("Darius".into()),
             lane_guessed: false,
             notes: Some("voy 0/2".into()),
+            previous: None,
         }
     }
 
@@ -1813,7 +1919,7 @@ mod tests {
         // El análisis no lleva listas ni esquema: eso va en el paso 2.
         assert!(!p.contains("Fuerza de Trinidad"));
         assert!(!p.contains("```json"));
-        let c = card_prompt(&data, None);
+        let c = card_prompt(&data, None, false);
         assert!(c.contains("Fuerza de Trinidad"));
         assert!(c.contains("Conquistador"));
     }
@@ -1842,7 +1948,7 @@ mod tests {
     fn prompt_groups_items_and_asks_to_search_first() {
         let a = analysis_prompt(&draft(), &fixtures::data(), None).unwrap();
         assert!(a.contains("look up the Jax top build for patch 25.22"));
-        let p = card_prompt(&fixtures::data(), None);
+        let p = card_prompt(&fixtures::data(), None, false);
         assert!(p.contains("- STARTERS (only for starting_items): Escudo de Doran"));
         assert!(p.contains(
             "required in starting_items if you play jungle, and only then): Cachorro de Rasgafuegos\n"
@@ -1859,7 +1965,7 @@ mod tests {
         assert!(p.contains("- Row 1: Fuerza adaptable, Velocidad de ataque"));
         assert!(p.contains("\"answer\""));
         // Sin sesión que retomar, el análisis va pegado en el pedido.
-        let pasted = card_prompt(&fixtures::data(), Some("Conquistador y Trinidad"));
+        let pasted = card_prompt(&fixtures::data(), Some("Conquistador y Trinidad"), false);
         assert!(pasted.starts_with("ANALYSIS:\nConquistador y Trinidad"));
     }
 
@@ -2098,7 +2204,8 @@ mod tests {
         let m = missing(&parse_card(GOOD).unwrap(), &d, Lang::En);
         assert_eq!(m[0].1, "the full build");
         assert!(
-            card_prompt(&fixtures::data(), None).contains("is the FULL build: 5 completed items")
+            card_prompt(&fixtures::data(), None, false)
+                .contains("is the FULL build: 5 completed items")
         );
     }
 
@@ -2200,7 +2307,7 @@ mod tests {
         assert!(!p.contains("if you have web search, look up"));
         // The notes come before the instructions.
         assert!(p.find("BASE BUILD NOTES").unwrap() < p.find("INSTRUCTIONS").unwrap());
-        assert!(card_prompt(&data, None).contains("or in the BASE BUILD or MATCHUP NOTES"));
+        assert!(card_prompt(&data, None, false).contains("or in the BASE BUILD or MATCHUP NOTES"));
     }
 
     #[test]
@@ -2226,6 +2333,78 @@ mod tests {
         };
         let g = analysis_prompt_with(&guessed, &data, None, None, m).unwrap();
         assert!(g.contains("the lane opponent is guessed, so use them only if it holds"));
+    }
+
+    fn updating() -> Draft {
+        Draft {
+            previous: Some(PreviousBuild {
+                champion: Some("Jax".into()),
+                build: "Conquistador, Flash + Teleport, items: Fuerza de Trinidad".into(),
+                changes: vec!["Enemy mid: LeBlanc -> Zed".into(), "  ".into()],
+            }),
+            ..draft()
+        }
+    }
+
+    #[test]
+    fn an_update_starts_from_the_previous_build_without_searching() {
+        let data = fixtures::data();
+        let p = analysis_prompt_with(&updating(), &data, None, Some("base notes"), None).unwrap();
+        assert!(p.contains("PREVIOUS BUILD"));
+        assert!(p.contains("Flash + Teleport"));
+        assert!(p.contains("- Enemy mid: LeBlanc -> Zed"));
+        assert!(p.contains("this is an UPDATE"));
+        assert!(p.contains("WHAT CHANGED"));
+        assert!(p.contains("write the rest of the analysis in full"));
+        // No matchup notes for a known lane opponent: it may look that up only.
+        assert!(p.contains("except, if you need it, to look up the lane matchup"));
+        assert!(!p.contains("if you have web search, look up"));
+        let with_matchup =
+            analysis_prompt_with(&updating(), &data, None, None, Some("vs notes")).unwrap();
+        assert!(!with_matchup.contains("except, if you need it"));
+        // A normal build has none of it.
+        let normal = analysis_prompt_with(&draft(), &data, None, None, None).unwrap();
+        assert!(!normal.contains("PREVIOUS BUILD"));
+        assert!(!normal.contains("this is an UPDATE"));
+    }
+
+    #[test]
+    fn an_update_is_capped_and_a_blank_one_is_ignored() {
+        let mut d = updating();
+        d.previous.as_mut().unwrap().build = "x".repeat(5000);
+        d.previous.as_mut().unwrap().changes = vec!["y".repeat(500); 30];
+        let u = d.update().unwrap();
+        assert_eq!(u.build.chars().count(), MAX_PREVIOUS);
+        assert_eq!(u.changes.len(), MAX_CHANGES);
+        assert!(u.changes.iter().all(|c| c.chars().count() == MAX_CHANGE));
+        d.previous.as_mut().unwrap().build = "   ".into();
+        assert!(d.update().is_none());
+        // Blank change lines are dropped.
+        assert_eq!(updating().update().unwrap().changes.len(), 1);
+        // A previous build for another champion doesn't apply.
+        let mut other = updating();
+        other.previous.as_mut().unwrap().champion = Some("Darius".into());
+        assert!(other.update().is_none());
+    }
+
+    #[test]
+    fn the_card_says_what_changed_only_on_an_update() {
+        let data = fixtures::data();
+        assert!(card_prompt(&data, None, true).contains("\"changes\""));
+        assert!(!card_prompt(&data, None, false).contains("\"changes\""));
+        let json = GOOD.replacen(
+            '{',
+            r#"{"changes": ["Randuin's instead of Sunfire: Zed", " "],"#,
+            1,
+        );
+        let raw = parse_card(&json).unwrap();
+        let (card, _) = validate(&raw, &data, &updating(), Lang::Es);
+        assert_eq!(
+            card.changes,
+            vec!["Randuin's instead of Sunfire: Zed".to_string()]
+        );
+        let (card, _) = validate(&raw, &data, &draft(), Lang::Es);
+        assert!(card.changes.is_empty());
     }
 
     #[test]

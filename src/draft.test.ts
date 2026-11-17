@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allyRoles, applyLive, type DraftState, changeRole, damageProfile, EMPTY_DRAFT, laneOpponent, laneRow, markLane, sameDraft, setRole, setSlot, taken, toDraft } from "./draft";
+import { allyRoles, applyLive, changeForPrompt, type DraftState, changeRole, pickChanges, damageProfile, EMPTY_DRAFT, laneOpponent, laneRow, markLane, sameDraft, setRole, setSlot, taken, toDraft } from "./draft";
 import { Champion, searchChampions } from "./game";
 
 const champ = (id: string, name: string): Champion => ({
@@ -230,5 +230,40 @@ describe("champ-select rows", () => {
     // A hand mark stays when the role changes.
     expect(laneOpponent(changeRole(markLane(s, "Vi"), "mid"))).toBe("Vi");
     expect(laneRow("support")).toBe(4);
+  });
+});
+
+describe("pickChanges", () => {
+  // You play mid; ally rows are top, jungle, adc, support.
+  const base: DraftState = {
+    ...EMPTY_DRAFT,
+    role: "mid",
+    me: "Ahri",
+    allies: ["Garen", "LeeSin", null, null],
+    enemies: ["Darius", "Vi", "Leblanc", "Jinx", null],
+  };
+  const names: Record<string, string> = { Leblanc: "LeBlanc", Zed: "Zed", Vi: "Vi", Darius: "Darius", Thresh: "Thresh", Garen: "Garen", LeeSin: "Lee Sin" };
+  const line = (s: DraftState) => pickChanges(base, s).map((c) => changeForPrompt(c, (id) => names[id] ?? id));
+
+  it("pairs a swapped pick in the same row, and that covers the lane", () => {
+    const next = setSlot(base, { team: "enemy", index: 2 }, "Zed");
+    expect(line(next)).toEqual(["Enemy mid: LeBlanc -> Zed"]);
+  });
+
+  it("names added and removed picks with their row's role", () => {
+    let next = setSlot(base, { team: "enemy", index: 4 }, "Thresh");
+    next = setSlot(next, { team: "ally", index: 1 }, null);
+    expect(line(next)).toEqual(["Ally jungle: Lee Sin removed", "Enemy support: Thresh added"]);
+  });
+
+  it("champions that only moved rows aren't a change, unless the lane opponent moves", () => {
+    const swapped = setRole(base, "enemy", 0, "jungle"); // Darius and Vi swap rows
+    expect(line(swapped)).toEqual([]);
+    const lane = setRole(base, "enemy", 1, "mid"); // Vi to mid, LeBlanc to jungle
+    expect(line(lane)).toEqual(["Lane opponent: now Vi (was LeBlanc)"]);
+  });
+
+  it("nothing changed: no lines", () => {
+    expect(pickChanges(base, base)).toEqual([]);
   });
 });
