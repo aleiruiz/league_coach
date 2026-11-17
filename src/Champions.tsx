@@ -330,8 +330,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
         {!ai && (
           <p className="muted small">
             {t(
-              "The tier list needs an AI: connect Claude or Codex.",
-              "La tier list necesita una IA: conecta Claude o Codex.",
+              "The tier list needs an AI: connect Claude or ChatGPT.",
+              "La tier list necesita una IA: conecta Claude o ChatGPT.",
             )}{" "}
             <button type="button" className="link-button" onClick={onGoToSettings}>
               {t("Open Settings", "Abrir Ajustes")}
@@ -360,8 +360,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           <p className="ch-stale small">
             <strong>{t("Not checked.", "Sin comprobar.")}</strong>{" "}
             {t(
-              `Codex doesn't show whether it loaded ${list.site}'s page, so these numbers can't be checked. Open the page to confirm them.`,
-              `Codex no muestra si cargó la página de ${list.site}, así que estos números no se pueden comprobar. Abre la página para confirmarlos.`,
+              `ChatGPT doesn't show whether it loaded ${list.site}'s page, so these numbers can't be checked. Open the page to confirm them.`,
+              `ChatGPT no muestra si cargó la página de ${list.site}, así que estos números no se pueden comprobar. Abre la página para confirmarlos.`,
             )}
           </p>
         )}
@@ -421,8 +421,8 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
             <p className="muted small">
               {list.unchecked
                 ? t(
-                    `Codex says it read this from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions), but Codex doesn't show whether the page loaded, so these numbers can't be checked the way Claude's are. Open the page to confirm them. League Coach doesn't compute win rates.`,
-                    `Codex dice que la leyó de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones), pero Codex no muestra si la página cargó, así que estos números no se pueden comprobar como los de Claude. Abre la página para confirmarlos. League Coach no calcula win rates.`,
+                    `ChatGPT says it read this from ${list.site}'s ${roleLabel(shownRole)} tier list page (${list.entries.length} champions), but ChatGPT doesn't show whether the page loaded, so these numbers can't be checked the way Claude's are. Open the page to confirm them. League Coach doesn't compute win rates.`,
+                    `ChatGPT dice que la leyó de la página de tier list de ${roleLabel(shownRole)} de ${list.site} (${list.entries.length} campeones), pero ChatGPT no muestra si la página cargó, así que estos números no se pueden comprobar como los de Claude. Abre la página para confirmarlos. League Coach no calcula win rates.`,
                   )
                 : list.opened
                 ? t(
