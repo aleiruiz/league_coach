@@ -613,7 +613,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
 - STARTERS (only for starting_items): {}\n\
 - JUNGLE COMPANION (required in starting_items if you play jungle, and only then): {}\n\
 - SUPPORT STARTER (required in starting_items if you play support, and only then): {}\n\
-- BOOTS (only for boots, never in core_items): {}\n\
+- BOOTS (for boots, or a situational option that replaces the boots; never in core_items): {}\n\
 - COMPLETED (for core_items and situational): {}",
         data.patch,
         names(&|i| i.starter && !i.support && !i.jungle),
@@ -658,7 +658,7 @@ pub fn card_prompt(data: &GameData, analysis: Option<&str>) -> String {
         "\nRULES:\n\
 - \"answer\" is the answer to the player's notes (\"\" if there are none): 3-6 short bullets with what they have to do, without repeating the runes or the build (they are already on the card); \"summary\", ONE sentence. No field carries doubts or corrections (\"no, better…\", \"see below\"): the doubt, if any, goes only in \"caveat\".\n\
 - In \"stats\" put ONLY figures that came up in your web search results in this conversation, or in the BASE BUILD or MATCHUP NOTES if you were given them (u.gg, op.gg, Mobalytics, Lolalytics, League of Graphs or METAsrc), with the exact URL of that result and the patch it shows; null for whatever it doesn't say. If you didn't search and have no such notes, \"stats\": []. Never figures from memory: those that don't match a search result are discarded.\n\
-- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items).\n\
+- \"core_items\" is the FULL build: 5 completed items in buy order (boots apart, in \"boots\"). \"situational\": 2-4 options, each an item that is NOT already in core_items, with the core_items item it \"replaces\" (exact name from core_items). Other boots can be an option too: then \"replaces\" is the boots.\n\
 - Write the text fields in the answer language: {answer_lang}\n\
 - Reply ONLY with a ```json block of this shape:\n{SCHEMA}",
         answer_lang = data.lang.answer_instruction(),
@@ -811,40 +811,71 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         Start,
         Core,
         Boots,
+        /// A situational option: any completed item, boots included (other
+        /// boots swap for the build's boots).
+        Option,
     }
+    // Where the item is on the card, so the warning points at it.
+    let place = |slot: Slot| match slot {
+        Slot::Start => say("Starting items".into(), "Ítems iniciales".into()),
+        Slot::Core => say("Full build".into(), "Build completa".into()),
+        Slot::Boots => say("Boots".into(), "Botas".into()),
+        Slot::Option => say("Options".into(), "Opciones".into()),
+    };
     let mut item = |name: &str, slot: Slot| {
         let found = data.item_by_name(name);
         let mut valid = found.is_some();
         match found {
             None if !name.trim().is_empty() => warnings.push(say(
-                format!("Item \"{name}\" doesn't exist on patch {patch}"),
-                format!("Ítem \"{name}\" no existe en el parche {patch}"),
+                format!("{}: \"{name}\" doesn't exist on patch {patch}", place(slot)),
+                format!("{}: \"{name}\" no existe en el parche {patch}", place(slot)),
             )),
-            Some(i) if slot == Slot::Core && (!i.completed || is_boots(i)) => {
+            Some(i) if slot == Slot::Core && is_boots(i) => {
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "\"{}\" isn't a completed item; use one from the COMPLETED list",
+                        "{}: \"{}\" are boots; they go in \"boots\", not in core_items",
+                        place(slot),
                         i.name
                     ),
-                    format!("\"{}\" no es un ítem completo", i.name),
+                    format!(
+                        "{}: \"{}\" son botas, van en su propia casilla",
+                        place(slot),
+                        i.name
+                    ),
+                ));
+            }
+            Some(i) if matches!(slot, Slot::Core | Slot::Option) && !i.completed => {
+                valid = false;
+                warnings.push(say(
+                    format!(
+                        "{}: \"{}\" is a component, not a finished item; use one from the COMPLETED list",
+                        place(slot),
+                        i.name
+                    ),
+                    format!(
+                        "{}: \"{}\" es un componente, no un ítem terminado",
+                        place(slot),
+                        i.name
+                    ),
                 ));
             }
             Some(i) if slot == Slot::Start && !i.starter && !i.completed => {
                 valid = false;
                 warnings.push(say(
-                    format!("\"{}\" is a component, not a starting item; use one from the STARTERS list", i.name),
-                    format!("\"{}\" es un componente, no un ítem inicial", i.name),
+                    format!("{}: \"{}\" is a component, not a starting item; use one from the STARTERS list", place(slot), i.name),
+                    format!("{}: \"{}\" es un componente, no un ítem inicial", place(slot), i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && i.completed => {
                 valid = false;
                 warnings.push(say(
                     format!(
-                        "\"{}\" isn't a starting item; use one from the STARTERS list",
+                        "{}: \"{}\" isn't a starting item; use one from the STARTERS list",
+                        place(slot),
                         i.name
                     ),
-                    format!("\"{}\" no es un ítem inicial", i.name),
+                    format!("{}: \"{}\" no es un ítem inicial", place(slot), i.name),
                 ));
             }
             Some(i) if slot == Slot::Start && i.support && draft.role != "support" => {
@@ -876,8 +907,8 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
             Some(i) if slot == Slot::Boots && !is_boots(i) => {
                 valid = false;
                 warnings.push(say(
-                    format!("\"{}\" aren't boots", i.name),
-                    format!("\"{}\" no son botas", i.name),
+                    format!("{}: \"{}\" aren't boots", place(slot), i.name),
+                    format!("{}: \"{}\" no son botas", place(slot), i.name),
                 ));
             }
             _ => {}
@@ -908,17 +939,21 @@ pub fn validate(raw: &RawCard, data: &GameData, draft: &Draft, lang: Lang) -> (C
         // "Swap in X" when X is already in the build reads as a mistake.
         .filter(|s| !in_build(&s.item))
         .map(|s| Situational {
-            item: item(&s.item, Slot::Core),
+            item: item(&s.item, Slot::Option),
             when: s.when.clone(),
-            // Only an item the player is actually building.
-            replaces: data
-                .item_by_name(&s.replaces)
-                .filter(|i| in_build(&i.name))
-                .map(|i| Ref {
-                    name: i.name.clone(),
-                    image: Some(i.image.clone()),
-                    valid: true,
-                }),
+            // Only an item the player is actually building. Other boots
+            // always swap for the build's boots, whatever the model said.
+            replaces: if data.item_by_name(&s.item).is_some_and(is_boots) {
+                data.item_by_name(&raw.boots)
+            } else {
+                data.item_by_name(&s.replaces)
+            }
+            .filter(|i| in_build(&i.name))
+            .map(|i| Ref {
+                name: i.name.clone(),
+                image: Some(i.image.clone()),
+                valid: true,
+            }),
         })
         .collect();
 
@@ -1541,6 +1576,9 @@ pub async fn recommend_build(
 
     let mut raw = raw;
     move_boots_out_of_core(&mut raw, &data);
+    // The fix round's card gets the same cleanup as the first one: a bad
+    // option is dropped instead of shown as an error.
+    drop_bad_situational(&mut raw, &data);
     if raw.starting_items.is_empty() {
         // Last resort: the starters the analysis itself named.
         raw.starting_items = starters_in(&analysis_text, &data, &draft);
@@ -1627,11 +1665,13 @@ fn starters_in(analysis: &str, data: &GameData, draft: &Draft) -> Vec<String> {
 }
 
 /// Removes situational items that aren't completed items of this patch
-/// (unknown names, components, boots).
+/// (unknown names, components). Finished boots stay as an option when the
+/// build has boots to swap them for (Mercury's Treads vs a magic-damage team).
 pub fn drop_bad_situational(raw: &mut RawCard, data: &GameData) {
+    let has_boots = data.item_by_name(&raw.boots).is_some_and(is_boots);
     raw.situational.retain(|s| {
         data.item_by_name(&s.item)
-            .is_some_and(|i| i.completed && !is_boots(i))
+            .is_some_and(|i| i.completed && (has_boots || !is_boots(i)))
     });
 }
 
@@ -1776,7 +1816,7 @@ mod tests {
         assert!(p.contains(
             "required in starting_items if you play support, and only then): Mapamundi\n"
         ));
-        assert!(p.contains("- BOOTS (only for boots, never in core_items): Botas de Mercurio\n"));
+        assert!(p.contains("- BOOTS (for boots, or a situational option that replaces the boots; never in core_items): Botas de Mercurio\n"));
         // Los componentes no se ofrecen.
         assert!(!p.contains("Llamado del Verdugo"));
         assert!(p.contains("Turn YOUR previous analysis"));
@@ -2048,11 +2088,50 @@ mod tests {
                 {"item":"Botas de Mercurio","when":"c"},{"item":"Filo Pirata","when":"d"}]"#,
         ))
         .unwrap();
+        // No boots in the build: there's nothing for boots to swap with.
+        raw.boots.clear();
         drop_bad_situational(&mut raw, &fixtures::data());
         let kept: Vec<&str> = raw.situational.iter().map(|s| s.item.as_str()).collect();
         assert_eq!(kept, ["Fuerza de Trinidad"]);
+        raw.boots = "Botas de Mercurio".into();
         let (_, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn finished_boots_are_a_valid_option_that_swaps_the_boots() {
+        // Mercury's Treads as an option was flagged "not a complete item".
+        let mut raw = parse_card(
+            &GOOD.replace(r#""boots":"Botas de Mercurio""#, r#""boots":"Botas""#).replace(
+                r#""situational":[]"#,
+                r#""situational":[{"item":"Botas de Mercurio","replaces":"fuerza de trinidad","when":"AP"}]"#,
+            ),
+        )
+        .unwrap();
+        drop_bad_situational(&mut raw, &fixtures::data());
+        assert_eq!(raw.situational.len(), 1);
+        let (card, warnings) = validate(&raw, &fixtures::data(), &draft(), Lang::Es);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let opt = &card.situational[0];
+        assert!(opt.item.valid);
+        assert_eq!(
+            opt.replaces.as_ref().unwrap().name,
+            "Botas",
+            "boots replace boots"
+        );
+        // And it isn't a reason for a correction round.
+        let (_, en) = validate(&raw, &fixtures::data(), &draft(), Lang::En);
+        assert!(en.is_empty());
+    }
+
+    #[test]
+    fn warnings_say_where_the_item_is() {
+        let (_, warnings) =
+            check(&GOOD.replace(r#"["fuerza de trinidad"]"#, r#"["Llamado del Verdugo"]"#));
+        assert_eq!(
+            warnings,
+            ["Build completa: \"Llamado del Verdugo\" es un componente, no un ítem terminado"]
+        );
     }
 
     #[test]
