@@ -34,6 +34,11 @@ const TIMEOUT: Duration = Duration::from_secs(360);
 /// waiting for a search that is far from done.
 const WAIT_IF_STARTED: Duration = Duration::from_secs(60);
 
+/// Longest Get build waits for that preparation. One that should have been
+/// done by now is stuck or slowed down (a busy AI): searching again from
+/// Get build is the faster bet.
+const MAX_WAIT: Duration = Duration::from_secs(30);
+
 /// Base build notes for one champion in one role.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Prepared {
@@ -265,31 +270,27 @@ async fn search(
 }
 
 /// Notes for Get build: saved ones, or the ones a preparation that is almost
-/// done is writing (waits for it, or until `cancel` fires). `None`: Get build
-/// searches by itself.
+/// done is writing (waited for, but never more than `MAX_WAIT`: a search
+/// that runs long keeps going in the background and Get build goes on
+/// without it). `None`: Get build searches by itself.
 pub async fn for_build(
     app: &AppHandle,
     prep: &Prep,
     kind: ProviderKind,
     data: &GameData,
     subject: Subject<'_>,
-    cancel: &mut tokio::sync::oneshot::Receiver<()>,
-) -> Result<Option<Prepared>, String> {
+) -> Option<Prepared> {
     let key = key(kind, data, subject);
     if let Some(p) = saved(app, &key, data) {
-        return Ok(Some(p));
+        return Some(p);
     }
     let running = prep.running.lock().unwrap().get(&key).cloned();
-    let Some((started, lock)) = running else {
-        return Ok(None);
-    };
+    let (started, lock) = running?;
     if started.elapsed() < WAIT_IF_STARTED {
-        return Ok(None);
+        return None;
     }
-    tokio::select! {
-        _ = lock.lock() => Ok(saved(app, &key, data)),
-        _ = cancel => Err(providers::stopped_message().to_string()),
-    }
+    let _done = tokio::time::timeout(MAX_WAIT, lock.lock()).await.ok()?;
+    saved(app, &key, data)
 }
 
 /// Matchup notes for the player to read: figures (win rate, pick rate,
