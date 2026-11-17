@@ -226,8 +226,7 @@ pub fn clean_list_with(
         entries,
         dropped,
         fetched_at: now,
-        // An attempted open is the AI opening the page, as far as it says.
-        opened: was_opened || !checked,
+        opened: was_opened,
         partial,
         unchecked: !checked,
     })
@@ -525,6 +524,7 @@ mod tests {
         let data = fixtures::data();
         let l = clean_list_with(&r, "mid", &data, &[], &[], &[URL.into()], 0, 1).unwrap();
         assert!(l.unchecked);
+        assert!(!l.opened);
         // Another page attempted doesn't vouch for this one.
         let other = ["https://u.gg/lol/top-lane-tier-list".to_string()];
         assert!(clean_list_with(&r, "mid", &data, &[], &[], &other, 0, 1).is_err());

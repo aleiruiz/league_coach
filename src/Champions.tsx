@@ -356,6 +356,15 @@ function Champions({ providers, lang, version, onBusy, onGoToSettings }: Props) 
           </p>
         )}
 
+        {list?.unchecked && (
+          <p className="ch-stale small">
+            <strong>{t("Not checked.", "Sin comprobar.")}</strong>{" "}
+            {t(
+              `Codex doesn't show whether it loaded ${list.site}'s page, so these numbers can't be checked. Open the page to confirm them.`,
+              `Codex no muestra si cargó la página de ${list.site}, así que estos números no se pueden comprobar. Abre la página para confirmarlos.`,
+            )}
+          </p>
+        )}
         {list?.partial && (
           <p className="ch-stale small">
             <strong>{t("Partial list.", "Lista parcial.")}</strong>{" "}
